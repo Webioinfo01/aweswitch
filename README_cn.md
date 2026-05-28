@@ -5,7 +5,8 @@
   <p>用不同 API、token 和模型启动不同 agent 会话，同时不改写全局 agent 配置。</p>
   <p>
     <a href="./README.md">English</a> ·
-    <strong>简体中文</strong>
+    <strong>简体中文</strong> ·
+    <a href="https://we.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
     <img src="https://img.shields.io/badge/version-0.1.3-7C3AED?style=flat-square" alt="Version">
