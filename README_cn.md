@@ -50,6 +50,14 @@ aweswitch config init
 aweswitch config edit
 ```
 
+或者用交互方式添加新 profile：
+
+```bash
+aweswitch add
+```
+
+依次提示输入 profile 名称、base URL、auth token 环境变量名、模型，以及可选的 haiku/sonnet 模型。
+
 默认配置格式按 provider 分组。下面是一份可按需修改的参考配置：
 
 ```json

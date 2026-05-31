@@ -50,6 +50,14 @@ Then open the config and align it with your real Claude Code providers, models, 
 aweswitch config edit
 ```
 
+Or add a new profile interactively:
+
+```bash
+aweswitch add
+```
+
+This prompts for profile name, base URL, auth token env var, model, and optional haiku/sonnet model overrides.
+
 The default config shape groups profiles under their provider. This is a reference config you can adapt:
 
 ```json
