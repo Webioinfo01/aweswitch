@@ -1,5 +1,20 @@
 # change log
 
+## v0.1.4
+
+`v0.1.4` replaces the `help` subcommands with an interactive `add` command for creating new profiles, and improves test coverage and documentation.
+
+### Interactive profile creation
+
+The `help` and `config help` subcommands have been removed. In their place, `aweswitch add` walks through an interactive prompt to create a new profile: name, base URL, auth token variable, model, and optional haiku/sonnet model overrides. Empty optional fields are skipped automatically, and duplicate profile names are rejected.
+
+### Highlights
+
+- Added `aweswitch add` command for interactive profile creation
+- Added `save_profile()` helper with duplicate detection and empty-value filtering
+- Removed `help` and `config help` subcommands
+- Updated README version badges and install examples to v0.1.4
+
 ## v0.1.3
 
 `v0.1.3` adds the GitHub Actions release path for aweswitch. The repository now has the same basic CI and tag-driven release structure used by aweskill, adapted for Python packaging and PyPI publishing.
