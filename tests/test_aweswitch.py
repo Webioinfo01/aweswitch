@@ -49,7 +49,6 @@ class AweSwitchTests(unittest.TestCase):
         self.assertIn("-v, --version", result.output)
         self.assertIn("list", result.output)
         self.assertIn("config", result.output)
-        self.assertIn("help", result.output)
 
     def test_version_option(self):
         import aweswitch as pkg
@@ -70,14 +69,96 @@ class AweSwitchTests(unittest.TestCase):
         self.assertIn("show", result.output)
         self.assertIn("edit", result.output)
         self.assertIn("init", result.output)
-        self.assertIn("help", result.output)
 
-    def test_help_command_can_show_config_help(self):
-        result = CliRunner().invoke(aweswitch.cli, ["help", "config"])
+    def test_save_profile_adds_new_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
 
-        self.assertEqual(result.exit_code, 0)
-        self.assertIn("Usage: aweswitch config [OPTIONS] COMMAND [ARGS]...", result.output)
-        self.assertIn("Manage aweswitch config.", result.output)
+            aweswitch.save_profile(path, "my-profile", {
+                "ANTHROPIC_BASE_URL": "https://example.com",
+                "ANTHROPIC_AUTH_TOKEN": "${MY_TOKEN}",
+                "ANTHROPIC_MODEL": "test-model",
+            })
+
+            data = json.loads(path.read_text())
+            profile = data["profiles"]["claude"]["my-profile"]
+            self.assertEqual(profile["env"]["ANTHROPIC_BASE_URL"], "https://example.com")
+            self.assertEqual(profile["env"]["ANTHROPIC_AUTH_TOKEN"], "${MY_TOKEN}")
+            self.assertEqual(profile["env"]["ANTHROPIC_MODEL"], "test-model")
+
+    def test_save_profile_skips_empty_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            aweswitch.save_profile(path, "minimal", {
+                "ANTHROPIC_BASE_URL": "https://example.com",
+                "ANTHROPIC_AUTH_TOKEN": "${T}",
+                "ANTHROPIC_MODEL": "m",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
+            })
+
+            data = json.loads(path.read_text())
+            env = data["profiles"]["claude"]["minimal"]["env"]
+            self.assertNotIn("ANTHROPIC_DEFAULT_HAIKU_MODEL", env)
+            self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", env)
+
+    def test_save_profile_rejects_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            aweswitch.save_profile(path, "dup", {
+                "ANTHROPIC_BASE_URL": "https://example.com",
+                "ANTHROPIC_AUTH_TOKEN": "${T}",
+                "ANTHROPIC_MODEL": "m",
+            })
+            with self.assertRaisesRegex(SystemExit, "already exists"):
+                aweswitch.save_profile(path, "dup", {
+                    "ANTHROPIC_BASE_URL": "https://other.com",
+                    "ANTHROPIC_AUTH_TOKEN": "${T}",
+                    "ANTHROPIC_MODEL": "m",
+                })
+
+    def test_add_command_creates_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="test-profile\nhttps://example.com\nMY_TOKEN\ntest-model\n\n\n\n",
+                env={"AWESWITCH_CONFIG": str(path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Profile 'test-profile' added.", result.output)
+
+            data = json.loads(path.read_text())
+            profile = data["profiles"]["claude"]["test-profile"]
+            self.assertEqual(profile["env"]["ANTHROPIC_BASE_URL"], "https://example.com")
+            self.assertEqual(profile["env"]["ANTHROPIC_AUTH_TOKEN"], "${MY_TOKEN}")
+            self.assertEqual(profile["env"]["ANTHROPIC_MODEL"], "test-model")
+            self.assertNotIn("ANTHROPIC_DEFAULT_HAIKU_MODEL", profile["env"])
+            self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", profile["env"])
+
+    def test_add_command_with_optional_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="full-profile\nhttps://example.com\nMY_TOKEN\nmy-model\nhaiku-m\nsonnet-m\n",
+                env={"AWESWITCH_CONFIG": str(path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+
+            data = json.loads(path.read_text())
+            env = data["profiles"]["claude"]["full-profile"]["env"]
+            self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "haiku-m")
+            self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "sonnet-m")
 
     def test_prepare_claude_uses_provider_command_and_env_overrides(self):
         config = {

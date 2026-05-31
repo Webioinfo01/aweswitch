@@ -185,6 +185,17 @@ def exec_agent(argv, env):
         die(f"failed to run {argv[0]}: {exc}")
 
 
+def save_profile(path, name, env_vars):
+    path = Path(path).expanduser()
+    data = load_config(path)
+    claude_profiles = data["profiles"].setdefault("claude", {})
+    if name in claude_profiles:
+        die(f"profile already exists: {name}")
+    profile = {"env": {k: v for k, v in env_vars.items() if v}}
+    claude_profiles[name] = profile
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def command_config(argv):
     path = config_path()
     subcommand = argv[0] if argv else "path"
@@ -283,41 +294,31 @@ def init_command():
     click.echo(config_path())
 
 
-@cli.command("help")
-@click.argument("command_name", required=False)
-@click.pass_context
-def help_command(ctx, command_name):
-    """Display help for command."""
-    if command_name is None:
-        click.echo(ctx.parent.get_help())
-        return
+@cli.command("add")
+def add_command():
+    """Interactively add a new profile."""
+    path = config_path()
+    load_config(path)
 
-    command = cli.get_command(ctx, command_name)
-    if command is None or command.hidden:
-        raise click.ClickException(f"unknown command '{command_name}'")
-    with command.make_context(command_name, [], parent=ctx.parent, resilient_parsing=True) as command_ctx:
-        click.echo(command.get_help(command_ctx))
+    name = click.prompt("Profile name")
+    base_url = click.prompt("ANTHROPIC_BASE_URL")
+    auth_var = click.prompt("ANTHROPIC_AUTH_TOKEN env var name (saved as ${VAR_NAME})")
+    auth_token = f"${{{auth_var}}}"
+    model = click.prompt("ANTHROPIC_MODEL")
+    haiku_model = click.prompt("ANTHROPIC_DEFAULT_HAIKU_MODEL (optional, press Enter to skip)", default="", show_default=False)
+    sonnet_model = click.prompt("ANTHROPIC_DEFAULT_SONNET_MODEL (optional, press Enter to skip)", default="", show_default=False)
 
+    env_vars = {
+        "ANTHROPIC_BASE_URL": base_url,
+        "ANTHROPIC_AUTH_TOKEN": auth_token,
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
+    }
 
-@config.command("help")
-@click.argument("command_name", required=False)
-@click.pass_context
-def config_help_command(ctx, command_name):
-    """Display help for config command."""
-    if command_name is None:
-        click.echo(ctx.parent.get_help())
-        return
+    save_profile(path, name, env_vars)
+    click.echo(f"Profile '{name}' added.")
 
-    command = config.get_command(ctx, command_name)
-    if command is None or command.hidden:
-        raise click.ClickException(f"unknown config command '{command_name}'")
-    with command.make_context(
-        command_name,
-        [],
-        parent=ctx.parent,
-        resilient_parsing=True,
-    ) as command_ctx:
-        click.echo(command.get_help(command_ctx))
 
 
 @click.command(
