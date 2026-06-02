@@ -91,7 +91,7 @@ def profile_for(config, name):
             matches.append((provider, profile))
 
     if not matches:
-        die(f"unknown profile: {name}")
+        die(f"unknown profile: {name}\nrun: aweswitch list  # view available profiles")
     if len(matches) > 1:
         die(f"ambiguous profile: {name}")
 
