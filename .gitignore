@@ -6,3 +6,4 @@ build/
 dist/
 *.egg-info/
 *.lock
+/docs/media/0609/aweswitch-run-multiple-agent-endpoints-without-breaking-sessions-zh-CN
