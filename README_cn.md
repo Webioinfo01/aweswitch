@@ -119,6 +119,16 @@ aweswitch cc-glm
 aweswitch cc-glm --dangerously-skip-permissions
 ```
 
+通过 [aweshelf](https://github.com/Webioinfo01/aweshelf) 自动 bookmark 会话：
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+[aweshelf](https://github.com/Webioinfo01/aweshelf) 是 Claude Code 和 Codex 的会话 bookmark 管理器，可以保存、标记、搜索和恢复历史会话。
+
+传入 `-c` 后，aweswitch 会 fork 一个后台子进程，等待新会话出现后自动调用 aweshelf 完成 bookmark。`-t` 可选——不传时 aweshelf 会用会话的第一条消息作为标题。需要已安装 aweshelf（`pip3 install aweshelf`）。如果 aweshelf 未安装，`-c` 和 `-t` 会被忽略并输出警告。
+
 常用配置命令：
 
 ```bash

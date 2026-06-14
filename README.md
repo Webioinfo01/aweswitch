@@ -119,6 +119,16 @@ Pass extra arguments through to Claude Code:
 aweswitch cc-glm --dangerously-skip-permissions
 ```
 
+Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+[aweshelf](https://github.com/Webioinfo01/aweshelf) is a session bookmark manager for Claude Code and Codex. It lets you save, tag, search, and resume past sessions.
+
+When `-c` is provided, aweswitch forks a background process that waits for the new session to appear and automatically bookmarks it via aweshelf. `-t` is optional — if omitted, aweshelf uses the session's first message as the title. Requires aweshelf to be installed (`pip3 install aweshelf`). If aweshelf is not installed, `-c` and `-t` are ignored with a warning.
+
 Useful config commands:
 
 ```bash

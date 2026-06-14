@@ -5,7 +5,9 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import click
@@ -182,6 +184,60 @@ def editor_argv(editor, path):
     return [*shlex.split(editor), str(path)]
 
 
+CLAUDE_PROJECTS_DIR = Path("~/.claude/projects").expanduser()
+
+
+def _auto_bookmark(category, profile, title=None):
+    """Fork a child process to auto-bookmark the session after Claude creates it."""
+    start_time = time.time()
+    try:
+        pid = os.fork()
+    except OSError:
+        return
+
+    if pid != 0:
+        # Parent: collect finished children, continue to exec claude
+        try:
+            os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        return
+
+    # --- child process ---
+    try:
+        aweshelf_bin = shutil.which("aweshelf")
+        if not aweshelf_bin:
+            return
+
+        for _ in range(30):
+            time.sleep(2)
+            if not CLAUDE_PROJECTS_DIR.exists():
+                continue
+
+            for jsonl_path in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+                if "/subagents/" in str(jsonl_path):
+                    continue
+                try:
+                    if jsonl_path.stat().st_mtime < start_time:
+                        continue
+                except OSError:
+                    continue
+
+                session_id = jsonl_path.stem
+                cmd = [aweshelf_bin, "bookmark", session_id, "-c", category, "--profile", profile]
+                if title:
+                    cmd += ["-t", title]
+                try:
+                    subprocess.run(cmd, timeout=10, capture_output=True)
+                except Exception:
+                    pass
+                return
+    except Exception:
+        pass
+    finally:
+        os._exit(0)
+
+
 def exec_agent(argv, env):
     try:
         os.execvpe(argv[0], argv, env)
@@ -243,7 +299,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -332,9 +388,16 @@ def add_command():
     hidden=True,
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
+@click.option("-c", "--category", default=None, help="Bookmark category.")
+@click.option("-t", "--title", default=None, help="Bookmark title.")
 @click.pass_context
-def run_profile(ctx):
+def run_profile(ctx, category, title):
     profile_name = ctx.parent.meta["profile_name"]
+    if category:
+        if not shutil.which("aweshelf"):
+            click.echo("warning: aweshelf not found; -c/-t ignored. Install: pip3 install aweshelf (https://github.com/Webioinfo01/aweshelf)", err=True)
+        else:
+            _auto_bookmark(category, profile_name, title=title)
     run_argv, run_env = prepare_run(load_config(config_path()), profile_name, ctx.args)
     exec_agent(run_argv, run_env)
 
