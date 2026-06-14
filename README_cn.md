@@ -35,6 +35,8 @@
 
 aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。
 
+> **已知问题**：在同一项目目录下同时启动多个 `aweswitch -c` 会话可能 bookmark 到错误的会话。顺序启动是安全的。原因详见 [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition)。
+
 ## 安装
 
 从 PyPI 安装：

@@ -35,6 +35,8 @@ It is intentionally small. The project is positioned as an agent profile switche
 
 aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later.
 
+> **Known issue**: launching multiple `aweswitch -c` sessions at the same time in the same project may bookmark the wrong session. Sequential launches are safe. See [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition) for why.
+
 ## Install
 
 Install from PyPI:
