@@ -1,5 +1,19 @@
 # change log
 
+## v0.1.5
+
+`v0.1.5` fixes a model picker display issue when switching profiles and improves unknown-profile error messages.
+
+### Model picker label fix
+
+When a profile sets `ANTHROPIC_DEFAULT_HAIKU_MODEL` (or `SONNET`/`OPUS`), Claude Code's `/model` picker uses the corresponding `_NAME` variant as the display label. If `~/.claude/settings.json` already defines a `_NAME` variant for a different provider, the profile's model value alone wouldn't override the label, causing stale names to appear. aweswitch now automatically sets `_NAME` variants to match the model value at launch time, so users only need to configure the model itself.
+
+### Highlights
+
+- Auto-sync `ANTHROPIC_DEFAULT_*_MODEL_NAME` with the model value on profile launch
+- Suggest `aweswitch list` when an unknown profile name is used
+- Bumped `__version__` to stay in sync with `pyproject.toml`
+
 ## v0.1.4
 
 `v0.1.4` replaces the `help` subcommands with an interactive `add` command for creating new profiles, and improves test coverage and documentation.

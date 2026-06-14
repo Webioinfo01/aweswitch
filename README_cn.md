@@ -9,7 +9,7 @@
     <a href="https://we.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.1.4-7C3AED?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.1.5-7C3AED?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/python-%E2%89%A53.9-0EA5E9?style=flat-square" alt="Python">
     <img src="https://img.shields.io/badge/license-MPL--2.0-22C55E?style=flat-square" alt="License">
   </p>
@@ -238,7 +238,7 @@ python3 -m build
 本地安装构建出的 wheel：
 
 ```bash
-pip3 install dist/aweswitch-0.1.4-py3-none-any.whl
+pip3 install dist/aweswitch-0.1.5-py3-none-any.whl
 ```
 
 项目文档：

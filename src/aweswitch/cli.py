@@ -122,6 +122,12 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     if provider == "claude":
         argv = ["claude"]
         settings_env = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
+        # Ensure _NAME variants are set so Claude Code /model picker shows
+        # the correct label instead of a stale value from base settings.
+        for suffix in ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL"):
+            name_key = f"{suffix}_NAME"
+            if suffix in settings_env and name_key not in settings_env:
+                settings_env[name_key] = settings_env[suffix]
         if settings_env:
             settings_path = write_settings_file({"env": settings_env})
             argv += ["--settings", str(settings_path)]
