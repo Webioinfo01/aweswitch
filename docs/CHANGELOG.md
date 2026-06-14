@@ -1,5 +1,22 @@
 # change log
 
+## v0.1.6
+
+`v0.1.6` adds auto-bookmark support via [aweshelf](https://github.com/Webioinfo01/aweshelf). Sessions can now be tagged with a category and custom title at launch time, without requiring a separate bookmark step.
+
+### Auto-bookmark with aweshelf
+
+When launching a profile with `-c` (category), aweswitch forks a background process before exec that waits for the new session JSONL file to appear, then calls `aweshelf bookmark` to record it automatically. An optional `-t` flag sets the bookmark title; if omitted, aweshelf uses the session's first message. If aweshelf is not installed, `-c` and `-t` are ignored with a warning printed to stderr.
+
+### Highlights
+
+- Added `-c` / `--category` option to profile launch for auto-bookmarking
+- Added `-t` / `--title` option to set a custom bookmark title
+- Background fork process polls `~/.claude/projects/` for up to 60s
+- Graceful degradation when aweshelf is not installed
+- Updated help text with bookmark feature description and install instructions
+- Updated both READMEs with aweshelf integration docs
+
 ## v0.1.5
 
 `v0.1.5` fixes a model picker display issue when switching profiles and improves unknown-profile error messages.
