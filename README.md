@@ -29,6 +29,12 @@
 
 It is intentionally small. The project is positioned as an agent profile switcher, but today it supports Claude Code profiles only. Codex and Hermes profile groups may appear in the config shape later, but they are not executable yet.
 
+## Powered by aweswitch
+
+- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Session bookmark manager for Claude Code and Codex. Bookmark, categorize, and restore sessions with aweswitch profiles.
+
+aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later.
+
 ## Install
 
 Install from PyPI:
@@ -125,9 +131,7 @@ Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
 aweswitch cc-glm -c backend -t "Fix auth bug"
 ```
 
-[aweshelf](https://github.com/Webioinfo01/aweshelf) is a session bookmark manager for Claude Code and Codex. It lets you save, tag, search, and resume past sessions.
-
-When `-c` is provided, aweswitch forks a background process that waits for the new session to appear and automatically bookmarks it via aweshelf. `-t` is optional — if omitted, aweshelf uses the session's first message as the title. Requires aweshelf to be installed (`pip3 install aweshelf`). If aweshelf is not installed, `-c` and `-t` are ignored with a warning.
+See [aweshelf Integration](#aweshelf-integration) for details.
 
 Useful config commands:
 
@@ -136,6 +140,48 @@ aweswitch config path
 aweswitch config show
 aweswitch config edit
 ```
+
+## aweshelf Integration
+
+[aweshelf](https://github.com/Webioinfo01/aweshelf) is a session bookmark manager for Claude Code and Codex CLI. It lets you save, tag, search, and resume past coding sessions.
+
+aweswitch integrates with aweshelf so you can bookmark a session at launch time, without a separate step:
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `-c`, `--category` | Category to tag the bookmark with (e.g. `backend`, `research`, `infra`). |
+| `-t`, `--title` | Custom bookmark title. If omitted, aweshelf uses the session's first message. |
+
+Both options require aweshelf to be installed. If aweshelf is not found, they are ignored with a warning printed to stderr. Claude Code launches normally regardless.
+
+> **Note**: launching multiple `aweswitch -c` sessions simultaneously in the same project may result in incorrect bookmark assignment. Sequential launches are safe — as long as the previous session's JSONL file has been created before starting the next one (typically a few seconds). See [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition) for details.
+
+### Install aweshelf
+
+```bash
+pip3 install aweshelf
+```
+
+### What aweshelf does on its own
+
+Even without aweswitch's `-c`/`-t` flags, aweshelf is useful independently:
+
+```bash
+aweshelf bookmark               # bookmark a session interactively
+aweshelf bookmark --current     # bookmark the most recent session in this project
+aweshelf list                   # list all bookmarks
+aweshelf search "auth"          # full-text search across bookmarks
+aweshelf resume BOOKMARK_ID     # resume a saved session
+aweshelf browse                 # interactive TUI browser
+```
+
+See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full documentation.
 
 ## FAQ
 

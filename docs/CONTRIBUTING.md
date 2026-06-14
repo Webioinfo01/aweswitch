@@ -83,6 +83,52 @@ Current rules:
 - Shell environment values take precedence over values loaded from `~/.claude/settings.json`.
 - Invalid `~/.claude/settings.json` content is ignored by the current implementation. If a profile depends on values from that file, expect the later `${VAR_NAME}` expansion error to surface the missing variable.
 
+## aweshelf Integration: How it Works
+
+aweswitch supports auto-bookmarking sessions via [aweshelf](https://github.com/Webioinfo01/aweshelf) using `-c` (category) and `-t` (title) flags.
+
+### Architecture
+
+```
+aweswitch process
+  ├─ _auto_bookmark() → os.fork()
+  │    └─ child process (background, no terminal)
+  │         poll ~/.claude/projects/**/*.jsonl every 2s (max 60s)
+  │         find new JSONL → aweshelf bookmark <id> -c <cat> --profile <p>
+  │         os._exit(0)
+  │
+  └─ prepare_run() → execvpe("claude")
+       └─ aweswitch process replaced by claude
+```
+
+Key design decisions:
+
+- **Fork before exec**: `execvpe` replaces the process, so bookkeeping must happen in a child process spawned before exec.
+- **CLI coupling, not import coupling**: the child calls `aweshelf bookmark` via `subprocess.run`, not by importing aweshelf internals. This keeps the tools decoupled at the code level.
+- **File modification time as signal**: the child filters JSONL files by `st_mtime >= fork_time`. This is the only reliable way to identify "the session I just started" without knowing the session ID in advance.
+- **Graceful degradation**: if aweshelf is not installed, `-c`/`-t` are ignored with a warning. Claude launches normally.
+
+### Known Limitation: Concurrent Launch Race Condition
+
+When multiple `aweswitch -c` processes are launched simultaneously in the same project directory, there is a chance of bookmarking the wrong session.
+
+Example:
+
+```bash
+# Terminal 1                              # Terminal 2
+aweswitch cc-glm -c backend               aweswitch cc-glm -c frontend
+```
+
+Both child processes scan the same `~/.claude/projects/` directory. When two new JSONL files appear, each child grabs the first file it encounters via `rglob`. Since directory traversal order is not deterministic, child A might grab child B's session and vice versa.
+
+**Why it can't be fully fixed**: the session ID is assigned by Claude Code after launch. At fork time, aweswitch has no way to know which JSONL file will belong to its session. There is no identifier that can be passed from the parent to the child and matched against the JSONL content.
+
+**Mitigations**:
+
+- The child only considers files created after the fork (`st_mtime >= start_time`), which eliminates stale-file collisions.
+- In practice, manually launching two sessions within the same 2-second poll window in the same project is uncommon.
+- If you need concurrent launches with correct bookmarking, use `aweshelf bookmark` manually after the sessions start.
+
 ## Documentation
 
 If you change command behavior, config shape, supported providers, or install steps, update the relevant docs in the same change:

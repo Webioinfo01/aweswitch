@@ -29,6 +29,12 @@
 
 它刻意保持小而直接。项目定位是 agent profile switcher，但目前只支持 Claude Code profile。配置格式为以后加入 Codex 或 Hermes 预留了 provider 分组，但这些 provider 现在还不能执行。
 
+## Powered by aweswitch
+
+- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Claude Code 和 Codex 的会话 bookmark 管理器。可以保存、分类和恢复会话，支持 aweswitch profile。
+
+aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。
+
 ## 安装
 
 从 PyPI 安装：
@@ -125,9 +131,7 @@ aweswitch cc-glm --dangerously-skip-permissions
 aweswitch cc-glm -c backend -t "Fix auth bug"
 ```
 
-[aweshelf](https://github.com/Webioinfo01/aweshelf) 是 Claude Code 和 Codex 的会话 bookmark 管理器，可以保存、标记、搜索和恢复历史会话。
-
-传入 `-c` 后，aweswitch 会 fork 一个后台子进程，等待新会话出现后自动调用 aweshelf 完成 bookmark。`-t` 可选——不传时 aweshelf 会用会话的第一条消息作为标题。需要已安装 aweshelf（`pip3 install aweshelf`）。如果 aweshelf 未安装，`-c` 和 `-t` 会被忽略并输出警告。
+详见 [aweshelf 集成](#aweshelf-集成)。
 
 常用配置命令：
 
@@ -136,6 +140,48 @@ aweswitch config path
 aweswitch config show
 aweswitch config edit
 ```
+
+## aweshelf 集成
+
+[aweshelf](https://github.com/Webioinfo01/aweshelf) 是 Claude Code 和 Codex CLI 的会话 bookmark 管理器，可以保存、标记、搜索和恢复历史 coding 会话。
+
+aweswitch 与 aweshelf 集成，支持在启动会话时自动完成 bookmark，无需额外操作：
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+### 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `-c`, `--category` | bookmark 的分类标签（如 `backend`、`research`、`infra`）。 |
+| `-t`, `--title` | 自定义 bookmark 标题。不传时 aweshelf 用会话的第一条消息作为标题。 |
+
+两个参数都需要 aweshelf 已安装。如果 aweshelf 未找到，参数会被忽略并输出警告到 stderr。Claude Code 不受影响，正常启动。
+
+> **注意**：在同一项目目录下同时启动多个 `aweswitch -c` 会话可能导致 bookmark 标记错误。顺序启动是安全的——只要前一个会话的 JSONL 文件已创建（通常几秒内），再启动下一个就不会有问题。详见 [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition)。
+
+### 安装 aweshelf
+
+```bash
+pip3 install aweshelf
+```
+
+### aweshelf 独立使用
+
+即使不使用 aweswitch 的 `-c`/`-t` 参数，aweshelf 也可以独立使用：
+
+```bash
+aweshelf bookmark               # 交互式 bookmark 会话
+aweshelf bookmark --current     # bookmark 当前项目最近的会话
+aweshelf list                   # 列出所有 bookmark
+aweshelf search "auth"          # 全文搜索 bookmark
+aweshelf resume BOOKMARK_ID     # 恢复已保存的会话
+aweshelf browse                 # 交互式 TUI 浏览器
+```
+
+完整文档见 [aweshelf README](https://github.com/Webioinfo01/aweshelf)。
 
 ## FAQ
 
