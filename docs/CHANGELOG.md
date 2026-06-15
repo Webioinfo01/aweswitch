@@ -1,5 +1,20 @@
 # change log
 
+## v0.1.7
+
+`v0.1.7` improves model picker display for unset tiers and auto-populates the Opus model fallback.
+
+### Model picker "Not set" display
+
+When a profile does not define `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `SONNET_MODEL`, or `OPUS_MODEL`, the corresponding `_NAME` variant is now set to `"Not set"`. This prevents Claude Code's `/model` picker from showing a stale label inherited from `~/.claude/settings.json`.
+
+### Highlights
+
+- Show "Not set" in `/model` picker for unset model tiers instead of stale values
+- Auto-populate `ANTHROPIC_DEFAULT_OPUS_MODEL` from `ANTHROPIC_MODEL` when not explicitly set
+- Added aweshelf companion section and race condition notes to both READMEs
+- Added `docs/CONTRIBUTING.md`
+
 ## v0.1.6
 
 `v0.1.6` adds auto-bookmark support via [aweshelf](https://github.com/Webioinfo01/aweshelf). Sessions can now be tagged with a category and custom title at launch time, without requiring a separate bookmark step.
