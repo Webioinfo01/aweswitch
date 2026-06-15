@@ -188,6 +188,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_BASE_URL": "https://example.test",
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
             }
         })
         self.assertEqual(argv[3:], ["--verbose"])
@@ -227,6 +229,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_BASE_URL": "https://example.test",
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
             }
         })
         self.assertEqual(env, {})
@@ -260,6 +264,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_BASE_URL": "https://example.test",
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
             }
         })
 
