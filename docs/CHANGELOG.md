@@ -1,5 +1,24 @@
 # change log
 
+## v0.1.8
+
+`v0.1.8` adds a self-update command and background update checking.
+
+### Self-update
+
+`aweswitch self-update` upgrades to the latest PyPI release, automatically detecting whether to use `pipx upgrade` or `pip install --upgrade`. A `--check` flag shows available updates without installing.
+
+### Background update reminder
+
+Each run now checks PyPI in the background (once per 24h) and prints a reminder to stderr when a newer version exists. Set `AWESWITCH_NO_UPDATE_CHECK=1` to disable.
+
+### Highlights
+
+- Added `aweswitch self-update` command with `--check` flag
+- Background update check on each run with 24h cooldown
+- Robust pipx detection using `sys.prefix` instead of path substring matching
+- Error handling for network failures during update checks
+
 ## v0.1.7
 
 `v0.1.7` improves model picker display for unset tiers and auto-populates the Opus model fallback.

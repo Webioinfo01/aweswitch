@@ -9,7 +9,7 @@
     <a href="https://we.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.1.7-7C3AED?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.1.8-7C3AED?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/python-%E2%89%A53.9-0EA5E9?style=flat-square" alt="Python">
     <img src="https://img.shields.io/badge/license-MPL--2.0-22C55E?style=flat-square" alt="License">
   </p>
@@ -318,7 +318,7 @@ python3 -m build
 Install a built wheel locally:
 
 ```bash
-pip3 install dist/aweswitch-0.1.7-py3-none-any.whl
+pip3 install dist/aweswitch-0.1.8-py3-none-any.whl
 ```
 
 Project docs:
