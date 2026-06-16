@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 import click
 
 from aweswitch import __version__
+from aweswitch.update_check import check_async, get_pypi_latest, _version_gte
 
 
 TEMPLATE_PATH = Path(__file__).parent / "default-config.json"
@@ -361,6 +363,34 @@ def init_command():
     click.echo(config_path())
 
 
+@cli.command("self-update")
+@click.option("--check", is_flag=True, help="Show versions without updating.")
+def self_update_command(check):
+    """Update aweswitch to the latest version."""
+    try:
+        latest = get_pypi_latest()
+    except Exception as e:
+        raise SystemExit(f"Failed to check PyPI: {e}")
+    if _version_gte(__version__, latest):
+        click.echo(f"aweswitch is up to date ({__version__}).")
+        return
+    click.echo(f"Current: {__version__}  Latest: {latest}")
+    if check:
+        return
+
+    if Path(sys.prefix, "pyvenv.cfg").exists() and "pipx" in sys.prefix:
+        cmd = [shutil.which("pipx") or "pipx", "upgrade", "aweswitch"]
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "aweswitch"]
+
+    click.echo(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode == 0:
+        click.echo("Done. Restart aweswitch to use the new version.")
+    else:
+        raise SystemExit(result.returncode)
+
+
 @cli.command("add")
 def add_command():
     """Interactively add a new profile."""
@@ -411,7 +441,13 @@ cli.add_command(run_profile)
 
 
 def main(argv=None):
-    return cli.main(args=argv, prog_name="aweswitch")
+    get_reminder = check_async(sys.argv[1:] if argv is None else argv)
+    try:
+        return cli.main(args=argv, prog_name="aweswitch")
+    finally:
+        reminder = get_reminder()
+        if reminder:
+            click.echo(f"⚠  {reminder}", err=True)
 
 
 if __name__ == "__main__":

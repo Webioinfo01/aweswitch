@@ -190,6 +190,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
             }
         })
         self.assertEqual(argv[3:], ["--verbose"])
@@ -231,6 +233,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
             }
         })
         self.assertEqual(env, {})
@@ -266,6 +270,8 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
             }
         })
 
