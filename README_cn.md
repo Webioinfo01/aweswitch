@@ -143,6 +143,28 @@ aweswitch config show
 aweswitch config edit
 ```
 
+## 自动更新
+
+aweswitch 每次运行时会在后台检查 PyPI 是否有新版本。如果有更新，会在会话结束后在 stderr 输出提醒。
+
+手动更新：
+
+```bash
+aweswitch self-update
+```
+
+仅检查不更新：
+
+```bash
+aweswitch self-update --check
+```
+
+禁用后台检查：
+
+```bash
+export AWESWITCH_NO_UPDATE_CHECK=1
+```
+
 ## aweshelf 集成
 
 [aweshelf](https://github.com/Webioinfo01/aweshelf) 是 Claude Code 和 Codex CLI 的会话 bookmark 管理器，可以保存、标记、搜索和恢复历史 coding 会话。

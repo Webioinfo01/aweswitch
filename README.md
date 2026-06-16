@@ -143,6 +143,28 @@ aweswitch config show
 aweswitch config edit
 ```
 
+## Self-Update
+
+aweswitch checks PyPI for newer versions in the background on each run. If an update is available, a reminder is printed to stderr after the session ends.
+
+To update manually:
+
+```bash
+aweswitch self-update
+```
+
+To check without updating:
+
+```bash
+aweswitch self-update --check
+```
+
+To disable the background check:
+
+```bash
+export AWESWITCH_NO_UPDATE_CHECK=1
+```
+
 ## aweshelf Integration
 
 [aweshelf](https://github.com/Webioinfo01/aweshelf) is a session bookmark manager for Claude Code and Codex CLI. It lets you save, tag, search, and resume past coding sessions.
