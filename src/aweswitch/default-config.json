@@ -22,6 +22,20 @@
           "ANTHROPIC_MODEL": "mimo-v2.5-pro"
         }
       }
+    },
+    "codex": {
+      "cx-openai": {
+        "env": {
+          "OPENAI_BASE_URL": "https://api.openai.com",
+          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+        }
+      },
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
     }
   }
 }

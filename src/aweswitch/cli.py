@@ -31,6 +31,25 @@ def claude_settings_path():
     return Path(os.environ.get("CLAUDE_SETTINGS", "~/.claude/settings.json")).expanduser()
 
 
+def codex_config_path():
+    return Path(os.environ.get("CODEX_CONFIG", "~/.codex/config.toml")).expanduser()
+
+
+def generate_codex_config(provider_name, base_url):
+    """Generate a minimal config.toml for a third-party Codex provider."""
+    clean = re.sub(r"[^a-z0-9_]", "_", provider_name.lower()).strip("_") or "custom"
+    return (
+        f'model_provider = "{clean}"\n'
+        f'disable_response_storage = true\n'
+        f'\n'
+        f'[model_providers.{clean}]\n'
+        f'name = "{clean}"\n'
+        f'base_url = "{base_url}"\n'
+        f'wire_api = "responses"\n'
+        f'requires_openai_auth = true\n'
+    )
+
+
 def die(message):
     raise SystemExit(f"aweswitch: {message}")
 
@@ -141,6 +160,22 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             settings_path = write_settings_file({"env": settings_env})
             argv += ["--settings", str(settings_path)]
         argv += user_args
+    elif provider == "codex":
+        base_url_raw = profile_env.get("OPENAI_BASE_URL")
+        api_key_raw = profile_env.get("OPENAI_API_KEY")
+        if not base_url_raw:
+            die(f"OPENAI_BASE_URL is required for codex profile: {profile_name}")
+        if not api_key_raw:
+            die(f"OPENAI_API_KEY is required for codex profile: {profile_name}")
+        base_url = expand_value(base_url_raw, expansion_env)
+        api_key = expand_value(api_key_raw, expansion_env)
+        argv = ["codex"]
+        argv += ["-c", f'model_provider="custom"']
+        argv += ["-c", f'model_providers.custom.base_url="{base_url}"']
+        argv += ["-c", f'model_providers.custom.wire_api="responses"']
+        argv += ["-c", f'disable_response_storage=true']
+        env["OPENAI_API_KEY"] = api_key
+        argv += user_args
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
@@ -179,6 +214,8 @@ def command_list(config):
 def profile_model_label(provider, profile):
     if provider == "claude":
         return profile.get("env", {}).get("ANTHROPIC_MODEL", "?")
+    if provider == "codex":
+        return profile.get("env", {}).get("OPENAI_BASE_URL", "?")
     return "?"
 
 
@@ -254,14 +291,14 @@ def exec_agent(argv, env):
         die(f"failed to run {argv[0]}: {exc}")
 
 
-def save_profile(path, name, env_vars):
+def save_profile(path, name, env_vars, provider="claude"):
     path = Path(path).expanduser()
     data = load_config(path)
-    claude_profiles = data["profiles"].setdefault("claude", {})
-    if name in claude_profiles:
+    provider_profiles = data["profiles"].setdefault(provider, {})
+    if name in provider_profiles:
         die(f"profile already exists: {name}")
     profile = {"env": {k: v for k, v in env_vars.items() if v}}
-    claude_profiles[name] = profile
+    provider_profiles[name] = profile
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
@@ -306,7 +343,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -397,23 +434,35 @@ def add_command():
     path = config_path()
     load_config(path)
 
+    provider = click.prompt("Provider", type=click.Choice(["claude", "codex"]))
     name = click.prompt("Profile name")
-    base_url = click.prompt("ANTHROPIC_BASE_URL")
-    auth_var = click.prompt("ANTHROPIC_AUTH_TOKEN env var name (saved as ${VAR_NAME})")
-    auth_token = f"${{{auth_var}}}"
-    model = click.prompt("ANTHROPIC_MODEL")
-    haiku_model = click.prompt("ANTHROPIC_DEFAULT_HAIKU_MODEL (optional, press Enter to skip)", default="", show_default=False)
-    sonnet_model = click.prompt("ANTHROPIC_DEFAULT_SONNET_MODEL (optional, press Enter to skip)", default="", show_default=False)
 
-    env_vars = {
-        "ANTHROPIC_BASE_URL": base_url,
-        "ANTHROPIC_AUTH_TOKEN": auth_token,
-        "ANTHROPIC_MODEL": model,
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
-    }
+    if provider == "claude":
+        base_url = click.prompt("ANTHROPIC_BASE_URL")
+        auth_var = click.prompt("ANTHROPIC_AUTH_TOKEN env var name (saved as ${VAR_NAME})")
+        auth_token = f"${{{auth_var}}}"
+        model = click.prompt("ANTHROPIC_MODEL")
+        haiku_model = click.prompt("ANTHROPIC_DEFAULT_HAIKU_MODEL (optional, press Enter to skip)", default="", show_default=False)
+        sonnet_model = click.prompt("ANTHROPIC_DEFAULT_SONNET_MODEL (optional, press Enter to skip)", default="", show_default=False)
 
-    save_profile(path, name, env_vars)
+        env_vars = {
+            "ANTHROPIC_BASE_URL": base_url,
+            "ANTHROPIC_AUTH_TOKEN": auth_token,
+            "ANTHROPIC_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
+        }
+    else:
+        base_url = click.prompt("OPENAI_BASE_URL")
+        auth_var = click.prompt("OPENAI_API_KEY env var name (saved as ${VAR_NAME})")
+        auth_token = f"${{{auth_var}}}"
+
+        env_vars = {
+            "OPENAI_BASE_URL": base_url,
+            "OPENAI_API_KEY": auth_token,
+        }
+
+    save_profile(path, name, env_vars, provider=provider)
     click.echo(f"Profile '{name}' added.")
 
 

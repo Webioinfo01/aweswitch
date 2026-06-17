@@ -29,7 +29,8 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("profiles", data)
             self.assertIn("claude", data["profiles"])
             self.assertIn("cc-glm", data["profiles"]["claude"])
-            self.assertNotIn("codex", data["profiles"])
+            self.assertIn("codex", data["profiles"])
+            self.assertIn("cx-openai", data["profiles"]["codex"])
 
     def test_package_entry_point_targets_cli_main(self):
         pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
@@ -70,7 +71,7 @@ class AweSwitchTests(unittest.TestCase):
         self.assertIn("edit", result.output)
         self.assertIn("init", result.output)
 
-    def test_save_profile_adds_new_profile(self):
+    def test_save_profile_adds_new_claude_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             aweswitch.init_config(path)
@@ -79,13 +80,28 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_BASE_URL": "https://example.com",
                 "ANTHROPIC_AUTH_TOKEN": "${MY_TOKEN}",
                 "ANTHROPIC_MODEL": "test-model",
-            })
+            }, provider="claude")
 
             data = json.loads(path.read_text())
             profile = data["profiles"]["claude"]["my-profile"]
             self.assertEqual(profile["env"]["ANTHROPIC_BASE_URL"], "https://example.com")
             self.assertEqual(profile["env"]["ANTHROPIC_AUTH_TOKEN"], "${MY_TOKEN}")
             self.assertEqual(profile["env"]["ANTHROPIC_MODEL"], "test-model")
+
+    def test_save_profile_adds_new_codex_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            aweswitch.save_profile(path, "cx-test", {
+                "OPENAI_BASE_URL": "https://api.example.com/v1",
+                "OPENAI_API_KEY": "${MY_KEY}",
+            }, provider="codex")
+
+            data = json.loads(path.read_text())
+            profile = data["profiles"]["codex"]["cx-test"]
+            self.assertEqual(profile["env"]["OPENAI_BASE_URL"], "https://api.example.com/v1")
+            self.assertEqual(profile["env"]["OPENAI_API_KEY"], "${MY_KEY}")
 
     def test_save_profile_skips_empty_values(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,7 +114,7 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_MODEL": "m",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
-            })
+            }, provider="claude")
 
             data = json.loads(path.read_text())
             env = data["profiles"]["claude"]["minimal"]["env"]
@@ -114,22 +130,22 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_BASE_URL": "https://example.com",
                 "ANTHROPIC_AUTH_TOKEN": "${T}",
                 "ANTHROPIC_MODEL": "m",
-            })
+            }, provider="claude")
             with self.assertRaisesRegex(SystemExit, "already exists"):
                 aweswitch.save_profile(path, "dup", {
                     "ANTHROPIC_BASE_URL": "https://other.com",
                     "ANTHROPIC_AUTH_TOKEN": "${T}",
                     "ANTHROPIC_MODEL": "m",
-                })
+                }, provider="claude")
 
-    def test_add_command_creates_profile(self):
+    def test_add_command_creates_claude_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             aweswitch.init_config(path)
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="test-profile\nhttps://example.com\nMY_TOKEN\ntest-model\n\n\n\n",
+            ], input="claude\ntest-profile\nhttps://example.com\nMY_TOKEN\ntest-model\n\n\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -150,7 +166,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="full-profile\nhttps://example.com\nMY_TOKEN\nmy-model\nhaiku-m\nsonnet-m\n",
+            ], input="claude\nfull-profile\nhttps://example.com\nMY_TOKEN\nmy-model\nhaiku-m\nsonnet-m\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -159,6 +175,24 @@ class AweSwitchTests(unittest.TestCase):
             env = data["profiles"]["claude"]["full-profile"]["env"]
             self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "haiku-m")
             self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "sonnet-m")
+
+    def test_add_command_creates_codex_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\n",
+                env={"AWESWITCH_CONFIG": str(path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Profile 'cx-test' added.", result.output)
+
+            data = json.loads(path.read_text())
+            profile = data["profiles"]["codex"]["cx-test"]
+            self.assertEqual(profile["env"]["OPENAI_BASE_URL"], "https://api.example.com/v1")
+            self.assertEqual(profile["env"]["OPENAI_API_KEY"], "${MY_KEY}")
 
     def test_prepare_claude_uses_provider_command_and_env_overrides(self):
         config = {
@@ -297,25 +331,98 @@ class AweSwitchTests(unittest.TestCase):
         self.assertNotIn("--model", argv)
         self.assertNotIn("ignored-model", argv)
 
-    def test_prepare_rejects_codex_profiles_for_now(self):
+    def test_prepare_codex_uses_config_overrides_and_env(self):
         config = {
             "profiles": {
                 "codex": {
-                    "codex-mini": {
-                        "model": "gpt-5.4-mini",
-                        "env": {"OPENAI_API_KEY": "${OPENAI_API_KEY}"},
+                    "cx-test": {
+                        "env": {
+                            "OPENAI_BASE_URL": "${CODEX_BASE}",
+                            "OPENAI_API_KEY": "${CODEX_KEY}",
+                        },
+                    }
+                }
+            }
+        }
+        base_env = {"PATH": "/bin", "CODEX_BASE": "https://provider.test/v1", "CODEX_KEY": "sk-test"}
+
+        argv, env = aweswitch.prepare_run(config, "cx-test", ["--verbose"], base_env)
+
+        self.assertEqual(argv[0], "codex")
+        self.assertIn("-c", argv)
+        # Verify -c flags contain the expected overrides
+        c_args = []
+        i = 1
+        while i < len(argv):
+            if argv[i] == "-c" and i + 1 < len(argv):
+                c_args.append(argv[i + 1])
+                i += 2
+            else:
+                break
+        self.assertIn('model_provider="custom"', c_args)
+        self.assertIn('model_providers.custom.base_url="https://provider.test/v1"', c_args)
+        self.assertIn('model_providers.custom.wire_api="responses"', c_args)
+        self.assertIn('disable_response_storage=true', c_args)
+        # API key injected via env, not argv
+        self.assertEqual(env["OPENAI_API_KEY"], "sk-test")
+        self.assertNotIn("OPENAI_API_KEY", " ".join(argv))
+        # User args passed through
+        self.assertIn("--verbose", argv)
+
+    def test_prepare_codex_rejects_missing_base_url(self):
+        config = {
+            "profiles": {
+                "codex": {
+                    "cx-bad": {
+                        "env": {
+                            "OPENAI_API_KEY": "${KEY}",
+                        },
                     }
                 }
             }
         }
 
+        with self.assertRaisesRegex(SystemExit, "OPENAI_BASE_URL is required"):
+            aweswitch.prepare_run(config, "cx-bad", [], {"KEY": "sk-test"})
+
+    def test_prepare_codex_rejects_missing_api_key(self):
+        config = {
+            "profiles": {
+                "codex": {
+                    "cx-bad": {
+                        "env": {
+                            "OPENAI_BASE_URL": "https://example.com/v1",
+                        },
+                    }
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(SystemExit, "OPENAI_API_KEY is required"):
+            aweswitch.prepare_run(config, "cx-bad", [], {})
+
+    def test_prepare_rejects_unknown_provider(self):
+        config = {
+            "profiles": {
+                "unknown": {
+                    "test": {"env": {}},
+                }
+            }
+        }
+
         with self.assertRaisesRegex(SystemExit, "unsupported provider"):
-            aweswitch.prepare_run(config, "codex-mini", ["--help"], {})
+            aweswitch.prepare_run(config, "test", [], {})
 
     def test_profile_model_label_uses_anthropic_model_for_claude(self):
         self.assertEqual(
             aweswitch.profile_model_label("claude", {"env": {"ANTHROPIC_MODEL": "glm-5.1"}}),
             "glm-5.1",
+        )
+
+    def test_profile_model_label_uses_base_url_for_codex(self):
+        self.assertEqual(
+            aweswitch.profile_model_label("codex", {"env": {"OPENAI_BASE_URL": "https://api.test/v1"}}),
+            "https://api.test/v1",
         )
 
     def test_profile_for_errors_on_duplicate_profile_names(self):
@@ -346,6 +453,23 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(redacted["profiles"]["x"]["env"]["ANTHROPIC_AUTH_TOKEN"], "<redacted>")
         self.assertEqual(redacted["profiles"]["x"]["env"]["ANTHROPIC_BASE_URL"], "https://example.test")
 
+    def test_redact_hides_codex_api_key(self):
+        data = {
+            "profiles": {
+                "x": {
+                    "env": {
+                        "OPENAI_API_KEY": "sk-secret",
+                        "OPENAI_BASE_URL": "https://example.test",
+                    }
+                }
+            }
+        }
+
+        redacted = aweswitch.redact(data)
+
+        self.assertEqual(redacted["profiles"]["x"]["env"]["OPENAI_API_KEY"], "<redacted>")
+        self.assertEqual(redacted["profiles"]["x"]["env"]["OPENAI_BASE_URL"], "https://example.test")
+
     def test_expand_env_errors_on_missing_variable(self):
         with self.assertRaisesRegex(SystemExit, "missing environment variable"):
             aweswitch.expand_value("${MISSING_ENV}", {})
@@ -358,6 +482,15 @@ class AweSwitchTests(unittest.TestCase):
     def test_exec_agent_reports_missing_command(self):
         with self.assertRaisesRegex(SystemExit, "command not found"):
             aweswitch.exec_agent(["/tmp/aweswitch-command-that-does-not-exist"], {})
+
+    def test_generate_codex_config_produces_valid_toml(self):
+        config = aweswitch.generate_codex_config("AiHubMix", "https://aihubmix.com/v1")
+
+        self.assertIn('model_provider = "aihubmix"', config)
+        self.assertIn('base_url = "https://aihubmix.com/v1"', config)
+        self.assertIn('wire_api = "responses"', config)
+        self.assertIn('requires_openai_auth = true', config)
+        self.assertIn("[model_providers.aihubmix]", config)
 
 
 if __name__ == "__main__":

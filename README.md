@@ -16,6 +16,7 @@
   <p>
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
     <img src="https://img.shields.io/badge/provider-Claude_Code-7C3AED?style=flat-square" alt="Claude Code">
+    <img src="https://img.shields.io/badge/provider-Codex-10B981?style=flat-square" alt="Codex">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -27,7 +28,7 @@
 
 `aweswitch` reads profiles from `~/.config/aweswitch/config.json`, expands environment references, prepares provider-specific runtime arguments, and then starts the selected agent. Each launch gets its own API endpoint, token, and model through runtime arguments instead of mutating global agent settings.
 
-It is intentionally small. The project is positioned as an agent profile switcher, but today it supports Claude Code profiles only. Codex and Hermes profile groups may appear in the config shape later, but they are not executable yet.
+It is intentionally small. Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
 
 ## Powered by aweswitch
 
@@ -52,7 +53,7 @@ Create the default config:
 aweswitch config init
 ```
 
-Then open the config and align it with your real Claude Code providers, models, and token variable names:
+Then open the config and align it with your real providers, models, and token variable names:
 
 ```bash
 aweswitch config edit
@@ -64,7 +65,7 @@ Or add a new profile interactively:
 aweswitch add
 ```
 
-This prompts for profile name, base URL, auth token env var, model, and optional haiku/sonnet model overrides.
+This prompts for provider (claude or codex), profile name, and provider-specific fields.
 
 The default config shape groups profiles under their provider. This is a reference config you can adapt:
 
@@ -93,6 +94,20 @@ The default config shape groups profiles under their provider. This is a referen
           "ANTHROPIC_MODEL": "mimo-v2.5-pro"
         }
       }
+    },
+    "codex": {
+      "cx-openai": {
+        "env": {
+          "OPENAI_BASE_URL": "https://api.openai.com",
+          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+        }
+      },
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
     }
   }
 }
@@ -101,9 +116,14 @@ The default config shape groups profiles under their provider. This is a referen
 Configure the token variables referenced by your profiles:
 
 ```bash
+# Claude profiles
 export GLM_ANTHROPIC_AUTH_TOKEN="..."
 export GEMINI_ANTHROPIC_AUTH_TOKEN="..."
 export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
+
+# Codex profiles
+export OPENAI_API_KEY="..."
+export AIHUBMIX_OPENAI_KEY="..."
 ```
 
 Put long-lived variables in `~/.zshrc` if you want them available in every shell.
@@ -118,13 +138,15 @@ aweswitch show cc-glm
 Run a profile:
 
 ```bash
-aweswitch cc-glm
+aweswitch cc-glm       # Claude Code
+aweswitch cx-openai    # Codex
 ```
 
-Pass extra arguments through to Claude Code:
+Pass extra arguments through to the agent:
 
 ```bash
 aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
 ```
 
 Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
@@ -235,9 +257,13 @@ You can override that path with `AWESWITCH_CONFIG`.
 
 No. It reads your aweswitch config and launches Claude Code with runtime settings for that process only. Switching profiles does not rewrite the global API endpoint or model, so it does not disturb agent sessions that are already running.
 
-### Does aweswitch support Codex or Hermes?
+### Does aweswitch support Codex?
 
-Not yet. The config format groups profiles by provider so future support can fit naturally, but the executable provider set is currently Claude Code only.
+Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` block. aweswitch injects the base URL via Codex's `-c` config overrides and the API key via environment variable, so no files are written to `~/.codex/`.
+
+### Does aweswitch support Hermes?
+
+Not yet. The config format groups profiles by provider so future support can fit naturally.
 
 ## Similar Tools
 
@@ -252,14 +278,24 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 ## Profile Rules
 
 - Profiles are grouped under `profiles.<provider>.<profileName>`.
-- `claude` is the only supported provider right now.
+- Supported providers: `claude`, `codex`.
 - Profile names must be unique across all provider groups.
-- Claude profiles pass `env` through runtime `--settings '{"env": ...}'`.
-- Set the Claude model with `env.ANTHROPIC_MODEL`.
 - `env` values only apply to the launched process.
 - `${VAR_NAME}` values are expanded from the current shell environment.
-- Claude token values can also expand from `~/.claude/settings.json` when they are missing from the shell.
 - `show` and `config show` redact keys matching token, key, secret, password, or auth.
+
+### Claude Profiles
+
+- Pass `env` through runtime `--settings '{"env": ...}'`.
+- Set the model with `env.ANTHROPIC_MODEL`.
+- Token values can also expand from `~/.claude/settings.json` when they are missing from the shell.
+
+### Codex Profiles
+
+- Requires `OPENAI_BASE_URL` and `OPENAI_API_KEY` in `env`.
+- Base URL is injected via `-c model_providers.custom.base_url=...` (no file writes).
+- API key is injected via environment variable (no writes to `~/.codex/auth.json`).
+- Extra arguments are passed through to the `codex` CLI.
 
 ## Claude Model Overrides
 
@@ -287,6 +323,37 @@ If you want Claude Code to use a lighter model for lightweight or background tas
 ```
 
 This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `mimo-v2.5` for lighter work.
+
+## Codex Profiles
+
+For Codex profiles, `OPENAI_BASE_URL` and `OPENAI_API_KEY` are the two required fields:
+
+```json
+{
+  "profiles": {
+    "codex": {
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
+    }
+  }
+}
+```
+
+aweswitch does not write to `~/.codex/`. The base URL is passed via Codex's `-c` flag and the API key via environment variable. This keeps your global Codex config untouched.
+
+To add a Codex profile interactively:
+
+```bash
+aweswitch add
+# Provider: codex
+# Profile name: cx-myprovider
+# OPENAI_BASE_URL: https://myprovider.com/v1
+# OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+```
 
 ## Development
 
