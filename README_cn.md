@@ -318,6 +318,8 @@ aweshelf browse                 # 交互式 TUI 浏览器
 - API key 通过环境变量注入（不写 `~/.codex/auth.json`）。
 - 额外参数透传给 `codex` CLI。
 
+Codex profile 只切换 API 源（base URL + API key），不切换模型。实际体验来看，Codex 配合 OpenAI 自身模型效果最好——常见用法是通过第三方 provider 中转，而不是换用完全不同的模型。
+
 ```json
 {
   "profiles": {

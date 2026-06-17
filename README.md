@@ -318,6 +318,8 @@ This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `
 - API key is injected via environment variable (no writes to `~/.codex/auth.json`).
 - Extra arguments are passed through to the `codex` CLI.
 
+Codex profiles only switch the API source (base URL + API key), not the model. In practice, Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case, while switching to entirely different model providers tends to give a poor experience.
+
 ```json
 {
   "profiles": {
