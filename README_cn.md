@@ -16,6 +16,7 @@
   <p>
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
     <img src="https://img.shields.io/badge/provider-Claude_Code-7C3AED?style=flat-square" alt="Claude Code">
+    <img src="https://img.shields.io/badge/provider-Codex-10B981?style=flat-square" alt="Codex">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -27,7 +28,7 @@
 
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，展开环境变量引用，准备 provider 对应的运行时参数，然后启动所选 agent。每次启动都会拿到自己的 API endpoint、token 和模型；这些配置通过运行时参数注入，而不是改写全局 agent settings。
 
-它刻意保持小而直接。项目定位是 agent profile switcher，但目前只支持 Claude Code profile。配置格式为以后加入 Codex 或 Hermes 预留了 provider 分组，但这些 provider 现在还不能执行。
+它刻意保持小而直接。项目定位是 agent profile switcher，目前支持 Claude Code 和 Codex profile。配置格式为以后加入 Hermes 预留了 provider 分组，但 Hermes 现在还不能执行。
 
 ## Powered by aweswitch
 
@@ -64,7 +65,7 @@ aweswitch config edit
 aweswitch add
 ```
 
-依次提示输入 profile 名称、base URL、auth token 环境变量名、模型，以及可选的 haiku/sonnet 模型。
+依次提示选择 provider（claude 或 codex）、profile 名称，以及 provider 对应的字段。
 
 默认配置格式按 provider 分组。下面是一份可按需修改的参考配置：
 
@@ -93,6 +94,20 @@ aweswitch add
           "ANTHROPIC_MODEL": "mimo-v2.5-pro"
         }
       }
+    },
+    "codex": {
+      "cx-openai": {
+        "env": {
+          "OPENAI_BASE_URL": "https://api.openai.com",
+          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+        }
+      },
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
     }
   }
 }
@@ -101,9 +116,14 @@ aweswitch add
 配置 profile 引用的 token 环境变量：
 
 ```bash
+# Claude profiles
 export GLM_ANTHROPIC_AUTH_TOKEN="..."
 export GEMINI_ANTHROPIC_AUTH_TOKEN="..."
 export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
+
+# Codex profiles
+export OPENAI_API_KEY="..."
+export AIHUBMIX_OPENAI_KEY="..."
 ```
 
 如果希望每次打开终端都可用，可以把这些变量放进 `~/.zshrc`。
@@ -118,13 +138,15 @@ aweswitch show cc-glm
 启动 profile：
 
 ```bash
-aweswitch cc-glm
+aweswitch cc-glm       # Claude Code
+aweswitch cx-openai    # Codex
 ```
 
-额外参数会透传给 Claude Code：
+额外参数会透传给 agent：
 
 ```bash
 aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
 ```
 
 通过 [aweshelf](https://github.com/Webioinfo01/aweshelf) 自动 bookmark 会话：
@@ -214,12 +236,12 @@ aweshelf browse                 # 交互式 TUI 浏览器
 `aweswitch` 适合同时使用多个 AI coding agent 运行时端点、模型或 token 来源的人。它提供一个可重复的本地命令，避免你来回手改 settings。
 
 - **一个本地配置文件**：`~/.config/aweswitch/config.json`
-- **命名 agent profile**：例如 `cc-glm`、`cc-gemini`、`cc-xiaomi`
+- **命名 agent profile**：例如 `cc-glm`、`cc-gemini`、`cc-xiaomi`、`cx-openai`
 - **并行会话**：不同终端可以启动不同 API/model 组合
 - **只在运行时注入配置**：通过 provider 对应的运行参数
 - **不修改全局 agent 配置**：已经打开的 agent 会话继续使用启动时的配置
 - **token 引用**：来自 shell 环境变量或 `~/.claude/settings.json`
-- **可读 JSON**：profile 按 `profiles.claude` 分组
+- **可读 JSON**：profile 按 `profiles.claude` 和 `profiles.codex` 分组
 
 ### aweswitch 把 profile 存在哪里？
 
@@ -235,9 +257,13 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 不会。它只读取 aweswitch 自己的配置，并为当前启动的 Claude Code 进程传入运行时 settings。切换 profile 不会改写全局 API endpoint 或模型，因此不会影响已经运行中的 agent 会话。
 
-### aweswitch 支持 Codex 或 Hermes 吗？
+### aweswitch 支持 Codex 吗？
 
-暂时不支持。配置格式已经按 provider 分组，后续可以自然扩展，但目前可执行 provider 只有 Claude Code。
+支持。Codex profile 在 `env` 中使用 `OPENAI_BASE_URL` 和 `OPENAI_API_KEY`。aweswitch 通过 Codex 的 `-c` 配置覆盖注入 base URL，通过环境变量注入 API key，不会写入 `~/.codex/`。
+
+### aweswitch 支持 Hermes 吗？
+
+暂时不支持。配置格式已经按 provider 分组，后续可以自然扩展。
 
 ## 同类工具
 
@@ -247,27 +273,24 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 关键区别是 `aweswitch` 不改写全局配置。很多切换工具通过修改 agent 共享的 API/model settings 来完成切换；这样一来，之前已经打开的 agent 会话可能会因为底层全局 API 变化而不可用。`aweswitch` 把 profile 放在自己的 JSON 文件里，只在启动新进程时注入运行时 settings，所以每个会话都保留它启动时的 API 和模型。
 
-`aweswitch` 目前采用更小的 Python package 路线：本地 JSON profile 文件、只通过 Claude Code 运行时 `--settings` 注入、检查命令隐藏敏感字段，并保留 provider 分组以便未来支持更多 agent。
+`aweswitch` 目前采用更小的 Python package 路线：本地 JSON profile 文件、运行时注入（Claude Code `--settings`、Codex `-c` 参数和环境变量）、检查命令隐藏敏感字段，并保留 provider 分组以便未来支持更多 agent。
 
 ## Profile 规则
 
 - Profile 放在 `profiles.<provider>.<profileName>` 下。
-- 目前只支持 `claude` provider。
+- 支持的 provider：`claude`、`codex`。
 - 所有 provider 分组下的 profile 名必须全局唯一。
-- Claude profile 会通过运行时 `--settings '{"env": ...}'` 传入 `env`。
-- Claude 模型通过 `env.ANTHROPIC_MODEL` 配置。
 - `env` 只作用于本次启动的子进程。
 - `${VAR_NAME}` 会从当前 shell 环境变量中展开。
-- Claude token 在 shell 中不存在时，也可以从 `~/.claude/settings.json` 中展开。
 - `show` 和 `config show` 会隐藏 token、key、secret、password、auth 这类敏感字段。
 
-## Claude 模型覆盖
+### Claude Profile
 
-对于 Claude profile，`ANTHROPIC_MODEL` 是主模型配置。
+- 通过运行时 `--settings '{"env": ...}'` 传入 `env`。
+- 模型通过 `env.ANTHROPIC_MODEL` 配置。
+- token 在 shell 中不存在时，也可以从 `~/.claude/settings.json` 中展开。
 
-`ANTHROPIC_DEFAULT_HAIKU_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL` 默认都不配置。
-
-如果你希望 Claude Code 对轻量任务或后台任务使用更轻的模型，可以给 profile 增加 `ANTHROPIC_DEFAULT_HAIKU_MODEL`：
+`ANTHROPIC_DEFAULT_HAIKU_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL` 默认都不配置。如果你希望 Claude Code 对轻量任务或后台任务使用更轻的模型，可以给 profile 增加 `ANTHROPIC_DEFAULT_HAIKU_MODEL`：
 
 ```json
 {
@@ -287,6 +310,40 @@ aweshelf browse                 # 交互式 TUI 浏览器
 ```
 
 这样主模型仍然使用 `mimo-v2.5-pro`，同时允许 Claude Code 在轻量任务中使用 `mimo-v2.5`。
+
+### Codex Profile
+
+- 需要 `env` 中配置 `OPENAI_BASE_URL` 和 `OPENAI_API_KEY`。
+- base URL 通过 `-c model_providers.custom.base_url=...` 注入（不写文件）。
+- API key 通过环境变量注入（不写 `~/.codex/auth.json`）。
+- 额外参数透传给 `codex` CLI。
+
+```json
+{
+  "profiles": {
+    "codex": {
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
+    }
+  }
+}
+```
+
+aweswitch 不会写入 `~/.codex/`。base URL 通过 Codex 的 `-c` 参数传入，API key 通过环境变量传入。你的全局 Codex 配置不会被修改。
+
+交互式添加 Codex profile：
+
+```bash
+aweswitch add
+# Provider: codex
+# Profile name: cx-myprovider
+# OPENAI_BASE_URL: https://myprovider.com/v1
+# OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+```
 
 ## 开发
 

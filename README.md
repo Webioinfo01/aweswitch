@@ -236,12 +236,12 @@ See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full docu
 `aweswitch` is for people who use AI coding agents with more than one runtime endpoint, model, or token source and want a repeatable local command instead of editing settings by hand.
 
 - **One local config file** at `~/.config/aweswitch/config.json`
-- **Named agent profiles** such as `cc-glm`, `cc-gemini`, or `cc-xiaomi`
+- **Named agent profiles** such as `cc-glm`, `cc-gemini`, `cc-xiaomi`, or `cx-openai`
 - **Side-by-side sessions** where different terminals can launch different API/model combinations
 - **Runtime-only injection** through provider-specific arguments
 - **No mutation of global agent config**, so already-open agent sessions keep working with the settings they started with
 - **Token references** through shell variables or `~/.claude/settings.json`
-- **Readable JSON** with provider grouping under `profiles.claude`
+- **Readable JSON** with provider grouping under `profiles.claude` and `profiles.codex`
 
 ### Where does aweswitch store profiles?
 
@@ -273,7 +273,7 @@ Not yet. The config format groups profiles by provider so future support can fit
 
 The key difference is that `aweswitch` avoids global config mutation. Many switching tools work by changing the agent's shared API/model settings; that can make already-open agent sessions unreliable because the global API endpoint changed underneath them. `aweswitch` keeps profiles in its own JSON file and injects settings only when launching a new process, so each session keeps the API and model it started with.
 
-`aweswitch` currently takes a smaller Python-package approach: local JSON profiles, runtime-only Claude Code `--settings`, secret redaction for inspection commands, and provider grouping that leaves room for future agent support.
+`aweswitch` currently takes a smaller Python-package approach: local JSON profiles, runtime-only injection (Claude Code `--settings`, Codex `-c` flags and env vars), secret redaction for inspection commands, and provider grouping that leaves room for future agent support.
 
 ## Profile Rules
 
@@ -290,20 +290,7 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 - Set the model with `env.ANTHROPIC_MODEL`.
 - Token values can also expand from `~/.claude/settings.json` when they are missing from the shell.
 
-### Codex Profiles
-
-- Requires `OPENAI_BASE_URL` and `OPENAI_API_KEY` in `env`.
-- Base URL is injected via `-c model_providers.custom.base_url=...` (no file writes).
-- API key is injected via environment variable (no writes to `~/.codex/auth.json`).
-- Extra arguments are passed through to the `codex` CLI.
-
-## Claude Model Overrides
-
-For Claude profiles, `ANTHROPIC_MODEL` is the primary model setting.
-
-`ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_OPUS_MODEL` are not configured by default.
-
-If you want Claude Code to use a lighter model for lightweight or background tasks, add `ANTHROPIC_DEFAULT_HAIKU_MODEL` to the profile:
+`ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_OPUS_MODEL` are not configured by default. If you want Claude Code to use a lighter model for lightweight or background tasks, add `ANTHROPIC_DEFAULT_HAIKU_MODEL` to the profile:
 
 ```json
 {
@@ -324,9 +311,12 @@ If you want Claude Code to use a lighter model for lightweight or background tas
 
 This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `mimo-v2.5` for lighter work.
 
-## Codex Profiles
+### Codex Profiles
 
-For Codex profiles, `OPENAI_BASE_URL` and `OPENAI_API_KEY` are the two required fields:
+- Requires `OPENAI_BASE_URL` and `OPENAI_API_KEY` in `env`.
+- Base URL is injected via `-c model_providers.custom.base_url=...` (no file writes).
+- API key is injected via environment variable (no writes to `~/.codex/auth.json`).
+- Extra arguments are passed through to the `codex` CLI.
 
 ```json
 {
