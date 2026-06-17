@@ -2,6 +2,12 @@
 
 This document is for AI coding agents. Help the user install and configure `aweswitch`, an agent profile switcher for Claude Code and Codex.
 
+## Do Not Launch
+
+**Never run `aweswitch <profile-name>` inside this agent.** aweswitch launches an interactive agent (Claude Code or Codex) via `execvpe`, which would nest an agent inside an agent. Always tell the user to run it in their own terminal.
+
+You may run these read-only commands: `aweswitch list`, `aweswitch show <profile>`, `aweswitch config path`, `aweswitch config show`.
+
 ## Language Behavior
 
 - Reply in the user's language when possible.
@@ -92,9 +98,9 @@ The config file is at `~/.config/aweswitch/config.json` (override with `AWESWITC
 
 ### Adding a profile
 
-Use `aweswitch add` for interactive creation, or edit the config file directly.
+Edit the config file directly (do not run `aweswitch add` — it is interactive and would block the agent).
 
-When editing the config file:
+Steps:
 1. Read the current config first.
 2. Add the new profile under the appropriate provider key.
 3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
@@ -136,14 +142,32 @@ export AIHUBMIX_OPENAI_KEY="sk-..."
 
 ---
 
+## Step 5: Tell the user to launch
+
+After configuration is complete, tell the user to open a new terminal and run:
+
+```bash
+aweswitch <profile-name>
+```
+
+Do not run this command yourself.
+
+---
+
 ## Useful commands
+
+Read-only commands (safe to run in agent):
 
 ```bash
 aweswitch list                    # list all profiles (name, provider, model/url)
 aweswitch show <profile>          # show one profile with secrets redacted
 aweswitch config path             # print config file path
 aweswitch config show             # show full config with secrets redacted
-aweswitch config edit             # open config in $EDITOR
+```
+
+Launch commands (user must run in their own terminal):
+
+```bash
 aweswitch <profile>               # launch agent with profile
 aweswitch <profile> [extra args]  # pass extra args through to the agent
 ```
@@ -152,6 +176,7 @@ aweswitch <profile> [extra args]  # pass extra args through to the agent
 
 ## Safety Rules
 
+- **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
 - Read the existing config before modifying it. Do not overwrite profiles the user already has.
 - Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
 - When adding env vars to `~/.zshrc`, check for existing entries first to avoid duplicates.

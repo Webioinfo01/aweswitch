@@ -5,14 +5,23 @@ description: "Use when helping users manage aweswitch profiles — adding, editi
 
 # aweswitch
 
-Use `aweswitch` CLI directly. Edit config files only when the CLI cannot handle the task.
+This skill covers **configuring** aweswitch profiles. It does NOT launch profiles — see "Do Not Launch" below.
+
+## Do Not Launch
+
+**Never run `aweswitch <profile-name>` inside this agent.** aweswitch launches an interactive agent (Claude Code or Codex) via `execvpe`, which would nest an agent inside an agent. Always tell the user to run it in their own terminal.
+
+You may run these read-only commands:
+- `aweswitch list`
+- `aweswitch show <profile>`
+- `aweswitch config path`
+- `aweswitch config show`
 
 ## Intent Router
 
 | User intent | Domain | Approach |
 |---|---|---|
-| "Add a new profile", "add a codex provider" | Add Profile | Interactive: `aweswitch add`. Bulk/custom: edit config file. |
-| "Switch to profile X" | Launch | `aweswitch <profile-name>` |
+| "Add a new profile", "add a codex provider" | Add Profile | Edit config file. |
 | "List profiles", "what profiles do I have" | Browse | `aweswitch list` |
 | "Show profile X", "what's in profile X" | Inspect | `aweswitch show <profile>` |
 | "Edit profile X", "change the API key" | Edit | Edit config file directly. |
@@ -20,7 +29,7 @@ Use `aweswitch` CLI directly. Edit config files only when the CLI cannot handle 
 | "Set up API key for X" | Env Vars | Edit `~/.zshrc` or `~/.bashrc`. |
 | "Where is the config?" | Config Path | `aweswitch config path` |
 | "Show all config" | Config Show | `aweswitch config show` |
-| "Open config in editor" | Config Edit | `aweswitch config edit` |
+| "Switch to profile X", "launch profile X" | Launch | Tell user to run in their terminal. |
 
 ## Config Location
 
@@ -81,17 +90,9 @@ Never hardcode secrets. Always use `${VAR_NAME}` references.
 
 ## Workflows
 
-### Add a Profile (interactive)
+### Add a Profile
 
-```bash
-aweswitch add
-```
-
-Prompts for provider (claude/codex), profile name, and provider-specific fields.
-
-### Add a Profile (edit config)
-
-1. Read the config file: `cat ~/.config/aweswitch/config.json`
+1. Read the config file
 2. Add the new profile under the appropriate provider key (`claude` or `codex`)
 3. Use `${ENV_VAR_NAME}` for token values
 4. Ensure profile name is unique across all providers
@@ -148,13 +149,15 @@ aweswitch show <name>    # one profile, secrets redacted
 aweswitch config show    # full config, secrets redacted
 ```
 
-### Launch a Profile
+### Tell the User to Launch
+
+After configuration is done, tell the user to open a terminal and run:
 
 ```bash
-aweswitch <profile-name>                   # basic launch
-aweswitch <profile-name> --extra-arg       # pass args to agent
-aweswitch <profile-name> -c category -t title  # with aweshelf bookmark
+aweswitch <profile-name>
 ```
+
+Do not run this command yourself.
 
 ## Codex Limitations
 
@@ -162,10 +165,11 @@ Codex profiles only switch the API source (base URL + API key), not the model. C
 
 ## Core Rules
 
-1. Always read the config file before editing. Never overwrite existing profiles without checking.
-2. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
-3. Profile names must be unique across all provider groups. Check before adding.
-4. When editing `~/.zshrc`, check for existing entries to avoid duplicates.
-5. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
-6. If the config file does not exist, run `aweswitch config init` first.
-7. Do not run `config init` if the config already exists — it will error.
+1. **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
+2. Always read the config file before editing. Never overwrite existing profiles without checking.
+3. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
+4. Profile names must be unique across all provider groups. Check before adding.
+5. When editing `~/.zshrc`, check for existing entries to avoid duplicates.
+6. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
+7. If the config file does not exist, run `aweswitch config init` first.
+8. Do not run `config init` if the config already exists — it will error.
