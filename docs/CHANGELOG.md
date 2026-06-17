@@ -1,5 +1,26 @@
 # change log
 
+## v0.1.9
+
+`v0.1.9` adds Codex as a supported provider alongside Claude Code, and ships an AI guide and skill for aweswitch.
+
+### Codex provider support
+
+Profiles can now target OpenAI Codex. Set `"provider": "codex"` on a profile (or select "codex" in `aweswitch add`) and provide `OPENAI_BASE_URL` and `OPENAI_API_KEY`. aweswitch launches `codex` with the base URL, wire API, and auth injected via `-c` flags and environment variables. The default config includes a `codex-openai` example profile.
+
+### AI guide and skill
+
+A new `README.ai.md` documents how to use aweswitch from AI agents. A bundled skill file (`resources/skills/aweswitch/SKILL.md`) lets AI assistants discover and invoke aweswitch directly.
+
+### Highlights
+
+- Added Codex provider with `OPENAI_BASE_URL` / `OPENAI_API_KEY` support
+- `aweswitch add` now prompts for provider (claude or codex) before profile fields
+- Default config includes `codex-openai` example profile
+- Added `README.ai.md` for AI agent integration
+- Added bundled aweswitch skill for AI assistants
+- Clarified Codex profile behavior in both READMEs
+
 ## v0.1.8
 
 `v0.1.8` adds a self-update command and background update checking.
