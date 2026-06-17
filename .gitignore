@@ -7,3 +7,4 @@ dist/
 *.egg-info/
 *.lock
 /docs/media/0609/aweswitch-run-multiple-agent-endpoints-without-breaking-sessions-zh-CN
+/docs/media/0617/aweswitch-v018-self-update-auto-bookmark-zh-CN
