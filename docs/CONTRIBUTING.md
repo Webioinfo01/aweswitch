@@ -65,6 +65,11 @@ The stable config shape is:
       "profile-name": {
         "env": {}
       }
+    },
+    "codex": {
+      "profile-name": {
+        "env": {}
+      }
     }
   }
 }
@@ -72,13 +77,13 @@ The stable config shape is:
 
 Current rules:
 
-- `claude` is the only executable provider.
+- `claude` and `codex` are executable providers.
 - `profiles` must be a JSON object.
 - Each provider group under `profiles` must be a JSON object.
 - Each profile must be a JSON object.
 - Profile `env` values must be JSON objects when present.
 - Profile names must be unique across provider groups.
-- Claude profiles are passed through runtime `--settings`.
+- Claude profiles are passed through runtime `--settings`; Codex profiles use `-c` flags and env vars.
 - Environment references use `${VAR_NAME}`.
 - Shell environment values take precedence over values loaded from `~/.claude/settings.json`.
 - Invalid `~/.claude/settings.json` content is ignored by the current implementation. If a profile depends on values from that file, expect the later `${VAR_NAME}` expansion error to surface the missing variable.

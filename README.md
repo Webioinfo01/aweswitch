@@ -362,38 +362,7 @@ aweswitch add
 
 ## Development
 
-Run the test suite:
-
-```bash
-python3 tests/test_aweswitch.py
-```
-
-Run the syntax check:
-
-```bash
-python3 -m py_compile src/aweswitch/cli.py tests/test_aweswitch.py
-```
-
-Install the local checkout in editable mode:
-
-```bash
-pip3 install -e .
-```
-
-Build a local package:
-
-```bash
-pip3 install build
-python3 -m build
-```
-
-Install a built wheel locally:
-
-```bash
-pip3 install dist/aweswitch-0.1.9-py3-none-any.whl
-```
-
-Project docs:
+See [Contributing](./docs/CONTRIBUTING.md) for setup, testing, branching, and release workflow.
 
 - [Contributing](./docs/CONTRIBUTING.md)
 - [Changelog](./docs/CHANGELOG.md)

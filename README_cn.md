@@ -362,38 +362,7 @@ aweswitch add
 
 ## 开发
 
-运行测试：
-
-```bash
-python3 tests/test_aweswitch.py
-```
-
-运行语法检查：
-
-```bash
-python3 -m py_compile src/aweswitch/cli.py tests/test_aweswitch.py
-```
-
-安装当前仓库的 editable 版本：
-
-```bash
-pip3 install -e .
-```
-
-构建本地安装包：
-
-```bash
-pip3 install build
-python3 -m build
-```
-
-本地安装构建出的 wheel：
-
-```bash
-pip3 install dist/aweswitch-0.1.5-py3-none-any.whl
-```
-
-项目文档：
+详见 [贡献指南](./docs/CONTRIBUTING.md)，包含环境搭建、测试、分支规范和发布流程。
 
 - [贡献指南](./docs/CONTRIBUTING.md)
 - [更新日志](./docs/CHANGELOG.md)
