@@ -30,15 +30,28 @@
 
 It is intentionally small. Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
 
-## Powered by aweswitch
+## Support Tools
 
+aweswitch is powered by two companion tools:
+
+- **[aweskill](https://github.com/Webioinfo01/aweskill)** — CLI skill package manager for AI agents. Handles skill installation, updates, and projection across 47+ coding agents.
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Session bookmark manager for Claude Code and Codex. Bookmark, categorize, and restore sessions with aweswitch profiles.
 
 aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later.
 
-> **Known issue**: launching multiple `aweswitch -c` sessions at the same time in the same project may bookmark the wrong session. Sequential launches are safe. See [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition) for why.
-
 ## Install
+
+### Let AI agent install
+
+If you are working in Claude Code, Codex, Cursor, or other coding agents, tell it:
+
+```text
+Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
+```
+
+The agent will install the `aweswitch` CLI, set up config, and help you add profiles. For ongoing profile management, it can also install the aweswitch skill via [aweskill](https://aweskill.webioinfo.top/).
+
+### pip
 
 Install from PyPI:
 

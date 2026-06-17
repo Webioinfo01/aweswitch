@@ -30,15 +30,28 @@
 
 它刻意保持小而直接。项目定位是 agent profile switcher，目前支持 Claude Code 和 Codex profile。配置格式为以后加入 Hermes 预留了 provider 分组，但 Hermes 现在还不能执行。
 
-## Powered by aweswitch
+## 支持工具
 
+aweswitch 由两个配套工具驱动：
+
+- **[aweskill](https://github.com/Webioinfo01/aweskill)** — 面向 AI agent 的 CLI skill 包管理器。负责 skill 的安装、更新和投影，支持 47+ 编程 agent。
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Claude Code 和 Codex 的会话 bookmark 管理器。可以保存、分类和恢复会话，支持 aweswitch profile。
 
 aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。
 
-> **已知问题**：在同一项目目录下同时启动多个 `aweswitch -c` 会话可能 bookmark 到错误的会话。顺序启动是安全的。原因详见 [CONTRIBUTING.md](./docs/CONTRIBUTING.md#known-limitation-concurrent-launch-race-condition)。
-
 ## 安装
+
+### 让 AI agent 安装
+
+如果你在 Claude Code、Codex、Cursor 等 coding agent 中工作，直接告诉它：
+
+```text
+Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
+```
+
+Agent 会安装 `aweswitch` CLI、初始化配置，并帮你添加 profile。后续 profile 管理也可以通过 [aweskill](https://aweskill.webioinfo.top/) 安装 aweswitch skill。
+
+### pip
 
 从 PyPI 安装：
 
@@ -214,7 +227,7 @@ aweswitch cc-glm -c backend -t "Fix auth bug"
 pip3 install aweshelf
 ```
 
-### aweshelf 独立使用
+
 
 即使不使用 aweswitch 的 `-c`/`-t` 参数，aweshelf 也可以独立使用：
 

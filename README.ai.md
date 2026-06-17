@@ -186,6 +186,124 @@ aweswitch <profile> [extra args]  # pass extra args through to the agent
 
 ---
 
+## Step 6: Install aweswitch skill (optional)
+
+For ongoing profile management, install the aweswitch skill so the agent can help edit config and env vars in future sessions. Choose one of the following options.
+
+### Option A: Via aweskill (recommended if aweskill is available)
+
+Use this option if the user already has aweskill installed, or is willing to install it. This gives full skill management — install, update, projection, backup.
+
+#### Prerequisites
+
+- Node.js >= 20 (`node --version`) — required by aweskill
+- npm available (`npm --version`)
+
+If Node.js is missing, tell the user to install it from https://nodejs.org/.
+
+#### Steps
+
+##### A1. Install aweskill (if not already installed)
+
+```bash
+npm install -g aweskill
+```
+
+##### A2. Initialize the aweskill central store (if not already done)
+
+```bash
+aweskill store init
+```
+
+##### A3. Install aweswitch skill from GitHub
+
+```bash
+aweskill install mugpeng/aweswitch
+```
+
+##### A4. Identify the current agent
+
+```bash
+aweskill agent supported
+```
+
+Look for lines marked with `✓`. Common agent ids: `claude-code`, `cursor`, `codex`, `gemini-cli`, `windsurf`, `opencode`, `qwen-code`.
+
+If you cannot determine the agent id, ask the user.
+
+##### A5. Project aweswitch skill to this agent
+
+```bash
+aweskill agent add skill aweswitch --global --agent <agent-id>
+```
+
+##### A6. Verify
+
+```bash
+aweskill agent list --global --agent <agent-id>
+```
+
+Expected: `aweswitch` shows as `linked`.
+
+---
+
+### Option B: Direct copy (no aweskill needed)
+
+Use this option if the user does not have aweskill and does not want to install Node.js. This copies the SKILL.md file directly into the agent's skill directory.
+
+#### Prerequisites
+
+- `curl` or `wget` available
+
+#### Steps
+
+##### B1. Identify the current agent's skill directory
+
+Determine which agent is running and its global skill directory:
+
+| Agent | Skill directory |
+|---|---|
+| Claude Code | `~/.claude/skills/aweswitch/` |
+| Codex | `~/.codex/skills/aweswitch/` |
+| Cursor | `.cursor/skills/aweswitch/` (project-level) |
+| Gemini CLI | `~/.gemini/skills/aweswitch/` |
+| Windsurf | `~/.windsurf/skills/aweswitch/` |
+| OpenCode | `~/.opencode/skills/aweswitch/` |
+| Qwen Code | `~/.qwen/skills/aweswitch/` |
+
+If the agent is not in this list, ask the user where to place the skill file.
+
+##### B2. Download and place SKILL.md
+
+```bash
+mkdir -p <skill-directory>
+curl -fsSL https://raw.githubusercontent.com/mugpeng/aweswitch/main/resources/skills/aweswitch/SKILL.md -o <skill-directory>/SKILL.md
+```
+
+Replace `<skill-directory>` with the path from step B1.
+
+---
+
+## Final Step
+
+After setup, tell the user to invoke skills (`/` in Claude Code, `$` in Codex, or the equivalent in other agents) and check if `aweswitch` appears in the list. If it does, the skill is ready to use immediately. If not, the user should restart the agent.
+
+> aweswitch is installed and configured. Invoke skills (type `/` or `$` depending on your agent) and look for `aweswitch` — if it appears, you're good to go. If not, restart the agent. Then you can ask me things like:
+>
+> - "Add a new codex profile for AiHubMix."
+> - "Show my aweswitch config."
+> - "Set up OPENAI_API_KEY in my zshrc."
+
+If the user is speaking Chinese, use this version instead:
+
+> aweswitch 已安装并配置完成。请调用 skills（输入 `/` 或 `$`，取决于你的 agent），看看列表中是否出现了 `aweswitch`。如果出现了，说明已就绪可以直接使用。如果没有，请重启 agent 后再试。然后你可以继续问我，例如：
+>
+> - "添加一个 AiHubMix 的 codex profile。"
+> - "看看我的 aweswitch 配置。"
+> - "在 zshrc 里配置 OPENAI_API_KEY。"
+
+---
+
 ## Next Steps
 
 ### aweshelf — session bookmarking
@@ -197,13 +315,3 @@ If the user agrees, read the aweshelf AI install guide:
 ```
 https://github.com/Webioinfo01/aweshelf/blob/main/README.ai.md
 ```
-
-### aweswitch skill
-
-If the agent supports skills, install the aweswitch skill for ongoing profile management. The skill file is at:
-
-```
-resources/skills/aweswitch/SKILL.md
-```
-
-Install it to the agent's skill directory (e.g. `~/.claude/skills/aweswitch/SKILL.md` for Claude Code).
