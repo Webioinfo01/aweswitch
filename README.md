@@ -9,7 +9,7 @@
     <a href="https://we.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.2.0-7C3AED?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.1-7C3AED?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/python-%E2%89%A53.9-0EA5E9?style=flat-square" alt="Python">
     <img src="https://img.shields.io/badge/license-MPL--2.0-22C55E?style=flat-square" alt="License">
   </p>
@@ -191,7 +191,7 @@ Install the aweswitch skill (see [Install](#install) above), then tell your agen
 
 > "Change the model in cc-glm to glm-5.1-air."
 
-The agent uses the [SKILL.md](.aweskill/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
+The agent uses the [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
 
 > **Note:** the skill only edits config and shell environment variables — it will not launch the profile inside the agent. Run it in your own terminal:
 > ```bash

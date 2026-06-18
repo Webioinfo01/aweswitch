@@ -9,7 +9,7 @@
     <a href="https://we.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.2.0-7C3AED?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.1-7C3AED?style=flat-square" alt="Version">
     <img src="https://img.shields.io/badge/python-%E2%89%A53.9-0EA5E9?style=flat-square" alt="Python">
     <img src="https://img.shields.io/badge/license-MPL--2.0-22C55E?style=flat-square" alt="License">
   </p>
@@ -191,7 +191,7 @@ aweswitch config edit
 
 > "把 cc-glm 的 model 改成 glm-5.1-air。"
 
-Agent 通过 [SKILL.md](.aweskill/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
+Agent 通过 [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
 
 > **注意：** skill 只负责修改配置和环境变量，不会在 agent 内部启动 profile。要启动 profile，在你自己的终端运行：
 > ```bash

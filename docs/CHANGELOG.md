@@ -1,5 +1,22 @@
 # change log
 
+## v0.2.1
+
+`v0.2.1` improves the missing-environment-variable error message and fixes README skill references.
+
+### Better error messages
+
+When a profile references an environment variable that is not set, aweswitch now prints a clear hint telling the user to add it to their shell config and reload — instead of a bare "missing environment variable" message. The hint is cross-platform and does not hardcode any specific shell or rc file.
+
+### Docs fixes
+
+Updated README skill references to point to the GitHub-hosted `SKILL.md` instead of a local `.aweskill` path, so the link works for all users.
+
+### Highlights
+
+- Improved missing env var error message with actionable reload hint
+- Fixed `SKILL.md` links in README.md and README_cn.md to use GitHub URL
+
 ## v0.2.0
 
 `v0.2.0` makes aweswitch fully cross-platform. Windows users can now launch profiles without hitting Unix-only system calls.

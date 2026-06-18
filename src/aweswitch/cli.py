@@ -99,7 +99,10 @@ def expand_value(value, env):
     def replace(match):
         name = match.group(1)
         if name not in env:
-            die(f"missing environment variable: {name}")
+            die(
+                f"required environment variable not set: {name}\n"
+                f"  Add it to your shell config (e.g. ~/.zshrc or ~/.bashrc), then reload your shell."
+            )
         return env[name]
 
     return ENV_REF_RE.sub(replace, value)
