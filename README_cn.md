@@ -15,8 +15,7 @@
   </p>
   <p>
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/provider-Claude_Code-7C3AED?style=flat-square" alt="Claude Code">
-    <img src="https://img.shields.io/badge/provider-Codex-10B981?style=flat-square" alt="Codex">
+    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
