@@ -177,6 +177,63 @@ aweswitch config show
 aweswitch config edit
 ```
 
+## 使用
+
+### AI Agent
+
+安装 aweswitch skill（见上方[安装](#安装)），然后直接告诉你的 agent 做什么。
+
+**你可以这样告诉你的 agent：**
+
+> "用 aweswitch skill 添加一个 Claude profile，名字 cc-glm，base URL https://open.bigmodel.cn/api/anthropic，model glm-5.1，token 从环境变量 GLM_ANTHROPIC_AUTH_TOKEN 取。"
+
+> "列出所有 aweswitch profile。"
+
+> "把 cc-glm 的 model 改成 glm-5.1-air。"
+
+Agent 通过 [SKILL.md](.aweskill/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
+
+> **注意：** skill 只负责修改配置和环境变量，不会在 agent 内部启动 profile。要启动 profile，在你自己的终端运行：
+> ```bash
+> aweswitch cc-glm
+> ```
+
+### 人类使用
+
+交互式添加 profile：
+
+```bash
+aweswitch add
+```
+
+依次选择 provider（claude 或 codex）、输入 profile 名称和对应字段。
+
+常用命令：
+
+```bash
+aweswitch list                        # 列出所有 profile
+aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
+aweswitch config show                 # 查看完整配置（密钥已脱敏）
+aweswitch config edit                 # 编辑配置文件
+aweswitch cc-glm                      # 启动 Claude Code profile
+aweswitch cx-openai                   # 启动 Codex profile
+```
+
+启动时传递额外参数：
+
+```bash
+aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
+```
+
+配合 [aweshelf](https://github.com/Webioinfo01/aweshelf) 自动 bookmark：
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+详见 [aweshelf 集成](#aweshelf-集成)。
+
 ## 自动更新
 
 aweswitch 每次运行时会在后台检查 PyPI 是否有新版本。如果有更新，会在会话结束后在 stderr 输出提醒。

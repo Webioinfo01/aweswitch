@@ -177,6 +177,63 @@ aweswitch config show
 aweswitch config edit
 ```
 
+## Usage
+
+### AI Agent
+
+Install the aweswitch skill (see [Install](#install) above), then tell your agent what to do in plain language.
+
+**Examples of what you can say:**
+
+> "Use the aweswitch skill to add a Claude profile named cc-glm with base URL https://open.bigmodel.cn/api/anthropic, model glm-5.1, and token from env var GLM_ANTHROPIC_AUTH_TOKEN."
+
+> "List all aweswitch profiles."
+
+> "Change the model in cc-glm to glm-5.1-air."
+
+The agent uses the [SKILL.md](.aweskill/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
+
+> **Note:** the skill only edits config and shell environment variables — it will not launch the profile inside the agent. Run it in your own terminal:
+> ```bash
+> aweswitch cc-glm
+> ```
+
+### Human usage
+
+Add a profile interactively:
+
+```bash
+aweswitch add
+```
+
+It prompts for provider (claude or codex), profile name, and provider-specific fields.
+
+Common commands:
+
+```bash
+aweswitch list                        # list all profiles
+aweswitch show cc-glm                 # inspect one profile (secrets redacted)
+aweswitch config show                 # full config (secrets redacted)
+aweswitch config edit                 # open config in editor
+aweswitch cc-glm                      # launch Claude Code profile
+aweswitch cx-openai                   # launch Codex profile
+```
+
+Pass extra arguments through to the agent:
+
+```bash
+aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
+```
+
+Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
+
+```bash
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+See [aweshelf Integration](#aweshelf-integration) for details.
+
 ## Self-Update
 
 aweswitch checks PyPI for newer versions in the background on each run. If an update is available, a reminder is printed to stderr after the session ends.
