@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -126,7 +127,8 @@ def profile_for(config, name):
 
 def write_settings_file(data):
     fd, path = tempfile.mkstemp(prefix="aweswitch-settings-", suffix=".json")
-    os.chmod(path, 0o600)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(data, f)
     return Path(path)
@@ -225,29 +227,14 @@ def command_show(config, name):
 
 
 def editor_argv(editor, path):
-    return [*shlex.split(editor), str(path)]
+    return [*shlex.split(editor, posix=(os.name != "nt")), str(path)]
 
 
 CLAUDE_PROJECTS_DIR = Path("~/.claude/projects").expanduser()
 
 
-def _auto_bookmark(category, profile, title=None):
-    """Fork a child process to auto-bookmark the session after Claude creates it."""
-    start_time = time.time()
-    try:
-        pid = os.fork()
-    except OSError:
-        return
-
-    if pid != 0:
-        # Parent: collect finished children, continue to exec claude
-        try:
-            os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            pass
-        return
-
-    # --- child process ---
+def _bookmark_worker(start_time, category, profile, title):
+    """Background thread: poll for a new session file and bookmark it."""
     try:
         aweshelf_bin = shutil.which("aweshelf")
         if not aweshelf_bin:
@@ -278,17 +265,34 @@ def _auto_bookmark(category, profile, title=None):
                 return
     except Exception:
         pass
-    finally:
-        os._exit(0)
+
+
+def _auto_bookmark(category, profile, title=None):
+    """Spawn a daemon thread to auto-bookmark the session after Claude creates it."""
+    t = threading.Thread(
+        target=_bookmark_worker,
+        args=(time.time(), category, profile, title),
+        daemon=True,
+    )
+    t.start()
 
 
 def exec_agent(argv, env):
-    try:
-        os.execvpe(argv[0], argv, env)
-    except FileNotFoundError:
-        die(f"command not found: {argv[0]}")
-    except OSError as exc:
-        die(f"failed to run {argv[0]}: {exc}")
+    if os.name == "nt":
+        try:
+            result = subprocess.run(argv, env=env)
+            sys.exit(result.returncode)
+        except FileNotFoundError:
+            die(f"command not found: {argv[0]}")
+        except OSError as exc:
+            die(f"failed to run {argv[0]}: {exc}")
+    else:
+        try:
+            os.execvpe(argv[0], argv, env)
+        except FileNotFoundError:
+            die(f"command not found: {argv[0]}")
+        except OSError as exc:
+            die(f"failed to run {argv[0]}: {exc}")
 
 
 def save_profile(path, name, env_vars, provider="claude"):
@@ -321,7 +325,11 @@ def command_config(argv):
         if not editor:
             die(f"no EDITOR set; edit config manually: {path}")
         argv = editor_argv(editor, path)
-        os.execvp(argv[0], argv)
+        if os.name == "nt":
+            result = subprocess.run(argv)
+            sys.exit(result.returncode)
+        else:
+            os.execvp(argv[0], argv)
     else:
         die(f"unknown config command: {subcommand}")
 
