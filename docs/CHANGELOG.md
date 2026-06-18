@@ -1,5 +1,22 @@
 # change log
 
+## v0.1.10
+
+`v0.1.10` makes aweswitch fully cross-platform. Windows users can now launch profiles without hitting Unix-only system calls.
+
+### Cross-platform support
+
+Four Unix-specific calls were replaced with portable alternatives. `os.fork()` (used for auto-bookmark background polling) is now a `threading.Thread`. `os.execvpe()` / `os.execvp()` (used to hand off to `claude` or `codex`) fall back to `subprocess.run()` on Windows. `os.chmod(0o600)` is skipped on Windows where it has no effect. `shlex.split()` uses `posix=False` on Windows to preserve backslash paths.
+
+### Highlights
+
+- Replaced `os.fork()` with `threading.Thread` for auto-bookmark
+- `exec_agent` uses `subprocess.run` on Windows instead of `os.execvpe`
+- `config edit` uses `subprocess.run` on Windows instead of `os.execvp`
+- Skipped `os.chmod(0o600)` on Windows
+- `editor_argv` uses `posix=False` on Windows for correct path splitting
+- CI already covers `windows-latest` with Python 3.9 and 3.13
+
 ## v0.1.9
 
 `v0.1.9` adds Codex as a supported provider alongside Claude Code, and ships an AI guide and skill for aweswitch.
