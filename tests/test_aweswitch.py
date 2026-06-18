@@ -471,7 +471,7 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(redacted["profiles"]["x"]["env"]["OPENAI_BASE_URL"], "https://example.test")
 
     def test_expand_env_errors_on_missing_variable(self):
-        with self.assertRaisesRegex(SystemExit, "missing environment variable"):
+        with self.assertRaisesRegex(SystemExit, "required environment variable not set"):
             aweswitch.expand_value("${MISSING_ENV}", {})
 
     def test_editor_argv_splits_editor_with_flags(self):
