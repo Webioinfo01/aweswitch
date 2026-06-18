@@ -1,8 +1,8 @@
 # change log
 
-## v0.1.10
+## v0.2.0
 
-`v0.1.10` makes aweswitch fully cross-platform. Windows users can now launch profiles without hitting Unix-only system calls.
+`v0.2.0` makes aweswitch fully cross-platform. Windows users can now launch profiles without hitting Unix-only system calls.
 
 ### Cross-platform support
 
