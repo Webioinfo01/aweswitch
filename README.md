@@ -207,6 +207,8 @@ aweswitch config show
 aweswitch config edit
 ```
 
+For agent-side profile management, install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) via [aweskill](https://aweskill.webioinfo.top/).
+
 ### Launch mode — isolated sessions
 
 Each invocation starts a new agent session with its own env. Different terminals can run different profiles at the same time.

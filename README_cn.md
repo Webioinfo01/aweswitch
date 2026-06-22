@@ -129,6 +129,8 @@ aweswitch list
 aweswitch show cc-glm
 ```
 
+> 更多功能：通过 [aweskill](https://aweskill.webioinfo.top/) 安装 [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md)，让 agent 帮你管理 profiles。
+
 ### 启动模式 — 隔离会话
 
 每次调用启动一个带独立 env 的新 agent 会话。不同终端可以同时跑不同 profile。
