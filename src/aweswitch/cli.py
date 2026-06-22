@@ -502,11 +502,13 @@ def _mask_value(key, value):
 
 @cli.command("apply")
 @click.argument("profile")
-def apply_command(profile):
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
+def apply_command(profile, force):
     """Write a Claude profile's env into ~/.claude/settings.json.
 
     This overwrites the env section in your Claude settings so the profile
-    takes effect in new sessions or via /model. A backup is saved first.
+    takes effect in new sessions or via /model. A backup is saved on first
+    apply; use --force to overwrite an existing backup.
     """
     config = load_config(config_path())
     provider, _ = profile_for(config, profile)
@@ -524,10 +526,16 @@ def apply_command(profile):
 
     expanded_env = build_claude_env(config, profile)
 
-    # Backup
+    # Backup: only on first apply, or when --force is used.
     backup_path = settings_path.with_suffix(".json.bak")
+    backed_up = False
     if settings_path.exists():
-        shutil.copy2(settings_path, backup_path)
+        if not backup_path.exists():
+            shutil.copy2(settings_path, backup_path)
+            backed_up = True
+        elif force:
+            shutil.copy2(settings_path, backup_path)
+            backed_up = True
 
     settings_data["env"] = {**settings_data.get("env", {}), **expanded_env}
     settings_path.write_text(json.dumps(settings_data, indent=2) + "\n")
@@ -535,8 +543,10 @@ def apply_command(profile):
     click.echo(f"Applied {profile} to {settings_path}")
     for key, value in sorted(expanded_env.items()):
         click.echo(f"  {key:42s} → {_mask_value(key, value)}")
-    if backup_path.exists():
+    if backed_up:
         click.echo(f"Backup: {backup_path}")
+    elif backup_path.exists():
+        click.echo(f"Note: backup already exists, not overwritten. Use --force to overwrite.")
     click.echo("Restart your session or use /model to pick the new model.")
 
 
