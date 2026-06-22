@@ -5,48 +5,37 @@ description: "Use when helping users manage aweswitch profiles — adding, editi
 
 # aweswitch
 
-This skill covers **configuring** aweswitch profiles. It does NOT launch profiles — see "Do Not Launch" below.
-
-## Two Modes
-
-aweswitch has two ways to switch profiles. Help the user choose the right one.
-
-### Launch mode — `aweswitch <profile>`
-
-- Creates a temp `--settings` file, launches a new claude session with isolated env.
-- Each session has its own API endpoint, token, and model — independent of settings.json.
-- Can run multiple profiles in different terminals simultaneously.
-- Env is frozen at launch; to switch profile, exit and re-launch.
-- User must run this in their own terminal (never inside the agent).
-
-### Apply mode — `aweswitch apply <profile>`
-
-- Writes profile env directly to `~/.claude/settings.json`.
-- User starts `claude` normally (or restarts current session).
-- Can use `/model` within the session to switch between models.
-- All new sessions share the same settings.json until re-applied.
-- Only one profile can be active at a time.
-
-### When to recommend which
-
-| Scenario | Recommend |
-|---|---|
-| User wants to run multiple profiles side by side | Launch |
-| User wants to switch models within a session via `/model` | Apply |
-| User wants to try a different API quickly | Launch |
-| User wants a persistent default profile | Apply |
-| User asks "how do I switch without restarting" | Apply |
-| User asks "how do I use two APIs at the same time" | Launch |
-
-### Important: modes don't interact
-
-- `aweswitch cc-glm` does NOT read or modify settings.json.
-- `aweswitch apply cc-glm` does NOT affect running sessions.
-- Applying a new profile does not change the env of a session started with `aweswitch <profile>`.
+This skill covers **configuring** aweswitch profiles and applying them to settings.
 
 ## Do Not Launch
 
-**Never run `aweswitch <profile-name>` inside this agent.** aweswitch launches an interactive agent (Claude Code or Codex) via `execvpe`, which would nest an agent inside an agent. Always tell the user to run it in their own terminal.
+**Never run `aweswitch <profile-name>` inside this agent.** It launches an interactive agent via `execvpe`, which would nest an agent inside an agent. If the user wants to launch a profile, tell them to run it in their own terminal.
+
+## Two Modes
+
+aweswitch has two ways to switch profiles. This agent can only help with **Apply mode**.
+
+### Launch mode — `aweswitch <profile>` (user only, not for this agent)
+
+Launches a new session with isolated env. Each session is independent. User runs this themselves in a terminal. **Do not run or suggest running this inside the agent.**
+
+### Apply mode — `aweswitch apply <profile>` (this agent can do this)
+
+Writes profile env to `~/.claude/settings.json`. User restarts the session or uses `/model` to pick the new model. Only one profile can be active at a time. Use `aweswitch restore` to undo.
+
+### When to recommend which
+
+| User wants... | Recommend | Agent role |
+|---|---|---|
+| Switch models within a session via `/model` | Apply | Run `aweswitch apply` directly |
+| A persistent default profile | Apply | Run `aweswitch apply` directly |
+| Run multiple profiles side by side | Launch | Tell user to run in their terminal |
+| Try a different API quickly | Launch | Tell user to run in their terminal |
+
+### Modes don't interact
+
+- `aweswitch <profile>` does NOT read or modify settings.json.
+- `aweswitch apply <profile>` does NOT affect running sessions.
 
 You may run these read-only commands:
 - `aweswitch list`
@@ -195,33 +184,23 @@ aweswitch show <name>    # one profile, secrets redacted
 aweswitch config show    # full config, secrets redacted
 ```
 
-### Tell the User to Switch Profiles
+### Apply a Profile
 
-After configuration is done, ask the user which mode they prefer:
-
-**Option A — Launch mode** (isolated sessions, run multiple profiles side by side):
-
-Tell the user to open a terminal and run:
-
-```bash
-aweswitch <profile-name>
-```
-
-Do not run this command yourself.
-
-**Option B — Apply mode** (persistent default, use `/model` to switch within session):
+After configuration is done, apply the profile for the user:
 
 ```bash
 aweswitch apply <profile-name>
 ```
 
-Then restart the session or use `/model` to pick the new model.
+Then tell the user to restart their session or use `/model` to pick the new model.
 
 To undo:
 
 ```bash
 aweswitch restore
 ```
+
+If the user wants to run multiple profiles in separate terminals instead, tell them to run `aweswitch <profile-name>` in their own terminal. Do not run it yourself.
 
 ## Codex Limitations
 
@@ -230,10 +209,11 @@ Codex profiles only switch the API source (base URL + API key), not the model. C
 ## Core Rules
 
 1. **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
-2. Always read the config file before editing. Never overwrite existing profiles without checking.
-3. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
-4. Profile names must be unique across all provider groups. Check before adding.
-5. When editing `~/.zshrc`, check for existing entries to avoid duplicates.
-6. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
-7. If the config file does not exist, run `aweswitch config init` first.
-8. Do not run `config init` if the config already exists — it will error.
+2. **Default to apply mode.** Run `aweswitch apply <profile>` for the user. Only mention launch mode if they specifically need multiple simultaneous sessions.
+3. Always read the config file before editing. Never overwrite existing profiles without checking.
+4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
+5. Profile names must be unique across all provider groups. Check before adding.
+6. When editing `~/.zshrc`, check for existing entries to avoid duplicates.
+7. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
+8. If the config file does not exist, run `aweswitch config init` first.
+9. Do not run `config init` if the config already exists — it will error.
