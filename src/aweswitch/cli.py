@@ -137,6 +137,30 @@ def write_settings_file(data):
     return Path(path)
 
 
+def build_claude_env(config, profile_name, base_env=None, claude_settings_env=None):
+    """Build expanded env dict for a Claude profile, including _NAME variants."""
+    base_env = dict(os.environ if base_env is None else base_env)
+    provider, profile = profile_for(config, profile_name)
+    if provider != "claude":
+        die(f"only claude profiles are supported, got: {provider}")
+    profile_env = profile.get("env", {})
+    settings_env = load_claude_settings_env() if claude_settings_env is None else claude_settings_env
+    expansion_env = {**settings_env, **base_env}
+    result = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
+    # ANTHROPIC_MODEL populates OPUS tier when not explicitly set.
+    if "ANTHROPIC_MODEL" in result and "ANTHROPIC_DEFAULT_OPUS_MODEL" not in result:
+        result["ANTHROPIC_DEFAULT_OPUS_MODEL"] = result["ANTHROPIC_MODEL"]
+    # Ensure _NAME variants are set so Claude Code /model picker shows
+    # the correct label instead of a stale value from base settings.
+    for suffix in ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL"):
+        name_key = f"{suffix}_NAME"
+        if suffix in result and name_key not in result:
+            result[name_key] = result[suffix]
+        elif suffix not in result:
+            result[name_key] = "Not set"
+    return result
+
+
 def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None):
     base_env = dict(os.environ if base_env is None else base_env)
     provider, profile = profile_for(config, profile_name)
@@ -149,18 +173,7 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
 
     if provider == "claude":
         argv = ["claude"]
-        settings_env = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
-        # ANTHROPIC_MODEL populates OPUS tier when not explicitly set.
-        if "ANTHROPIC_MODEL" in settings_env and "ANTHROPIC_DEFAULT_OPUS_MODEL" not in settings_env:
-            settings_env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = settings_env["ANTHROPIC_MODEL"]
-        # Ensure _NAME variants are set so Claude Code /model picker shows
-        # the correct label instead of a stale value from base settings.
-        for suffix in ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL"):
-            name_key = f"{suffix}_NAME"
-            if suffix in settings_env and name_key not in settings_env:
-                settings_env[name_key] = settings_env[suffix]
-            elif suffix not in settings_env:
-                settings_env[name_key] = "Not set"
+        settings_env = build_claude_env(config, profile_name, base_env, claude_settings_env)
         if settings_env:
             settings_path = write_settings_file({"env": settings_env})
             argv += ["--settings", str(settings_path)]
@@ -476,6 +489,67 @@ def add_command():
     save_profile(path, name, env_vars, provider=provider)
     click.echo(f"Profile '{name}' added.")
 
+
+
+def _mask_value(key, value):
+    """Mask values that look like secrets for display."""
+    if not isinstance(value, str):
+        return value
+    if SECRET_RE.search(key) and len(value) > 8:
+        return value[:4] + "***"
+    return value
+
+
+@cli.command("apply")
+@click.argument("profile")
+def apply_command(profile):
+    """Write a Claude profile's env into ~/.claude/settings.json.
+
+    This overwrites the env section in your Claude settings so the profile
+    takes effect in new sessions or via /model. A backup is saved first.
+    """
+    config = load_config(config_path())
+    provider, _ = profile_for(config, profile)
+    if provider != "claude":
+        die(f"apply only supports claude profiles, got: {provider}")
+
+    settings_path = claude_settings_path()
+    if settings_path.exists():
+        try:
+            settings_data = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            die(f"invalid JSON in {settings_path}")
+    else:
+        settings_data = {}
+
+    expanded_env = build_claude_env(config, profile)
+
+    # Backup
+    backup_path = settings_path.with_suffix(".json.bak")
+    if settings_path.exists():
+        shutil.copy2(settings_path, backup_path)
+
+    settings_data["env"] = {**settings_data.get("env", {}), **expanded_env}
+    settings_path.write_text(json.dumps(settings_data, indent=2) + "\n")
+
+    click.echo(f"Applied {profile} to {settings_path}")
+    for key, value in sorted(expanded_env.items()):
+        click.echo(f"  {key:42s} → {_mask_value(key, value)}")
+    if backup_path.exists():
+        click.echo(f"Backup: {backup_path}")
+    click.echo("Restart your session or use /model to pick the new model.")
+
+
+@cli.command("restore")
+def restore_command():
+    """Restore ~/.claude/settings.json from backup."""
+    settings_path = claude_settings_path()
+    backup_path = settings_path.with_suffix(".json.bak")
+    if not backup_path.exists():
+        die(f"no backup found: {backup_path}")
+    shutil.copy2(backup_path, settings_path)
+    click.echo(f"Restored {settings_path} from backup.")
+    click.echo("Restart your session for changes to take effect.")
 
 
 @click.command(

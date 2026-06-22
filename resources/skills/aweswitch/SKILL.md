@@ -17,6 +17,10 @@ You may run these read-only commands:
 - `aweswitch config path`
 - `aweswitch config show`
 
+You may also run these commands (they modify files but are non-interactive):
+- `aweswitch apply <profile>` — write profile env to `~/.claude/settings.json`
+- `aweswitch restore` — restore settings from backup
+
 ## Intent Router
 
 | User intent | Domain | Approach |
@@ -30,6 +34,8 @@ You may run these read-only commands:
 | "Where is the config?" | Config Path | `aweswitch config path` |
 | "Show all config" | Config Show | `aweswitch config show` |
 | "Switch to profile X", "launch profile X" | Launch | Tell user to run in their terminal. |
+| "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` |
+| "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
 
 ## Config Location
 
@@ -147,6 +153,24 @@ export OPENAI_API_KEY="sk-..."
 aweswitch list           # all profiles with provider and model/url
 aweswitch show <name>    # one profile, secrets redacted
 aweswitch config show    # full config, secrets redacted
+```
+
+### Apply a Profile to Settings
+
+Write a Claude profile's env directly to `~/.claude/settings.json` so it takes effect in new sessions or via `/model`. Creates a backup automatically.
+
+```bash
+aweswitch apply <profile-name>
+```
+
+Only works with Claude profiles. After applying, tell the user to restart their session or use `/model` to pick the new model.
+
+### Restore Settings from Backup
+
+Restore `~/.claude/settings.json` from the backup created by `apply`:
+
+```bash
+aweswitch restore
 ```
 
 ### Tell the User to Launch

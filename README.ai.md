@@ -250,6 +250,22 @@ aweswitch <profile-name>
 
 Do not run this command yourself.
 
+### Alternative: Apply profile to settings
+
+If the user wants to switch profiles without launching a new session, apply the profile directly to `~/.claude/settings.json`:
+
+```bash
+aweswitch apply <profile-name>
+```
+
+This writes the profile's env into the settings file (with backup). The user can then restart their session or use `/model` to pick the new model.
+
+To undo:
+
+```bash
+aweswitch restore
+```
+
 ---
 
 ## Useful commands
