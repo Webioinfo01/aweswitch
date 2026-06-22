@@ -30,7 +30,7 @@
 - **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Multiple profiles can run in different terminals simultaneously. Env is frozen at launch.
 - **Apply mode** (`aweswitch apply <profile>`) — writes profile env to `~/.claude/settings.json`. Start claude first, then in a new terminal run `aweswitch apply <profile>` (or ask the aweswitch skill to do it). Restart the session or use `/model` to pick the new model. Only one profile can be active at a time.
 
-Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
+Today it supports Claude Code and Codex profiles. Support for Hermes, OpenCode, and other agents is planned.
 
 ## Support Tools
 
