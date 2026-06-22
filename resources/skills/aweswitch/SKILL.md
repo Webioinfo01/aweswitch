@@ -32,11 +32,6 @@ Writes profile env to `~/.claude/settings.json`. User restarts the session or us
 | Run multiple profiles side by side | Launch | Tell user to run in their terminal |
 | Try a different API quickly | Launch | Tell user to run in their terminal |
 
-### Modes don't interact
-
-- `aweswitch <profile>` does NOT read or modify settings.json.
-- `aweswitch apply <profile>` does NOT affect running sessions.
-
 You may run these read-only commands:
 - `aweswitch list`
 - `aweswitch show <profile>`
