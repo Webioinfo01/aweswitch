@@ -78,20 +78,19 @@ Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`。
 
 
 
-
-
 但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
 
 ```bash
 aweswitch cc-glm
 ```
 
-### 手动安装
+### 手动安装和使用
 
 从 PyPI 安装：
 
 ```bash
 pip3 install aweswitch
+aweswitch --help
 ```
 
 创建默认配置并编辑：
@@ -105,6 +104,52 @@ aweswitch config edit
 
 ```bash
 aweswitch add
+```
+
+默认配置按 provider 分组。以下是可以直接修改的参考配置：
+
+```json
+{
+  "profiles": {
+    "claude": {
+      "cc-glm": {
+        "env": {
+          "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+          "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "ANTHROPIC_MODEL": "glm-5.1"
+        }
+      },
+      "cc-gemini": {
+        "env": {
+          "ANTHROPIC_BASE_URL": "https://openclaw.chatgo.best",
+          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
+          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
+        }
+      },
+      "cc-xiaomi": {
+        "env": {
+          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
+        }
+      }
+    },
+    "codex": {
+      "cx-openai": {
+        "env": {
+          "OPENAI_BASE_URL": "https://api.openai.com",
+          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+        }
+      },
+      "cx-aihubmix": {
+        "env": {
+          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+        }
+      }
+    }
+  }
+}
 ```
 
 配置 profile 引用的 token 环境变量：
@@ -129,9 +174,17 @@ aweswitch list
 aweswitch show cc-glm
 ```
 
-> 更多功能：通过 [aweskill](https://aweskill.webioinfo.top/) 安装 [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md)，让 agent 帮你管理 profiles。
+#### aweswitch skill
 
-### 启动模式 — 隔离会话
+通过 [aweskill](https://aweskill.webioinfo.top/) 安装 [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md)，可以让 AI agent 用自然语言帮你管理 profile：
+
+- 列出、查看、添加、编辑、删除 profile
+- 将 profile 写入 settings（`aweswitch apply`）或恢复备份（`aweswitch restore`）
+- 引导配置环境变量（如 `~/.zshrc` 中的 token）
+
+安装后你可以直接告诉 agent："添加一个 AiHubMix 的 codex profile"、"把 cc-glm 的 model 改成 glm-5.2"、"列出所有 profile"，agent 会读取配置文件、做修改、验证结果。
+
+#### 启动模式 — 隔离会话
 
 每次调用启动一个带独立 env 的新 agent 会话。不同终端可以同时跑不同 profile。
 
@@ -142,7 +195,7 @@ aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
 aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
 ```
 
-### 写入模式 — 持久默认配置（仅 Claude）
+#### 写入模式 — 持久默认配置（仅 Claude）
 
 将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端：
 
@@ -154,7 +207,7 @@ aweswitch restore                      # 从备份恢复 settings
 
 重启会话或用 `/model` 选择新模型。
 
-### 什么时候用哪种模式
+#### 什么时候用哪种模式
 
 | 场景 | 模式 |
 |---|---|
@@ -165,17 +218,18 @@ aweswitch restore                      # 从备份恢复 settings
 
 > **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
 
-### 配置管理
+#### 配置管理
 
 ```bash
 aweswitch add                         # 交互式添加 profile
 aweswitch list                        # 列出所有 profile
 aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
+aweswitch config path                 # 查看配置文件路径
 aweswitch config show                 # 查看完整配置（密钥已脱敏）
 aweswitch config edit                 # 编辑配置文件
 ```
 
-详见 [aweshelf 集成](#aweshelf-集成)。
+
 
 ## 自动更新
 
