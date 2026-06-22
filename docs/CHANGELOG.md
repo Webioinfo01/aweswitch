@@ -1,5 +1,35 @@
 # change log
 
+## v0.3.0
+
+`v0.3.0` adds `apply` and `restore` commands for writing profiles directly to `~/.claude/settings.json`, and restructures documentation around the two switching modes.
+
+### Apply and restore commands
+
+`aweswitch apply <profile>` writes a Claude profile's expanded env (including `_NAME` variants for the `/model` picker) directly to `~/.claude/settings.json`. A backup is created on first apply; subsequent applies skip the backup to preserve the original. Use `--force` to overwrite the backup. `aweswitch restore` reverts settings from the backup.
+
+This enables a new workflow: start claude normally, then apply a profile from another terminal (or via the aweswitch skill), and use `/model` to switch models within the session — without launching a new process.
+
+### Two modes documentation
+
+README and SKILL.md now clearly distinguish two modes:
+
+- **Launch mode** (`aweswitch <profile>`) — isolated sessions, env frozen at launch, multiple profiles in parallel terminals.
+- **Apply mode** (`aweswitch apply <profile>`) — persistent default via settings.json, `/model` works within session.
+
+Install and Usage sections were merged into a single "Install & Usage" section to eliminate duplication. The AI agent bootstrap guide (README.ai.md) now installs the skill early so the agent has profile knowledge during setup.
+
+### Highlights
+
+- New `aweswitch apply <profile>` command (Claude only)
+- New `aweswitch restore` command
+- `--force` flag to overwrite existing backup
+- Backup only created on first apply to preserve original settings
+- Extracted `build_claude_env()` from `prepare_run()` for reuse
+- Merged Install and Usage sections in both READMEs
+- Skill installation moved to Step 2 in AI bootstrap guide
+- SKILL.md defaults to apply mode; launch mode marked as user-only
+
 ## v0.2.1
 
 `v0.2.1` improves the missing-environment-variable error message and fixes README skill references.
