@@ -41,154 +41,9 @@ Expected output: `aweswitch X.Y.Z`
 
 ---
 
-## Step 2: Initialize config
+## Step 2: Install aweswitch skill
 
-```bash
-aweswitch config init
-```
-
-This creates `~/.config/aweswitch/config.json` with example profiles.
-
----
-
-## Step 3: Help the user configure profiles
-
-The config file is at `~/.config/aweswitch/config.json` (override with `AWESWITCH_CONFIG` env var).
-
-### Config structure
-
-```json
-{
-  "profiles": {
-    "claude": {
-      "<profile-name>": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "<url>",
-          "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
-          "ANTHROPIC_MODEL": "<model-id>"
-        }
-      }
-    },
-    "codex": {
-      "<profile-name>": {
-        "env": {
-          "OPENAI_BASE_URL": "<url>",
-          "OPENAI_API_KEY": "${ENV_VAR_NAME}"
-        }
-      }
-    }
-  }
-}
-```
-
-### Provider differences
-
-| Field | Claude | Codex |
-|-------|--------|-------|
-| Base URL key | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` |
-| Auth key | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` |
-| Model key | `ANTHROPIC_MODEL` | not supported (Codex uses its own model) |
-| Injection method | `--settings` temp file | `-c` flag + env var |
-| File writes | none | none |
-
-### Naming convention
-
-- Claude profiles: `cc-` prefix (e.g. `cc-glm`, `cc-xiaomi`)
-- Codex profiles: `cx-` prefix (e.g. `cx-openai`, `cx-aihubmix`)
-
-### Adding a profile
-
-Edit the config file directly (do not run `aweswitch add` — it is interactive and would block the agent).
-
-Steps:
-1. Read the current config first.
-2. Add the new profile under the appropriate provider key.
-3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
-4. Ensure profile names are unique across all providers.
-
----
-
-## Step 4: Set up environment variables
-
-Token values in profiles use `${VAR_NAME}` references that expand from the shell environment. These must be set before launching a profile.
-
-### Where to put them
-
-Add `export` lines to the user's shell config file:
-
-| Shell | File |
-|-------|------|
-| zsh (default on macOS) | `~/.zshrc` |
-| bash | `~/.bashrc` or `~/.bash_profile` |
-
-### Format
-
-```bash
-# Claude profiles
-export GLM_ANTHROPIC_AUTH_TOKEN="sk-..."
-export XIAOMI_ANTHROPIC_AUTH_TOKEN="sk-..."
-
-# Codex profiles
-export OPENAI_API_KEY="sk-..."
-export AIHUBMIX_OPENAI_KEY="sk-..."
-```
-
-### Steps
-
-1. Read the user's current `~/.zshrc` (or `~/.bashrc`).
-2. Check which env vars are already set to avoid duplicates.
-3. Append the new `export` lines at the end.
-4. Tell the user to run `source ~/.zshrc` or open a new terminal.
-
----
-
-## Step 5: Tell the user to launch
-
-After configuration is complete, tell the user to open a new terminal and run:
-
-```bash
-aweswitch <profile-name>
-```
-
-Do not run this command yourself.
-
----
-
-## Useful commands
-
-Read-only commands (safe to run in agent):
-
-```bash
-aweswitch list                    # list all profiles (name, provider, model/url)
-aweswitch show <profile>          # show one profile with secrets redacted
-aweswitch config path             # print config file path
-aweswitch config show             # show full config with secrets redacted
-```
-
-Launch commands (user must run in their own terminal):
-
-```bash
-aweswitch <profile>               # launch agent with profile
-aweswitch <profile> [extra args]  # pass extra args through to the agent
-```
-
----
-
-## Safety Rules
-
-- **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
-- Read the existing config before modifying it. Do not overwrite profiles the user already has.
-- Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
-- When adding env vars to `~/.zshrc`, check for existing entries first to avoid duplicates.
-- If the user's config already has profiles, ask before adding or renaming anything.
-- If any command fails, report the exact command and error message. Do not silently retry.
-- Do not run `aweswitch config init` if the config already exists — it will refuse and error.
-
----
-
-## Step 6: Install aweswitch skill (optional)
-
-For ongoing profile management, install the aweswitch skill so the agent can help edit config and env vars in future sessions. Choose one of the following options.
+Install the skill so the agent can help manage profiles in this and future sessions. Choose one of the following options.
 
 ### Option A: Via aweskill (recommended if aweskill is available)
 
@@ -281,6 +136,151 @@ curl -fsSL https://raw.githubusercontent.com/mugpeng/aweswitch/main/resources/sk
 ```
 
 Replace `<skill-directory>` with the path from step B1.
+
+---
+
+## Step 3: Initialize config
+
+```bash
+aweswitch config init
+```
+
+This creates `~/.config/aweswitch/config.json` with example profiles.
+
+---
+
+## Step 4: Help the user configure profiles
+
+The config file is at `~/.config/aweswitch/config.json` (override with `AWESWITCH_CONFIG` env var).
+
+### Config structure
+
+```json
+{
+  "profiles": {
+    "claude": {
+      "<profile-name>": {
+        "env": {
+          "ANTHROPIC_BASE_URL": "<url>",
+          "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
+          "ANTHROPIC_MODEL": "<model-id>"
+        }
+      }
+    },
+    "codex": {
+      "<profile-name>": {
+        "env": {
+          "OPENAI_BASE_URL": "<url>",
+          "OPENAI_API_KEY": "${ENV_VAR_NAME}"
+        }
+      }
+    }
+  }
+}
+```
+
+### Provider differences
+
+| Field | Claude | Codex |
+|-------|--------|-------|
+| Base URL key | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` |
+| Auth key | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` |
+| Model key | `ANTHROPIC_MODEL` | not supported (Codex uses its own model) |
+| Injection method | `--settings` temp file | `-c` flag + env var |
+| File writes | none | none |
+
+### Naming convention
+
+- Claude profiles: `cc-` prefix (e.g. `cc-glm`, `cc-xiaomi`)
+- Codex profiles: `cx-` prefix (e.g. `cx-openai`, `cx-aihubmix`)
+
+### Adding a profile
+
+Edit the config file directly (do not run `aweswitch add` — it is interactive and would block the agent).
+
+Steps:
+1. Read the current config first.
+2. Add the new profile under the appropriate provider key.
+3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
+4. Ensure profile names are unique across all providers.
+
+---
+
+## Step 5: Set up environment variables
+
+Token values in profiles use `${VAR_NAME}` references that expand from the shell environment. These must be set before launching a profile.
+
+### Where to put them
+
+Add `export` lines to the user's shell config file:
+
+| Shell | File |
+|-------|------|
+| zsh (default on macOS) | `~/.zshrc` |
+| bash | `~/.bashrc` or `~/.bash_profile` |
+
+### Format
+
+```bash
+# Claude profiles
+export GLM_ANTHROPIC_AUTH_TOKEN="sk-..."
+export XIAOMI_ANTHROPIC_AUTH_TOKEN="sk-..."
+
+# Codex profiles
+export OPENAI_API_KEY="sk-..."
+export AIHUBMIX_OPENAI_KEY="sk-..."
+```
+
+### Steps
+
+1. Read the user's current `~/.zshrc` (or `~/.bashrc`).
+2. Check which env vars are already set to avoid duplicates.
+3. Append the new `export` lines at the end.
+4. Tell the user to run `source ~/.zshrc` or open a new terminal.
+
+---
+
+## Step 6: Tell the user to launch
+
+After configuration is complete, tell the user to open a new terminal and run:
+
+```bash
+aweswitch <profile-name>
+```
+
+Do not run this command yourself.
+
+---
+
+## Useful commands
+
+Read-only commands (safe to run in agent):
+
+```bash
+aweswitch list                    # list all profiles (name, provider, model/url)
+aweswitch show <profile>          # show one profile with secrets redacted
+aweswitch config path             # print config file path
+aweswitch config show             # show full config with secrets redacted
+```
+
+Launch commands (user must run in their own terminal):
+
+```bash
+aweswitch <profile>               # launch agent with profile
+aweswitch <profile> [extra args]  # pass extra args through to the agent
+```
+
+---
+
+## Safety Rules
+
+- **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
+- Read the existing config before modifying it. Do not overwrite profiles the user already has.
+- Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
+- When adding env vars to `~/.zshrc`, check for existing entries first to avoid duplicates.
+- If the user's config already has profiles, ask before adding or renaming anything.
+- If any command fails, report the exact command and error message. Do not silently retry.
+- Do not run `aweswitch config init` if the config already exists — it will refuse and error.
 
 ---
 

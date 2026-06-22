@@ -189,7 +189,7 @@ Install the aweswitch skill (see [Install](#install) above), then tell your agen
 
 > "List all aweswitch profiles."
 
-> "Change the model in cc-glm to glm-5.1-air."
+> "Change the model in cc-glm to glm-5.2."
 
 The agent uses the [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
 

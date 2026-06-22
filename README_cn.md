@@ -189,7 +189,7 @@ aweswitch config edit
 
 > "列出所有 aweswitch profile。"
 
-> "把 cc-glm 的 model 改成 glm-5.1-air。"
+> "把 cc-glm 的 model 改成 glm-5.2。"
 
 Agent 通过 [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
 
