@@ -354,7 +354,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\nApply:  aweswitch apply <profile>  # merge profile env into ~/.claude/settings.json\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -402,52 +402,6 @@ def config_init_command():
     """Create the default config."""
     init_config(config_path())
     click.echo(config_path())
-
-
-def merge_env_into_settings(profile_env, settings_path=None):
-    settings_path = claude_settings_path() if settings_path is None else Path(settings_path).expanduser()
-    if not settings_path.exists():
-        die(f"settings not found: {settings_path}")
-    try:
-        data = json.loads(settings_path.read_text())
-    except json.JSONDecodeError as exc:
-        die(f"invalid settings JSON at {settings_path}: {exc}")
-    if not isinstance(data, dict):
-        die(f"settings must be a JSON object: {settings_path}")
-    env = data.setdefault("env", {})
-    if not isinstance(env, dict):
-        die(f"settings.env must be an object: {settings_path}")
-    changed = {}
-    for key, value in profile_env.items():
-        if env.get(key) != value:
-            changed[key] = value
-            env[key] = value
-    settings_path.write_text(json.dumps(data, indent=2) + "\n")
-    return changed
-
-
-@cli.command("apply")
-@click.argument("profile")
-def apply_command(profile):
-    """Merge profile env vars into ~/.claude/settings.json (in-place)."""
-    config = load_config(config_path())
-    provider, profile_data = profile_for(config, profile)
-    if provider != "claude":
-        die(f"apply only supports claude profiles, got: {provider}")
-    profile_env = profile_data.get("env", {})
-    if not profile_env:
-        die(f"profile has no env vars: {profile}")
-    base_env = dict(os.environ)
-    settings_env = load_claude_settings_env()
-    expansion_env = {**settings_env, **base_env}
-    expanded = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
-    changed = merge_env_into_settings(expanded)
-    if not changed:
-        click.echo(f"No changes — settings already match profile '{profile}'.")
-    else:
-        for key, value in changed.items():
-            click.echo(f"{key} = {value}")
-        click.echo(f"Applied {len(changed)} change(s) from profile '{profile}' to settings.")
 
 
 @cli.command("init")
