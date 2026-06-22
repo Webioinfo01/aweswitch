@@ -60,7 +60,17 @@ Agent 会安装 aweswitch、初始化配置、添加 profile，并帮你写入 s
 > "添加一个 AiHubMix 的 codex profile。"
 > "把 cc-glm 的 model 改成 glm-5.2。"
 
-Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`，但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
+Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`。
+
+![image-20260622102235441](assets/images/image-20260622102235441.png)
+
+![image-20260622102200567](assets/images/image-20260622102200567.png)
+
+
+
+
+
+但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
 
 ```bash
 aweswitch cc-glm
