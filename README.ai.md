@@ -240,31 +240,50 @@ export AIHUBMIX_OPENAI_KEY="sk-..."
 
 ---
 
-## Step 6: Tell the user to launch
+## Step 6: Tell the user to switch profiles
 
-After configuration is complete, tell the user to open a new terminal and run:
+aweswitch has two modes. Ask the user which one they prefer.
+
+### Option A: Launch mode — isolated sessions
+
+Each `aweswitch <profile>` call launches a new claude session with its own env. Multiple profiles can run in different terminals simultaneously. Env is frozen at launch.
 
 ```bash
 aweswitch <profile-name>
 ```
 
-Do not run this command yourself.
+Do not run this command yourself — tell the user to run it in their terminal.
 
-### Alternative: Apply profile to settings
+### Option B: Apply mode — persistent default
 
-If the user wants to switch profiles without launching a new session, apply the profile directly to `~/.claude/settings.json`:
+Write the profile's env to `~/.claude/settings.json`. All new claude sessions use this profile. The user can switch models within a session via `/model`.
 
 ```bash
 aweswitch apply <profile-name>
 ```
 
-This writes the profile's env into the settings file (with backup). The user can then restart their session or use `/model` to pick the new model.
+Then restart the session or use `/model` to pick the new model.
 
 To undo:
 
 ```bash
 aweswitch restore
 ```
+
+### When to recommend which
+
+| Scenario | Recommend |
+|---|---|
+| User wants to run multiple profiles side by side | Launch |
+| User wants to switch models within a session via `/model` | Apply |
+| User wants to try a different API quickly | Launch |
+| User wants a persistent default profile | Apply |
+
+### Important: modes don't interact
+
+- `aweswitch cc-glm` does NOT read or modify settings.json.
+- `aweswitch apply cc-glm` does NOT affect running sessions.
+- Applying a new profile does not change the env of a session started with `aweswitch <profile>`.
 
 ---
 
@@ -282,8 +301,15 @@ aweswitch config show             # show full config with secrets redacted
 Launch commands (user must run in their own terminal):
 
 ```bash
-aweswitch <profile>               # launch agent with profile
+aweswitch <profile>               # launch agent with profile (launch mode)
 aweswitch <profile> [extra args]  # pass extra args through to the agent
+```
+
+Apply commands (safe to run in agent):
+
+```bash
+aweswitch apply <profile>         # write profile env to settings.json (apply mode)
+aweswitch restore                 # restore settings.json from backup
 ```
 
 ---

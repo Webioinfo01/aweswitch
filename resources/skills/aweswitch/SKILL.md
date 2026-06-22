@@ -7,6 +7,43 @@ description: "Use when helping users manage aweswitch profiles — adding, editi
 
 This skill covers **configuring** aweswitch profiles. It does NOT launch profiles — see "Do Not Launch" below.
 
+## Two Modes
+
+aweswitch has two ways to switch profiles. Help the user choose the right one.
+
+### Launch mode — `aweswitch <profile>`
+
+- Creates a temp `--settings` file, launches a new claude session with isolated env.
+- Each session has its own API endpoint, token, and model — independent of settings.json.
+- Can run multiple profiles in different terminals simultaneously.
+- Env is frozen at launch; to switch profile, exit and re-launch.
+- User must run this in their own terminal (never inside the agent).
+
+### Apply mode — `aweswitch apply <profile>`
+
+- Writes profile env directly to `~/.claude/settings.json`.
+- User starts `claude` normally (or restarts current session).
+- Can use `/model` within the session to switch between models.
+- All new sessions share the same settings.json until re-applied.
+- Only one profile can be active at a time.
+
+### When to recommend which
+
+| Scenario | Recommend |
+|---|---|
+| User wants to run multiple profiles side by side | Launch |
+| User wants to switch models within a session via `/model` | Apply |
+| User wants to try a different API quickly | Launch |
+| User wants a persistent default profile | Apply |
+| User asks "how do I switch without restarting" | Apply |
+| User asks "how do I use two APIs at the same time" | Launch |
+
+### Important: modes don't interact
+
+- `aweswitch cc-glm` does NOT read or modify settings.json.
+- `aweswitch apply cc-glm` does NOT affect running sessions.
+- Applying a new profile does not change the env of a session started with `aweswitch <profile>`.
+
 ## Do Not Launch
 
 **Never run `aweswitch <profile-name>` inside this agent.** aweswitch launches an interactive agent (Claude Code or Codex) via `execvpe`, which would nest an agent inside an agent. Always tell the user to run it in their own terminal.
@@ -33,9 +70,12 @@ You may also run these commands (they modify files but are non-interactive):
 | "Set up API key for X" | Env Vars | Edit `~/.zshrc` or `~/.bashrc`. |
 | "Where is the config?" | Config Path | `aweswitch config path` |
 | "Show all config" | Config Show | `aweswitch config show` |
-| "Switch to profile X", "launch profile X" | Launch | Tell user to run in their terminal. |
+| "Switch to profile X", "launch profile X" | Launch | Tell user to run `aweswitch <profile>` in their terminal. |
+| "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <profile>`, then restart session or use `/model`. |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
+| "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
+| "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session. |
 
 ## Config Location
 
@@ -155,33 +195,33 @@ aweswitch show <name>    # one profile, secrets redacted
 aweswitch config show    # full config, secrets redacted
 ```
 
-### Apply a Profile to Settings
+### Tell the User to Switch Profiles
 
-Write a Claude profile's env directly to `~/.claude/settings.json` so it takes effect in new sessions or via `/model`. Creates a backup automatically.
+After configuration is done, ask the user which mode they prefer:
 
-```bash
-aweswitch apply <profile-name>
-```
+**Option A — Launch mode** (isolated sessions, run multiple profiles side by side):
 
-Only works with Claude profiles. After applying, tell the user to restart their session or use `/model` to pick the new model.
-
-### Restore Settings from Backup
-
-Restore `~/.claude/settings.json` from the backup created by `apply`:
-
-```bash
-aweswitch restore
-```
-
-### Tell the User to Launch
-
-After configuration is done, tell the user to open a terminal and run:
+Tell the user to open a terminal and run:
 
 ```bash
 aweswitch <profile-name>
 ```
 
 Do not run this command yourself.
+
+**Option B — Apply mode** (persistent default, use `/model` to switch within session):
+
+```bash
+aweswitch apply <profile-name>
+```
+
+Then restart the session or use `/model` to pick the new model.
+
+To undo:
+
+```bash
+aweswitch restore
+```
 
 ## Codex Limitations
 
