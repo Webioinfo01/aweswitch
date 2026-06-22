@@ -66,20 +66,6 @@ The agent can run `aweswitch apply` and `aweswitch restore` directly, but will n
 aweswitch cc-glm
 ```
 
-<details>
-<summary>Example: list configured profiles</summary>
-
-![image-20260622102235441](assets/images/image-20260622102235441.png)
-
-</details>
-
-<details>
-<summary>Example: apply profile and switch model</summary>
-
-![image-20260622102200567](assets/images/image-20260622102200567.png)
-
-</details>
-
 ### Manual install
 
 Install from PyPI:
