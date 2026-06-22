@@ -1,8 +1,8 @@
 <div align="center">
   <img src="logo/hero.png" alt="aweswitch" width="860">
   <h1>aweswitch: Agent Profile Switcher</h1>
-  <p><strong>通过启动或写入来切换 AI agent profile。</strong></p>
-  <p>启动隔离会话使用不同 API，或将 profile 写入 settings.json 实现会话内 `/model` 切换。</p>
+  <p><strong>一个很小的本地启动器，用来切换 AI agent 运行时 profile。</strong></p>
+  <p>用不同 API、token 和模型启动不同 agent 会话，同时不改写全局 agent 配置。</p>
   <p>
     <a href="./README.md">English</a> ·
     <strong>简体中文</strong> ·

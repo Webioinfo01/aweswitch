@@ -1,8 +1,8 @@
 <div align="center">
   <img src="logo/hero.png" alt="aweswitch" width="860">
   <h1>aweswitch: Agent Profile Switcher</h1>
-  <p><strong>Switch AI agent profiles via launch or apply.</strong></p>
-  <p>Launch isolated sessions with different APIs, or write profiles to settings.json for in-session model switching.</p>
+  <p><strong>A tiny local launcher for switching AI agent runtime profiles.</strong></p>
+  <p>Start different agent sessions with different API endpoints, tokens, and models without rewriting global agent config.</p>
   <p>
     <strong>English</strong> ·
     <a href="./README_cn.md">简体中文</a> ·
