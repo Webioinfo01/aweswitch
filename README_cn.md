@@ -1,8 +1,8 @@
 <div align="center">
   <img src="logo/hero.png" alt="aweswitch" width="860">
   <h1>aweswitch: Agent Profile Switcher</h1>
-  <p><strong>一个很小的本地启动器，用来切换 AI agent 运行时 profile。</strong></p>
-  <p>用不同 API、token 和模型启动不同 agent 会话，同时不改写全局 agent 配置。</p>
+  <p><strong>通过启动或写入来切换 AI agent profile。</strong></p>
+  <p>启动隔离会话使用不同 API，或将 profile 写入 settings.json 实现会话内 `/model` 切换。</p>
   <p>
     <a href="./README.md">English</a> ·
     <strong>简体中文</strong> ·
@@ -25,9 +25,12 @@
 
 > 让不同 agent profile 并行运行，同时不影响已经打开的会话。
 
-`aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，展开环境变量引用，准备 provider 对应的运行时参数，然后启动所选 agent。每次启动都会拿到自己的 API endpoint、token 和模型；这些配置通过运行时参数注入，而不是改写全局 agent settings。
+`aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
-它刻意保持小而直接。项目定位是 agent profile switcher，目前支持 Claude Code 和 Codex profile。配置格式为以后加入 Hermes 预留了 provider 分组，但 Hermes 现在还不能执行。
+- **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
+- **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。用户重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
+
+它刻意保持小而直接。目前支持 Claude Code 和 Codex profile。配置格式为以后加入 Hermes 预留了 provider 分组，但 Hermes 现在还不能执行。
 
 ## 支持工具
 
@@ -147,11 +150,18 @@ aweswitch list
 aweswitch show cc-glm
 ```
 
-启动 profile：
+启动 profile（启动模式）：
 
 ```bash
 aweswitch cc-glm       # Claude Code
 aweswitch cx-openai    # Codex
+```
+
+写入 profile（写入模式 — 仅 Claude）：
+
+```bash
+aweswitch apply cc-glm    # 写入 ~/.claude/settings.json
+aweswitch restore          # 撤销
 ```
 
 额外参数会透传给 agent：
@@ -191,46 +201,58 @@ aweswitch config edit
 
 > "把 cc-glm 的 model 改成 glm-5.2。"
 
+> "把 cc-glm 写入 settings，这样我可以用 /model 切换。"
+
 Agent 通过 [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
 
-> **注意：** skill 只负责修改配置和环境变量，不会在 agent 内部启动 profile。要启动 profile，在你自己的终端运行：
+> **注意：** agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`，但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
 > ```bash
 > aweswitch cc-glm
 > ```
 
 ### 人类使用
 
-交互式添加 profile：
+#### 启动模式 — 隔离会话
+
+每次调用启动一个带独立 env 的新 agent 会话。不同终端可以同时跑不同 profile。
 
 ```bash
-aweswitch add
+aweswitch cc-glm                      # 启动 Claude Code profile
+aweswitch cx-openai                   # 启动 Codex profile
+aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
+aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
 ```
 
-依次选择 provider（claude 或 codex）、输入 profile 名称和对应字段。
+#### 写入模式 — 持久默认配置（仅 Claude）
 
-常用命令：
+将 profile env 写入 `~/.claude/settings.json`。重启会话或用 `/model` 切换。
 
 ```bash
+aweswitch apply cc-glm                # 写入 settings.json
+aweswitch apply cc-glm --force        # 覆盖已有备份
+aweswitch restore                      # 从备份恢复 settings
+```
+
+#### 配置管理
+
+```bash
+aweswitch add                         # 交互式添加 profile
 aweswitch list                        # 列出所有 profile
 aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
 aweswitch config show                 # 查看完整配置（密钥已脱敏）
 aweswitch config edit                 # 编辑配置文件
-aweswitch cc-glm                      # 启动 Claude Code profile
-aweswitch cx-openai                   # 启动 Codex profile
 ```
 
-启动时传递额外参数：
+#### 什么时候用哪种模式
 
-```bash
-aweswitch cc-glm --dangerously-skip-permissions
-aweswitch cx-openai --model o3
-```
+| 场景 | 模式 |
+|---|---|
+| 多个 profile 并行运行 | 启动 |
+| 在会话内用 `/model` 切换模型 | 写入 |
+| 快速试用不同 API | 启动 |
+| 设置持久默认 profile | 写入 |
 
-配合 [aweshelf](https://github.com/Webioinfo01/aweshelf) 自动 bookmark：
-
-```bash
-aweswitch cc-glm -c backend -t "Fix auth bug"
-```
+> **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
 
 详见 [aweshelf 集成](#aweshelf-集成)。
 
@@ -324,7 +346,9 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 ### aweswitch 会修改 Claude settings 吗？
 
-不会。它只读取 aweswitch 自己的配置，并为当前启动的 Claude Code 进程传入运行时 settings。切换 profile 不会改写全局 API endpoint 或模型，因此不会影响已经运行中的 agent 会话。
+**启动模式**不会 — 它只读取 aweswitch 自己的配置，并为当前启动的 Claude Code 进程传入运行时 settings。已经运行的会话不受影响。
+
+**写入模式**会 — `aweswitch apply <profile>` 将 profile env 写入 `~/.claude/settings.json`。首次写入时会自动备份。用 `aweswitch restore` 可以撤销。
 
 ### aweswitch 支持 Codex 吗？
 

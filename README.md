@@ -1,8 +1,8 @@
 <div align="center">
   <img src="logo/hero.png" alt="aweswitch" width="860">
   <h1>aweswitch: Agent Profile Switcher</h1>
-  <p><strong>A tiny local launcher for switching AI agent runtime profiles.</strong></p>
-  <p>Start different agent sessions with different API endpoints, tokens, and models without rewriting global agent config.</p>
+  <p><strong>Switch AI agent profiles via launch or apply.</strong></p>
+  <p>Launch isolated sessions with different APIs, or write profiles to settings.json for in-session model switching.</p>
   <p>
     <strong>English</strong> ·
     <a href="./README_cn.md">简体中文</a> ·
@@ -23,11 +23,14 @@
   </p>
 </div>
 
-> Run different agent profiles side by side without breaking sessions that are already open.
+> Two ways to switch agent profiles: launch isolated sessions, or apply to settings for in-session `/model` switching.
 
-`aweswitch` reads profiles from `~/.config/aweswitch/config.json`, expands environment references, prepares provider-specific runtime arguments, and then starts the selected agent. Each launch gets its own API endpoint, token, and model through runtime arguments instead of mutating global agent settings.
+`aweswitch` reads profiles from `~/.config/aweswitch/config.json` and offers two modes:
 
-It is intentionally small. Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
+- **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Multiple profiles can run in different terminals simultaneously. Env is frozen at launch.
+- **Apply mode** (`aweswitch apply <profile>`) — writes profile env to `~/.claude/settings.json`. User restarts the session or uses `/model` to pick the new model. Only one profile can be active at a time.
+
+Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
 
 ## Support Tools
 
@@ -147,11 +150,18 @@ aweswitch list
 aweswitch show cc-glm
 ```
 
-Run a profile:
+Run a profile (launch mode):
 
 ```bash
 aweswitch cc-glm       # Claude Code
 aweswitch cx-openai    # Codex
+```
+
+Apply a profile (apply mode — Claude only):
+
+```bash
+aweswitch apply cc-glm    # write to ~/.claude/settings.json
+aweswitch restore          # undo
 ```
 
 Pass extra arguments through to the agent:
@@ -191,48 +201,60 @@ Install the aweswitch skill (see [Install](#install) above), then tell your agen
 
 > "Change the model in cc-glm to glm-5.2."
 
+> "Apply cc-glm to my settings so I can use /model to switch."
+
 The agent uses the [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
 
-> **Note:** the skill only edits config and shell environment variables — it will not launch the profile inside the agent. Run it in your own terminal:
+> **Note:** the agent can run `aweswitch apply` and `aweswitch restore` directly, but it will never run `aweswitch <profile>` (launch mode) — that would nest an agent inside an agent. If you want to launch a profile, run it in your own terminal:
 > ```bash
 > aweswitch cc-glm
 > ```
 
 ### Human usage
 
-Add a profile interactively:
+#### Launch mode — isolated sessions
+
+Each call launches a new agent session with its own env. Multiple profiles can run in different terminals.
 
 ```bash
-aweswitch add
+aweswitch cc-glm                      # launch Claude Code profile
+aweswitch cx-openai                   # launch Codex profile
+aweswitch cc-glm --dangerously-skip-permissions   # pass extra args
+aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
 ```
 
-It prompts for provider (claude or codex), profile name, and provider-specific fields.
+#### Apply mode — persistent default (Claude only)
 
-Common commands:
+Write profile env to `~/.claude/settings.json`. Restart the session or use `/model` to switch.
 
 ```bash
+aweswitch apply cc-glm                # write profile to settings.json
+aweswitch apply cc-glm --force        # overwrite existing backup
+aweswitch restore                      # restore settings from backup
+```
+
+#### Config management
+
+```bash
+aweswitch add                         # add profile interactively
 aweswitch list                        # list all profiles
 aweswitch show cc-glm                 # inspect one profile (secrets redacted)
 aweswitch config show                 # full config (secrets redacted)
 aweswitch config edit                 # open config in editor
-aweswitch cc-glm                      # launch Claude Code profile
-aweswitch cx-openai                   # launch Codex profile
 ```
 
-Pass extra arguments through to the agent:
+#### When to use which mode
 
-```bash
-aweswitch cc-glm --dangerously-skip-permissions
-aweswitch cx-openai --model o3
-```
+| Scenario | Mode |
+|---|---|
+| Run multiple profiles side by side | Launch |
+| Switch models within a session via `/model` | Apply |
+| Try a different API quickly | Launch |
+| Set a persistent default profile | Apply |
 
-Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
+> **Note:** the two modes don't interact. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
 
-```bash
-aweswitch cc-glm -c backend -t "Fix auth bug"
-```
-
-See [aweshelf Integration](#aweshelf-integration) for details.
+See [aweshelf Integration](#aweshelf-integration) for auto-bookmarking at launch.
 
 ## Self-Update
 
@@ -324,7 +346,9 @@ You can override that path with `AWESWITCH_CONFIG`.
 
 ### Does aweswitch modify Claude settings?
 
-No. It reads your aweswitch config and launches Claude Code with runtime settings for that process only. Switching profiles does not rewrite the global API endpoint or model, so it does not disturb agent sessions that are already running.
+In **launch mode**, no — it reads your aweswitch config and launches Claude Code with runtime settings for that process only. Already-running sessions are unaffected.
+
+In **apply mode**, yes — `aweswitch apply <profile>` writes the profile's env to `~/.claude/settings.json`. A backup is created on first apply. Use `aweswitch restore` to undo.
 
 ### Does aweswitch support Codex?
 
