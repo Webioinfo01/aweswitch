@@ -28,7 +28,7 @@
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
-- **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。用户重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
+- **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端运行 `aweswitch apply <profile>`（或通过 aweswitch skill 让 agent 操作）。重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
 
 它刻意保持小而直接。目前支持 Claude Code 和 Codex profile。配置格式为以后加入 Hermes 预留了 provider 分组，但 Hermes 现在还不能执行。
 
