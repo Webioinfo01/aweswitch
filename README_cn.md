@@ -41,9 +41,9 @@ aweswitch 由两个配套工具驱动：
 
 aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。
 
-## 安装
+## 安装与使用
 
-### 让 AI agent 安装
+### 让 AI agent 安装和配置
 
 如果你在 Claude Code、Codex、Cursor 等 coding agent 中工作，直接告诉它：
 
@@ -51,81 +51,40 @@ aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c
 Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
 ```
 
-Agent 会安装 `aweswitch` CLI、初始化配置，并帮你添加 profile。后续 profile 管理也可以通过 [aweskill](https://aweskill.webioinfo.top/) 安装 aweswitch skill。
+Agent 会安装 aweswitch、初始化配置、添加 profile，并帮你写入 settings。后续管理也可以通过 [aweskill](https://aweskill.webioinfo.top/) 安装 aweswitch skill。
 
-### pip
+**配置完成后你可以这样告诉 agent：**
+
+> "把 cc-glm 写入 settings，这样我可以用 /model 切换。"
+> "列出所有 aweswitch profile。"
+> "添加一个 AiHubMix 的 codex profile。"
+> "把 cc-glm 的 model 改成 glm-5.2。"
+
+Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`，但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
+
+```bash
+aweswitch cc-glm
+```
+
+### 手动安装
 
 从 PyPI 安装：
 
 ```bash
 pip3 install aweswitch
-aweswitch --help
 ```
 
-创建默认配置：
+创建默认配置并编辑：
 
 ```bash
 aweswitch config init
-```
-
-然后打开配置文件，把 provider、模型和 token 环境变量名对齐到你的真实服务：
-
-```bash
 aweswitch config edit
 ```
 
-或者用交互方式添加新 profile：
+或者用交互方式添加 profile：
 
 ```bash
 aweswitch add
-```
-
-依次提示选择 provider（claude 或 codex）、profile 名称，以及 provider 对应的字段。
-
-默认配置格式按 provider 分组。下面是一份可按需修改的参考配置：
-
-```json
-{
-  "profiles": {
-    "claude": {
-      "cc-glm": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "glm-5.1"
-        }
-      },
-      "cc-gemini": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://openclaw.chatgo.best",
-          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
-        }
-      },
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
-        }
-      }
-    },
-    "codex": {
-      "cx-openai": {
-        "env": {
-          "OPENAI_BASE_URL": "https://api.openai.com",
-          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-        }
-      },
-      "cx-aihubmix": {
-        "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
-        }
-      }
-    }
-  }
-}
 ```
 
 配置 profile 引用的 token 环境变量：
@@ -143,76 +102,14 @@ export AIHUBMIX_OPENAI_KEY="..."
 
 如果希望每次打开终端都可用，可以把这些变量放进 `~/.zshrc`。
 
-验证配置后的 profile：
+验证：
 
 ```bash
 aweswitch list
 aweswitch show cc-glm
 ```
 
-启动 profile（启动模式）：
-
-```bash
-aweswitch cc-glm       # Claude Code
-aweswitch cx-openai    # Codex
-```
-
-写入 profile（写入模式 — 仅 Claude）：
-
-```bash
-aweswitch apply cc-glm    # 写入 ~/.claude/settings.json
-aweswitch restore          # 撤销
-```
-
-额外参数会透传给 agent：
-
-```bash
-aweswitch cc-glm --dangerously-skip-permissions
-aweswitch cx-openai --model o3
-```
-
-通过 [aweshelf](https://github.com/Webioinfo01/aweshelf) 自动 bookmark 会话：
-
-```bash
-aweswitch cc-glm -c backend -t "Fix auth bug"
-```
-
-详见 [aweshelf 集成](#aweshelf-集成)。
-
-常用配置命令：
-
-```bash
-aweswitch config path
-aweswitch config show
-aweswitch config edit
-```
-
-## 使用
-
-### AI Agent
-
-安装 aweswitch skill（见上方[安装](#安装)），然后直接告诉你的 agent 做什么。
-
-**你可以这样告诉你的 agent：**
-
-> "用 aweswitch skill 添加一个 Claude profile，名字 cc-glm，base URL https://open.bigmodel.cn/api/anthropic，model glm-5.1，token 从环境变量 GLM_ANTHROPIC_AUTH_TOKEN 取。"
-
-> "列出所有 aweswitch profile。"
-
-> "把 cc-glm 的 model 改成 glm-5.2。"
-
-> "把 cc-glm 写入 settings，这样我可以用 /model 切换。"
-
-Agent 通过 [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) 理解所有可用命令和工作流。
-
-> **注意：** agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`，但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
-> ```bash
-> aweswitch cc-glm
-> ```
-
-### 人类使用
-
-#### 启动模式 — 隔离会话
+### 启动模式 — 隔离会话
 
 每次调用启动一个带独立 env 的新 agent 会话。不同终端可以同时跑不同 profile。
 
@@ -223,9 +120,9 @@ aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
 aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
 ```
 
-#### 写入模式 — 持久默认配置（仅 Claude）
+### 写入模式 — 持久默认配置（仅 Claude）
 
-将 profile env 写入 `~/.claude/settings.json`。重启会话或用 `/model` 切换。
+将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端：
 
 ```bash
 aweswitch apply cc-glm                # 写入 settings.json
@@ -233,17 +130,9 @@ aweswitch apply cc-glm --force        # 覆盖已有备份
 aweswitch restore                      # 从备份恢复 settings
 ```
 
-#### 配置管理
+重启会话或用 `/model` 选择新模型。
 
-```bash
-aweswitch add                         # 交互式添加 profile
-aweswitch list                        # 列出所有 profile
-aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
-aweswitch config show                 # 查看完整配置（密钥已脱敏）
-aweswitch config edit                 # 编辑配置文件
-```
-
-#### 什么时候用哪种模式
+### 什么时候用哪种模式
 
 | 场景 | 模式 |
 |---|---|
@@ -253,6 +142,16 @@ aweswitch config edit                 # 编辑配置文件
 | 设置持久默认 profile | 写入 |
 
 > **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
+
+### 配置管理
+
+```bash
+aweswitch add                         # 交互式添加 profile
+aweswitch list                        # 列出所有 profile
+aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
+aweswitch config show                 # 查看完整配置（密钥已脱敏）
+aweswitch config edit                 # 编辑配置文件
+```
 
 详见 [aweshelf 集成](#aweshelf-集成)。
 

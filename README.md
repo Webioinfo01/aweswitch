@@ -41,91 +41,50 @@ aweswitch is powered by two companion tools:
 
 aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later.
 
-## Install
+## Install & Usage
 
-### Let AI agent install
+### Let AI agent install and configure
 
-If you are working in Claude Code, Codex, Cursor, or other coding agents, tell it:
+If you are in Claude Code, Codex, Cursor, or other coding agents, tell it:
 
 ```text
 Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
 ```
 
-The agent will install the `aweswitch` CLI, set up config, and help you add profiles. For ongoing profile management, it can also install the aweswitch skill via [aweskill](https://aweskill.webioinfo.top/).
+The agent will install aweswitch, set up config, add profiles, and apply the profile to your settings. For ongoing management, it can also install the aweswitch skill via [aweskill](https://aweskill.webioinfo.top/).
 
-### pip
+**What you can say after setup:**
+
+> "Apply cc-glm to my settings so I can use /model to switch."
+> "List all aweswitch profiles."
+> "Add a new codex profile for AiHubMix."
+> "Change the model in cc-glm to glm-5.2."
+
+The agent can run `aweswitch apply` and `aweswitch restore` directly, but will never run `aweswitch <profile>` (launch mode) — that would nest an agent inside an agent. To launch a profile, run it in your own terminal:
+
+```bash
+aweswitch cc-glm
+```
+
+### Manual setup
 
 Install from PyPI:
 
 ```bash
 pip3 install aweswitch
-aweswitch --help
 ```
 
-Create the default config:
+Create the default config and edit it:
 
 ```bash
 aweswitch config init
-```
-
-Then open the config and align it with your real providers, models, and token variable names:
-
-```bash
 aweswitch config edit
 ```
 
-Or add a new profile interactively:
+Or add a profile interactively:
 
 ```bash
 aweswitch add
-```
-
-This prompts for provider (claude or codex), profile name, and provider-specific fields.
-
-The default config shape groups profiles under their provider. This is a reference config you can adapt:
-
-```json
-{
-  "profiles": {
-    "claude": {
-      "cc-glm": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "glm-5.1"
-        }
-      },
-      "cc-gemini": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://openclaw.chatgo.best",
-          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
-        }
-      },
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
-        }
-      }
-    },
-    "codex": {
-      "cx-openai": {
-        "env": {
-          "OPENAI_BASE_URL": "https://api.openai.com",
-          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-        }
-      },
-      "cx-aihubmix": {
-        "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
-        }
-      }
-    }
-  }
-}
 ```
 
 Configure the token variables referenced by your profiles:
@@ -143,76 +102,14 @@ export AIHUBMIX_OPENAI_KEY="..."
 
 Put long-lived variables in `~/.zshrc` if you want them available in every shell.
 
-Verify the configured profiles:
+Verify:
 
 ```bash
 aweswitch list
 aweswitch show cc-glm
 ```
 
-Run a profile (launch mode):
-
-```bash
-aweswitch cc-glm       # Claude Code
-aweswitch cx-openai    # Codex
-```
-
-Apply a profile (apply mode — Claude only):
-
-```bash
-aweswitch apply cc-glm    # write to ~/.claude/settings.json
-aweswitch restore          # undo
-```
-
-Pass extra arguments through to the agent:
-
-```bash
-aweswitch cc-glm --dangerously-skip-permissions
-aweswitch cx-openai --model o3
-```
-
-Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
-
-```bash
-aweswitch cc-glm -c backend -t "Fix auth bug"
-```
-
-See [aweshelf Integration](#aweshelf-integration) for details.
-
-Useful config commands:
-
-```bash
-aweswitch config path
-aweswitch config show
-aweswitch config edit
-```
-
-## Usage
-
-### AI Agent
-
-Install the aweswitch skill (see [Install](#install) above), then tell your agent what to do in plain language.
-
-**Examples of what you can say:**
-
-> "Use the aweswitch skill to add a Claude profile named cc-glm with base URL https://open.bigmodel.cn/api/anthropic, model glm-5.1, and token from env var GLM_ANTHROPIC_AUTH_TOKEN."
-
-> "List all aweswitch profiles."
-
-> "Change the model in cc-glm to glm-5.2."
-
-> "Apply cc-glm to my settings so I can use /model to switch."
-
-The agent uses the [SKILL.md](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) to understand all available commands and workflows.
-
-> **Note:** the agent can run `aweswitch apply` and `aweswitch restore` directly, but it will never run `aweswitch <profile>` (launch mode) — that would nest an agent inside an agent. If you want to launch a profile, run it in your own terminal:
-> ```bash
-> aweswitch cc-glm
-> ```
-
-### Human usage
-
-#### Launch mode — isolated sessions
+### Launch mode — isolated sessions
 
 Each call launches a new agent session with its own env. Multiple profiles can run in different terminals.
 
@@ -223,9 +120,9 @@ aweswitch cc-glm --dangerously-skip-permissions   # pass extra args
 aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
 ```
 
-#### Apply mode — persistent default (Claude only)
+### Apply mode — persistent default (Claude only)
 
-Write profile env to `~/.claude/settings.json`. Restart the session or use `/model` to switch.
+Write profile env to `~/.claude/settings.json`. Start claude first, then in a new terminal:
 
 ```bash
 aweswitch apply cc-glm                # write profile to settings.json
@@ -233,17 +130,9 @@ aweswitch apply cc-glm --force        # overwrite existing backup
 aweswitch restore                      # restore settings from backup
 ```
 
-#### Config management
+Restart the session or use `/model` to pick the new model.
 
-```bash
-aweswitch add                         # add profile interactively
-aweswitch list                        # list all profiles
-aweswitch show cc-glm                 # inspect one profile (secrets redacted)
-aweswitch config show                 # full config (secrets redacted)
-aweswitch config edit                 # open config in editor
-```
-
-#### When to use which mode
+### When to use which mode
 
 | Scenario | Mode |
 |---|---|
@@ -253,6 +142,16 @@ aweswitch config edit                 # open config in editor
 | Set a persistent default profile | Apply |
 
 > **Note:** the two modes don't interact. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
+
+### Config management
+
+```bash
+aweswitch add                         # add profile interactively
+aweswitch list                        # list all profiles
+aweswitch show cc-glm                 # inspect one profile (secrets redacted)
+aweswitch config show                 # full config (secrets redacted)
+aweswitch config edit                 # open config in editor
+```
 
 See [aweshelf Integration](#aweshelf-integration) for auto-bookmarking at launch.
 
