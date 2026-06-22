@@ -62,9 +62,19 @@ Agent 会安装 aweswitch、初始化配置、添加 profile，并帮你写入 s
 
 Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`。
 
+<details>
+<summary>示例：查看已配置的 profile</summary>
+
 ![image-20260622102235441](assets/images/image-20260622102235441.png)
 
+</details>
+
+<details>
+<summary>示例：应用 profile 并切换模型</summary>
+
 ![image-20260622102200567](assets/images/image-20260622102200567.png)
+
+</details>
 
 
 
