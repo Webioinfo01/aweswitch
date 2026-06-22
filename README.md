@@ -80,7 +80,7 @@ aweswitch cc-glm
 
 </details>
 
-### Manual install
+### Manual install and usage
 
 Install from PyPI:
 
@@ -207,9 +207,17 @@ aweswitch config show
 aweswitch config edit
 ```
 
-For agent-side profile management, install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) via [aweskill](https://aweskill.webioinfo.top/).
+#### aweswitch skill
 
-### Launch mode — isolated sessions
+Install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) via [aweskill](https://aweskill.webioinfo.top/) to let AI agents manage profiles with natural language:
+
+- List, inspect, add, edit, and delete profiles
+- Apply profiles to settings (`aweswitch apply`) or restore from backup (`aweswitch restore`)
+- Guide environment variable setup (e.g. adding tokens to `~/.zshrc`)
+
+After install, you can tell the agent things like "Add an AiHubMix codex profile", "Change the model in cc-glm to glm-5.2", or "List all profiles". The agent reads the config, makes changes, and verifies the result.
+
+#### Launch mode — isolated sessions
 
 Each invocation starts a new agent session with its own env. Different terminals can run different profiles at the same time.
 
@@ -220,7 +228,7 @@ aweswitch cc-glm --dangerously-skip-permissions   # pass extra arguments
 aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
 ```
 
-### Write mode — persistent defaults (Claude only)
+#### Write mode — persistent defaults (Claude only)
 
 Writes profile env into `~/.claude/settings.json`. Start Claude first, then in a new terminal:
 
@@ -232,7 +240,7 @@ aweswitch restore                      # restore settings from backup
 
 Restart the session or use `/model` to pick the new model.
 
-### When to use which mode
+#### When to use which mode
 
 | Scenario | Mode |
 |---|---|
@@ -243,7 +251,7 @@ Restart the session or use `/model` to pick the new model.
 
 > **Note:** The two modes do not interfere with each other. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
 
-### Config management
+#### Config management
 
 ```bash
 aweswitch add                         # add a profile interactively
