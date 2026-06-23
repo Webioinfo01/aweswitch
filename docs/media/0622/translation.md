@@ -2,6 +2,14 @@
 
 ![aweswitch](../../../logo/hero.png)
 
+上一次我们介绍了 [aweswitch更新：启动即记录，升级不操心](https://mp.weixin.qq.com/s/o3tEmFJuW7k3GFN0SqbuWg)，解决了 session 丢失和版本感知的问题。切换只是工作流的一部分——今天我们继续。
+
+你正在用 Claude Code 调试一个棘手的并发 bug，上下文铺满了半个屏幕——三轮对话、五个文件、一个还没验证的假设。突然想试试 GLM 对这个问题的理解。按 aweswitch 的逻辑，你得退出当前会话，跑一条 `aweswitch cc-glm --resume session-id`。能恢复上下文，但你得先找到 session ID，退出当前会话，再拼一条长命令。你犹豫了三秒，算了，继续用当前的模型。
+
+与此同时，你的同事在 Windows 上想试 aweswitch，装好一看：`os.fork()` 报错。他给你发了个截图，你只能说"暂时只支持 macOS 和 Linux"。
+
+这些摩擦，aweswitch 的最新更新正在逐个消除。
+
 aweswitch 已经从 Claude Code 配置切换工具，进化为跨平台的 AI 编码代理配置管理器。最新版本引入了一种无需启动新进程即可切换配置的方式，同时扩展了平台和提供商支持。
 
 GitHub：[github.com/Webioinfo01/aweswitch](https://github.com/Webioinfo01/aweswitch)
@@ -208,6 +216,11 @@ aweswitch 最初是配置切换工具。解决了在不破坏打开会话的情�
 跨平台支持意味着 Windows 用户不再是二等公民。Codex 支持意味着 aweswitch 不再绑定单一提供商。这些是基础性变化，让工具能服务更广泛的用户。
 
 核心原则不变：命名配置、运行时注入、不修改全局配置（除非明确要求 `apply`）。
+
+## aweswitch 系列文章
+
+- [aweswitch: 让多provider操作agent像点菜一样简单](https://mp.weixin.qq.com/s/oi-c9goNBS5ps1cfO_iQwA)
+- [aweswitch更新：启动即记录，升级不操心](https://mp.weixin.qq.com/s/o3tEmFJuW7k3GFN0SqbuWg)
 
 ## 更多来自 Webioinfo
 
