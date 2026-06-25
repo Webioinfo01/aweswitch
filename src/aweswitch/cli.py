@@ -36,6 +36,10 @@ def codex_config_path():
     return Path(os.environ.get("CODEX_CONFIG", "~/.codex/config.toml")).expanduser()
 
 
+def opencode_config_path():
+    return Path(os.environ.get("OPENCODE_CONFIG", "~/.config/opencode/opencode.json")).expanduser()
+
+
 def generate_codex_config(provider_name, base_url):
     """Generate a minimal config.toml for a third-party Codex provider."""
     clean = re.sub(r"[^a-z0-9_]", "_", provider_name.lower()).strip("_") or "custom"
@@ -194,6 +198,23 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         argv += ["-c", f'disable_response_storage=true']
         env["OPENAI_API_KEY"] = api_key
         argv += user_args
+    elif provider == "opencode":
+        model_raw = profile_env.get("OPENCODE_MODEL")
+        api_key_raw = profile_env.get("OPENCODE_API_KEY")
+        base_url_raw = profile_env.get("OPENCODE_BASE_URL")
+        if not model_raw:
+            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        model = expand_value(model_raw, expansion_env)
+        argv = ["opencode", "-m", model]
+        if api_key_raw:
+            api_key = expand_value(api_key_raw, expansion_env)
+            env["OPENAI_API_KEY"] = api_key
+            env["ANTHROPIC_API_KEY"] = api_key
+        if base_url_raw:
+            base_url = expand_value(base_url_raw, expansion_env)
+            env["OPENAI_BASE_URL"] = base_url
+            env["ANTHROPIC_BASE_URL"] = base_url
+        argv += user_args
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
@@ -234,6 +255,8 @@ def profile_model_label(provider, profile):
         return profile.get("env", {}).get("ANTHROPIC_MODEL", "?")
     if provider == "codex":
         return profile.get("env", {}).get("OPENAI_BASE_URL", "?")
+    if provider == "opencode":
+        return profile.get("env", {}).get("OPENCODE_MODEL", "?")
     return "?"
 
 
@@ -367,7 +390,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -458,7 +481,7 @@ def add_command():
     path = config_path()
     load_config(path)
 
-    provider = click.prompt("Provider", type=click.Choice(["claude", "codex"]))
+    provider = click.prompt("Provider", type=click.Choice(["claude", "codex", "opencode"]))
     name = click.prompt("Profile name")
 
     if provider == "claude":
@@ -476,7 +499,7 @@ def add_command():
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
             "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
         }
-    else:
+    elif provider == "codex":
         base_url = click.prompt("OPENAI_BASE_URL")
         auth_var = click.prompt("OPENAI_API_KEY env var name (saved as ${VAR_NAME})")
         auth_token = f"${{{auth_var}}}"
@@ -485,6 +508,18 @@ def add_command():
             "OPENAI_BASE_URL": base_url,
             "OPENAI_API_KEY": auth_token,
         }
+    else:
+        model = click.prompt("OPENCODE_MODEL (e.g. openai/gpt-4o)")
+        base_url = click.prompt("OPENCODE_BASE_URL (optional, press Enter to skip)", default="", show_default=False)
+        auth_var = click.prompt("OPENCODE_API_KEY env var name (saved as ${VAR_NAME}, press Enter to skip)", default="", show_default=False)
+
+        env_vars = {
+            "OPENCODE_MODEL": model,
+        }
+        if base_url:
+            env_vars["OPENCODE_BASE_URL"] = base_url
+        if auth_var:
+            env_vars["OPENCODE_API_KEY"] = f"${{{auth_var}}}"
 
     save_profile(path, name, env_vars, provider=provider)
     click.echo(f"Profile '{name}' added.")
