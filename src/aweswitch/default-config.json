@@ -36,6 +36,24 @@
           "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
         }
       }
+    },
+    "opencode": {
+      "oc-glm5.1": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_API_KEY}",
+          "OPENCODE_PROVIDER": "zhipu",
+          "OPENCODE_MODEL": "glm-5.1"
+        }
+      },
+      "oc-mimo-pro": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
+          "OPENCODE_API_KEY": "${MIMO_API_KEY}",
+          "OPENCODE_PROVIDER": "mimo",
+          "OPENCODE_MODEL": "mimo-v2.5-pro"
+        }
+      }
     }
   }
 }
