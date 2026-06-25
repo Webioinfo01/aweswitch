@@ -31,8 +31,6 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("cc-glm", data["profiles"]["claude"])
             self.assertIn("codex", data["profiles"])
             self.assertIn("cx-openai", data["profiles"]["codex"])
-            self.assertIn("opencode", data["profiles"])
-            self.assertIn("oc-openai", data["profiles"]["opencode"])
 
     def test_package_entry_point_targets_cli_main(self):
         pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
@@ -195,43 +193,6 @@ class AweSwitchTests(unittest.TestCase):
             profile = data["profiles"]["codex"]["cx-test"]
             self.assertEqual(profile["env"]["OPENAI_BASE_URL"], "https://api.example.com/v1")
             self.assertEqual(profile["env"]["OPENAI_API_KEY"], "${MY_KEY}")
-
-    def test_add_command_creates_opencode_profile(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.json"
-            aweswitch.init_config(path)
-
-            result = CliRunner().invoke(aweswitch.cli, [
-                "add",
-            ], input="opencode\noc-test\nopenai/gpt-4o\nhttps://api.example.com/v1\nMY_KEY\n",
-                env={"AWESWITCH_CONFIG": str(path)})
-
-            self.assertEqual(result.exit_code, 0, result.output)
-            self.assertIn("Profile 'oc-test' added.", result.output)
-
-            data = json.loads(path.read_text())
-            profile = data["profiles"]["opencode"]["oc-test"]
-            self.assertEqual(profile["env"]["OPENCODE_MODEL"], "openai/gpt-4o")
-            self.assertEqual(profile["env"]["OPENCODE_BASE_URL"], "https://api.example.com/v1")
-            self.assertEqual(profile["env"]["OPENCODE_API_KEY"], "${MY_KEY}")
-
-    def test_add_command_opencode_model_only(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.json"
-            aweswitch.init_config(path)
-
-            result = CliRunner().invoke(aweswitch.cli, [
-                "add",
-            ], input="opencode\noc-minimal\nopenai/gpt-4o\n\n\n",
-                env={"AWESWITCH_CONFIG": str(path)})
-
-            self.assertEqual(result.exit_code, 0, result.output)
-
-            data = json.loads(path.read_text())
-            env = data["profiles"]["opencode"]["oc-minimal"]["env"]
-            self.assertEqual(env["OPENCODE_MODEL"], "openai/gpt-4o")
-            self.assertNotIn("OPENCODE_BASE_URL", env)
-            self.assertNotIn("OPENCODE_API_KEY", env)
 
     def test_prepare_claude_uses_provider_command_and_env_overrides(self):
         config = {
@@ -440,89 +401,6 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "OPENAI_API_KEY is required"):
             aweswitch.prepare_run(config, "cx-bad", [], {})
 
-    def test_prepare_opencode_uses_model_and_env_overrides(self):
-        config = {
-            "profiles": {
-                "opencode": {
-                    "oc-test": {
-                        "env": {
-                            "OPENCODE_MODEL": "openai/gpt-4o",
-                            "OPENCODE_BASE_URL": "${OC_BASE}",
-                            "OPENCODE_API_KEY": "${OC_KEY}",
-                        },
-                    }
-                }
-            }
-        }
-        base_env = {"PATH": "/bin", "OC_BASE": "https://provider.test/v1", "OC_KEY": "sk-test"}
-
-        argv, env = aweswitch.prepare_run(config, "oc-test", ["--verbose"], base_env)
-
-        self.assertEqual(argv[0], "opencode")
-        self.assertEqual(argv[1], "-m")
-        self.assertEqual(argv[2], "openai/gpt-4o")
-        self.assertEqual(env["OPENAI_API_KEY"], "sk-test")
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-test")
-        self.assertEqual(env["OPENAI_BASE_URL"], "https://provider.test/v1")
-        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://provider.test/v1")
-        self.assertIn("--verbose", argv)
-
-    def test_prepare_opencode_rejects_missing_model(self):
-        config = {
-            "profiles": {
-                "opencode": {
-                    "oc-bad": {
-                        "env": {
-                            "OPENCODE_API_KEY": "${KEY}",
-                        },
-                    }
-                }
-            }
-        }
-
-        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
-            aweswitch.prepare_run(config, "oc-bad", [], {"KEY": "sk-test"})
-
-    def test_prepare_opencode_sets_both_openai_and_anthropic_env(self):
-        config = {
-            "profiles": {
-                "opencode": {
-                    "oc-test": {
-                        "env": {
-                            "OPENCODE_MODEL": "anthropic/claude-sonnet-4-20250514",
-                            "OPENCODE_API_KEY": "${KEY}",
-                        },
-                    }
-                }
-            }
-        }
-
-        argv, env = aweswitch.prepare_run(config, "oc-test", [], {"KEY": "sk-ant"})
-
-        self.assertEqual(env["OPENAI_API_KEY"], "sk-ant")
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-ant")
-
-    def test_prepare_opencode_without_optional_fields(self):
-        config = {
-            "profiles": {
-                "opencode": {
-                    "oc-minimal": {
-                        "env": {
-                            "OPENCODE_MODEL": "openai/gpt-4o",
-                        },
-                    }
-                }
-            }
-        }
-
-        argv, env = aweswitch.prepare_run(config, "oc-minimal", [], {})
-
-        self.assertEqual(argv, ["opencode", "-m", "openai/gpt-4o"])
-        self.assertNotIn("OPENAI_API_KEY", env)
-        self.assertNotIn("ANTHROPIC_API_KEY", env)
-        self.assertNotIn("OPENAI_BASE_URL", env)
-        self.assertNotIn("ANTHROPIC_BASE_URL", env)
-
     def test_prepare_rejects_unknown_provider(self):
         config = {
             "profiles": {
@@ -545,12 +423,6 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(
             aweswitch.profile_model_label("codex", {"env": {"OPENAI_BASE_URL": "https://api.test/v1"}}),
             "https://api.test/v1",
-        )
-
-    def test_profile_model_label_uses_opencode_model(self):
-        self.assertEqual(
-            aweswitch.profile_model_label("opencode", {"env": {"OPENCODE_MODEL": "openai/gpt-4o"}}),
-            "openai/gpt-4o",
         )
 
     def test_profile_for_errors_on_duplicate_profile_names(self):

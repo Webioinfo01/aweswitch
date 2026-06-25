@@ -36,22 +36,6 @@
           "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
         }
       }
-    },
-    "opencode": {
-      "oc-openai": {
-        "env": {
-          "OPENCODE_MODEL": "openai/gpt-4o",
-          "OPENCODE_BASE_URL": "https://api.openai.com/v1",
-          "OPENCODE_API_KEY": "${OPENAI_API_KEY}"
-        }
-      },
-      "oc-aihubmix": {
-        "env": {
-          "OPENCODE_MODEL": "openai/gpt-4o",
-          "OPENCODE_BASE_URL": "https://aihubmix.com/v1",
-          "OPENCODE_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
-        }
-      }
     }
   }
 }
