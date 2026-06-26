@@ -293,12 +293,16 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        # Normalize OPENCODE_MODEL: dict or string → {id: name}
+        # Normalize OPENCODE_MODEL: dict, list, or string → {id: name}
         if isinstance(models_raw, dict) and models_raw:
             models_dict = models_raw
+        elif isinstance(models_raw, list) and models_raw:
+            models_dict = {m: m for m in models_raw if isinstance(m, str) and m.strip()}
         elif isinstance(models_raw, str) and models_raw.strip():
             models_dict = {m.strip(): m.strip() for m in models_raw.split(",") if m.strip()}
         else:
+            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        if not models_dict:
             die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
         # First positional arg is the model name; default to first in dict
         if user_args:
