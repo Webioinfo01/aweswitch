@@ -36,6 +36,96 @@ def codex_config_path():
     return Path(os.environ.get("CODEX_CONFIG", "~/.codex/config.toml")).expanduser()
 
 
+def opencode_config_path():
+    return Path(os.environ.get("OPENCODE_CONFIG", "~/.config/opencode/opencode.json")).expanduser()
+
+
+def load_opencode_config():
+    path = opencode_config_path()
+    if not path.exists():
+        return {"provider": {}}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {"provider": {}}
+    if not isinstance(data.get("provider"), dict):
+        data["provider"] = {}
+    return data
+
+
+def write_opencode_config(data):
+    path = opencode_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
+    return {
+        "name": name,
+        "npm": "@ai-sdk/openai-compatible",
+        "options": {
+            "apiKey": api_key,
+            "baseURL": base_url,
+            "setCacheKey": True,
+        },
+    }
+
+
+def _resolve_opencode_api_key(raw):
+    """Normalize an apiKey value for comparison.
+
+    Handles ${VAR} (shell), {env:VAR} (opencode), and literal keys.
+    Returns the resolved value from the environment, or the raw string if not a ref.
+    """
+    if not isinstance(raw, str):
+        return raw
+    m = ENV_REF_RE.match(raw)
+    if m:
+        return os.environ.get(m.group(1), raw)
+    m = re.match(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$", raw)
+    if m:
+        return os.environ.get(m.group(1), raw)
+    return raw
+
+
+def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model,
+                             display_name=None, model_display_name=None):
+    """Ensure provider+model exist in opencode.json. Writes if needed."""
+    oc_config = load_opencode_config()
+    providers = oc_config["provider"]
+    existing = providers.get(provider_name)
+    model_name = model_display_name or model
+
+    if existing:
+        opts = existing.get("options", {})
+        existing_key = opts.get("apiKey", "")
+        keys_match = (
+            existing_key == api_key
+            or existing_key == api_key_ref
+            or _resolve_opencode_api_key(existing_key) == api_key
+        )
+        if opts.get("baseURL") == base_url and keys_match:
+            # Normalize existing key to {env:VAR} format if needed
+            if existing_key != api_key_ref:
+                opts["apiKey"] = api_key_ref
+            models = existing.setdefault("models", {})
+            if model not in models:
+                models[model] = {"name": model_name}
+            write_opencode_config(oc_config)
+        else:
+            die(
+                f"opencode provider '{provider_name}' already exists with different credentials.\n"
+                f"  Existing baseURL: {opts.get('baseURL', '?')}\n"
+                f"  Either update opencode.json manually or use a different provider name."
+            )
+    else:
+        name = display_name or provider_name
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
+        entry["models"] = {model: {"name": model_name}}
+        providers[provider_name] = entry
+        write_opencode_config(oc_config)
+
+
 def generate_codex_config(provider_name, base_url):
     """Generate a minimal config.toml for a third-party Codex provider."""
     clean = re.sub(r"[^a-z0-9_]", "_", provider_name.lower()).strip("_") or "custom"
@@ -161,12 +251,13 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     return result
 
 
-def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None):
+def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None, oc_providers=None):
     base_env = dict(os.environ if base_env is None else base_env)
     provider, profile = profile_for(config, profile_name)
     profile_env = profile.get("env", {})
     env = dict(base_env)
     expansion_env = dict(base_env)
+    oc_write_info = None
     if provider == "claude":
         settings_env = load_claude_settings_env() if claude_settings_env is None else claude_settings_env
         expansion_env = {**settings_env, **base_env}
@@ -194,10 +285,57 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         argv += ["-c", f'disable_response_storage=true']
         env["OPENAI_API_KEY"] = api_key
         argv += user_args
+    elif provider == "opencode":
+        base_url_raw = profile_env.get("OPENCODE_BASE_URL")
+        api_key_raw = profile_env.get("OPENCODE_API_KEY")
+        models_raw = profile_env.get("OPENCODE_MODEL")
+        if not base_url_raw:
+            die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
+        if not api_key_raw:
+            die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
+        # Normalize OPENCODE_MODEL: dict, list, or string → {id: name}
+        if isinstance(models_raw, dict) and models_raw:
+            models_dict = models_raw
+        elif isinstance(models_raw, list) and models_raw:
+            models_dict = {m: m for m in models_raw if isinstance(m, str) and m.strip()}
+        elif isinstance(models_raw, str) and models_raw.strip():
+            models_dict = {m.strip(): m.strip() for m in models_raw.split(",") if m.strip()}
+        else:
+            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        if not models_dict:
+            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        # First positional arg is the model name; default to first in dict
+        if user_args:
+            model = user_args[0]
+            user_args = user_args[1:]
+        else:
+            model = next(iter(models_dict))
+        if model not in models_dict:
+            available = ", ".join(sorted(models_dict))
+            die(f"unknown model '{model}' for opencode profile: {profile_name}\n  Available: {available}")
+        base_url = expand_value(base_url_raw, expansion_env)
+        api_key = expand_value(api_key_raw, expansion_env)
+        # Keep the raw ${VAR} reference for opencode.json ({env:VAR} syntax)
+        # so the actual key is never written to disk.
+        api_key_ref = api_key_raw
+        if ENV_REF_RE.fullmatch(api_key_ref):
+            var_name = ENV_REF_RE.match(api_key_ref).group(1)
+            api_key_ref = f"{{env:{var_name}}}"
+        oc_write_info = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "api_key_ref": api_key_ref,
+            "provider_name": profile_name,
+            "model": model,
+            "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
+            "model_display_name": models_dict.get(model, model),
+        }
+        argv = ["opencode", "-m", f"{profile_name}/{model}"]
+        argv += user_args
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
-    return argv, env
+    return argv, env, oc_write_info
 
 
 def redact(data):
@@ -230,10 +368,16 @@ def command_list(config):
 
 
 def profile_model_label(provider, profile):
+    env = profile.get("env", {})
     if provider == "claude":
-        return profile.get("env", {}).get("ANTHROPIC_MODEL", "?")
+        return env.get("ANTHROPIC_MODEL", "?")
     if provider == "codex":
-        return profile.get("env", {}).get("OPENAI_BASE_URL", "?")
+        return env.get("OPENAI_BASE_URL", "?")
+    if provider == "opencode":
+        models = env.get("OPENCODE_MODEL", {})
+        if isinstance(models, dict):
+            return ", ".join(sorted(models))
+        return "?"
     return "?"
 
 
@@ -367,7 +511,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -458,10 +602,24 @@ def add_command():
     path = config_path()
     load_config(path)
 
-    provider = click.prompt("Provider", type=click.Choice(["claude", "codex"]))
+    provider = click.prompt("Provider", type=click.Choice(["claude", "codex", "opencode"]))
     name = click.prompt("Profile name")
 
-    if provider == "claude":
+    if provider == "opencode":
+        base_url = click.prompt("OPENCODE_BASE_URL")
+        auth_var = click.prompt("OPENCODE_API_KEY env var name (saved as ${VAR_NAME})")
+        auth_token = f"${{{auth_var}}}"
+        models_str = click.prompt("OPENCODE_MODEL (comma-separated, e.g. glm-5.1,glm-5.2)")
+        models_dict = {m.strip(): m.strip() for m in models_str.split(",") if m.strip()}
+
+        env_vars = {
+            "OPENCODE_BASE_URL": base_url,
+            "OPENCODE_API_KEY": auth_token,
+            "OPENCODE_MODEL": models_dict,
+        }
+        save_profile(path, name, env_vars, provider=provider)
+        click.echo(f"Profile '{name}' added.")
+    elif provider == "claude":
         base_url = click.prompt("ANTHROPIC_BASE_URL")
         auth_var = click.prompt("ANTHROPIC_AUTH_TOKEN env var name (saved as ${VAR_NAME})")
         auth_token = f"${{{auth_var}}}"
@@ -476,6 +634,8 @@ def add_command():
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku_model,
             "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet_model,
         }
+        save_profile(path, name, env_vars, provider=provider)
+        click.echo(f"Profile '{name}' added.")
     else:
         base_url = click.prompt("OPENAI_BASE_URL")
         auth_var = click.prompt("OPENAI_API_KEY env var name (saved as ${VAR_NAME})")
@@ -485,9 +645,8 @@ def add_command():
             "OPENAI_BASE_URL": base_url,
             "OPENAI_API_KEY": auth_token,
         }
-
-    save_profile(path, name, env_vars, provider=provider)
-    click.echo(f"Profile '{name}' added.")
+        save_profile(path, name, env_vars, provider=provider)
+        click.echo(f"Profile '{name}' added.")
 
 
 
@@ -577,7 +736,17 @@ def run_profile(ctx, category, title):
             click.echo("warning: aweshelf not found; -c/-t ignored. Install: pip3 install aweshelf (https://github.com/Webioinfo01/aweshelf)", err=True)
         else:
             _auto_bookmark(category, profile_name, title=title)
-    run_argv, run_env = prepare_run(load_config(config_path()), profile_name, ctx.args)
+    run_argv, run_env, oc_write_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
+    if oc_write_info is not None:
+        ensure_opencode_provider(
+            oc_write_info["base_url"],
+            oc_write_info["api_key"],
+            oc_write_info["api_key_ref"],
+            oc_write_info["provider_name"],
+            oc_write_info["model"],
+            display_name=oc_write_info["display_name"],
+            model_display_name=oc_write_info["model_display_name"],
+        )
     exec_agent(run_argv, run_env)
 
 

@@ -1,5 +1,36 @@
 # change log
 
+## v0.3.2
+
+`v0.3.2` adds OpenCode as a supported provider, alongside Claude Code and Codex. Profiles targeting OpenCode are written to `~/.config/opencode/opencode.json` and launched via `opencode -m <provider>/<model>`. This release also refreshes documentation for the new provider and normalizes model handling across formats.
+
+### OpenCode provider support
+
+Profiles can now target OpenCode. Set `"provider": "opencode"` in a profile (or select "opencode" in `aweswitch add`) and provide `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL`. aweswitch writes the provider entry to `~/.config/opencode/opencode.json` on first launch, using `{env:VAR}` syntax so the API key is never stored on disk. The model is passed as a positional argument: `aweswitch oc-<profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used.
+
+### Model format normalization
+
+`OPENCODE_MODEL` now accepts three formats and normalizes them consistently:
+
+- **Dict** — `{"glm-5.1": "GLM-5.1"}` — model `name` uses the display value
+- **List** — `["glm-5.1", "glm-5.2"]` — model `name` uses the list key
+- **String** — `"glm-5.1,glm-5.2"` — model `name` uses the first key
+
+### Documentation refresh
+
+Both READMEs and the bundled skill (`resources/skills/aweswitch/SKILL.md`) now document all three providers (Claude, Codex, OpenCode), with provider-specific config examples, model selection syntax, and a mode-availability table.
+
+### Highlights
+
+- Added OpenCode provider with `OPENCODE_BASE_URL` / `OPENCODE_API_KEY` / `OPENCODE_MODEL` support
+- `aweswitch add` now prompts for provider (`claude`, `codex`, or `opencode`)
+- First launch writes provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse it
+- API key written as `{env:VAR}` — actual key never stored on disk
+- Model specified as first positional argument; defaults to first model in list
+- Normalized `OPENCODE_MODEL` dict/list/string formats with consistent label resolution
+- Updated README, README_cn, and SKILL.md with OpenCode examples and provider table
+- Removed `cc-gemini` and `cx-aihubmix` example profiles from default config
+
 ## v0.3.0
 
 `v0.3.0` adds `apply` and `restore` commands for writing profiles directly to `~/.claude/settings.json`, and restructures documentation around the two switching modes.

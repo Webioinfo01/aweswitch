@@ -4,6 +4,7 @@ import stat
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -210,7 +211,7 @@ class AweSwitchTests(unittest.TestCase):
         }
         base_env = {"PATH": "/bin", "GLM_BASE": "https://example.test", "GLM_TOKEN": "secret"}
 
-        argv, env = aweswitch.prepare_run(config, "cc-glm", ["--verbose"], base_env)
+        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", ["--verbose"], base_env)
 
         self.assertEqual(argv[0], "claude")
         self.assertEqual(argv[1], "--settings")
@@ -253,7 +254,7 @@ class AweSwitchTests(unittest.TestCase):
             "ANTHROPIC_AUTH_TOKEN": "secret",
         }
 
-        argv, env = aweswitch.prepare_run(config, "cc-glm", [], {}, claude_settings_env)
+        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], {}, claude_settings_env)
 
         self.assertEqual(argv[0], "claude")
         self.assertEqual(argv[1], "--settings")
@@ -289,7 +290,7 @@ class AweSwitchTests(unittest.TestCase):
         }
         base_env = {"ANTHROPIC_MODEL": "old-model"}
 
-        argv, env = aweswitch.prepare_run(config, "cc-glm", [], base_env)
+        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], base_env)
 
         self.assertEqual(env["ANTHROPIC_MODEL"], "old-model")
         self.assertEqual(argv[0], "claude")
@@ -325,7 +326,7 @@ class AweSwitchTests(unittest.TestCase):
             }
         }
 
-        argv, env = aweswitch.prepare_run(config, "cc-glm", [], {})
+        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], {})
 
         self.assertEqual(env, {})
         self.assertNotIn("--model", argv)
@@ -346,7 +347,7 @@ class AweSwitchTests(unittest.TestCase):
         }
         base_env = {"PATH": "/bin", "CODEX_BASE": "https://provider.test/v1", "CODEX_KEY": "sk-test"}
 
-        argv, env = aweswitch.prepare_run(config, "cx-test", ["--verbose"], base_env)
+        argv, env, _ = aweswitch.prepare_run(config, "cx-test", ["--verbose"], base_env)
 
         self.assertEqual(argv[0], "codex")
         self.assertIn("-c", argv)
@@ -491,6 +492,185 @@ class AweSwitchTests(unittest.TestCase):
         self.assertIn('wire_api = "responses"', config)
         self.assertIn('requires_openai_auth = true', config)
         self.assertIn("[model_providers.aihubmix]", config)
+
+
+    # --- opencode profiles ---
+
+    def _make_oc_config(self, models=None,
+                        base_url="https://example.com/v1", api_key="sk-test"):
+        if models is None:
+            models = {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}
+        return {
+            "profiles": {
+                "opencode": {
+                    "oc-test": {
+                        "env": {
+                            "OPENCODE_BASE_URL": base_url,
+                            "OPENCODE_API_KEY": api_key,
+                            "OPENCODE_MODEL": models,
+                        }
+                    }
+                }
+            }
+        }
+
+    def test_prepare_opencode_uses_model_from_args(self):
+        config = self._make_oc_config()
+
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
+
+        self.assertEqual(argv[0], "opencode")
+        self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
+        self.assertEqual(env, {})
+        self.assertEqual(oc_info["provider_name"], "oc-test")
+        self.assertEqual(oc_info["model"], "glm-5.1")
+        self.assertEqual(oc_info["base_url"], "https://example.com/v1")
+        self.assertEqual(oc_info["api_key"], "sk-test")
+        self.assertEqual(oc_info["api_key_ref"], "sk-test")  # no ${VAR}, so ref == key
+
+    def test_prepare_opencode_passes_extra_args(self):
+        config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})
+
+        argv, env, _ = aweswitch.prepare_run(config, "oc-test",
+                                              ["mimo-v2.5-pro", "--mini"], {})
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/mimo-v2.5-pro"])
+        self.assertIn("--mini", argv)
+        self.assertNotIn("mimo-v2.5-pro", argv[3:])  # model stripped from extra args
+
+    def test_prepare_opencode_expands_env_refs(self):
+        config = self._make_oc_config(api_key="${MY_KEY}")
+        base_env = {"MY_KEY": "sk-resolved"}
+
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], base_env)
+
+        self.assertEqual(oc_info["api_key"], "sk-resolved")
+        self.assertEqual(oc_info["api_key_ref"], "{env:MY_KEY}")
+
+    def test_prepare_opencode_defaults_to_first_model(self):
+        config = self._make_oc_config()
+
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], {})
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
+        self.assertEqual(oc_info["model"], "glm-5.1")
+
+    def test_prepare_opencode_rejects_unknown_model(self):
+        config = self._make_oc_config()
+
+        with self.assertRaisesRegex(SystemExit, "unknown model 'glm-9.9'"):
+            aweswitch.prepare_run(config, "oc-test", ["glm-9.9"], {})
+
+    def test_prepare_opencode_rejects_missing_base_url(self):
+        config = {"profiles": {"opencode": {"oc-bad": {"env": {
+            "OPENCODE_API_KEY": "k", "OPENCODE_MODEL": {"m": "M"},
+        }}}}}
+
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_BASE_URL is required"):
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
+
+    def test_prepare_opencode_rejects_missing_api_key(self):
+        config = {"profiles": {"opencode": {"oc-bad": {"env": {
+            "OPENCODE_BASE_URL": "https://x", "OPENCODE_MODEL": {"m": "M"},
+        }}}}}
+
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_API_KEY is required"):
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
+
+    def test_prepare_opencode_rejects_empty_model(self):
+        config = {"profiles": {"opencode": {"oc-bad": {"env": {
+            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k",
+            "OPENCODE_MODEL": {},
+        }}}}}
+
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
+
+    def test_profile_model_label_shows_available_models_for_opencode(self):
+        profile = {"env": {"OPENCODE_MODEL": {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}}}
+        label = aweswitch.profile_model_label("opencode", profile)
+        self.assertIn("glm-5.1", label)
+        self.assertIn("glm-5.2", label)
+
+    def test_init_creates_opencode_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+
+            aweswitch.init_config(path)
+
+            data = json.loads(path.read_text())
+            self.assertIn("opencode", data["profiles"])
+            self.assertIn("oc-glm", data["profiles"]["opencode"])
+            env = data["profiles"]["opencode"]["oc-glm"]["env"]
+            self.assertNotIn("OPENCODE_PROVIDER", env)
+            self.assertIsInstance(env["OPENCODE_MODEL"], dict)
+            self.assertIn("glm-5.1", env["OPENCODE_MODEL"])
+
+    def test_ensure_opencode_provider_creates_new_provider_with_env_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new",
+                                                   "{env:MY_KEY}", "oc-doubao", "doubao-1")
+
+            data = json.loads(oc_path.read_text())
+            prov = data["provider"]["oc-doubao"]
+            self.assertEqual(prov["options"]["baseURL"], "https://new.com/v1")
+            self.assertEqual(prov["options"]["apiKey"], "{env:MY_KEY}")
+            self.assertIn("doubao-1", prov["models"])
+
+    def test_ensure_opencode_provider_adds_model_to_existing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {"glm-5.1": {"name": "glm-5.1"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-resolved",
+                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.2")
+
+            data = json.loads(oc_path.read_text())
+            self.assertIn("glm-5.2", data["provider"]["oc-glm"]["models"])
+            self.assertIn("glm-5.1", data["provider"]["oc-glm"]["models"])
+
+    def test_ensure_opencode_provider_skips_if_model_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            original = {"provider": {
+                "oc-glm": {
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {"glm-5.1": {"name": "glm-5.1"}},
+                }
+            }}
+            original_text = json.dumps(original, indent=2) + "\n"
+            oc_path.write_text(original_text)
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-resolved",
+                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.1")
+
+            self.assertEqual(oc_path.read_text(), original_text)
+
+    def test_ensure_opencode_provider_rejects_credential_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
+                    "models": {},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                with self.assertRaisesRegex(SystemExit, "already exists with different credentials"):
+                    aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new",
+                                                       "{env:NEW_KEY}", "oc-glm", "glm-5.1")
 
 
 if __name__ == "__main__":
