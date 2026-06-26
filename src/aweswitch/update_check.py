@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -15,7 +16,8 @@ REMIND_INTERVAL_S = 24 * 60 * 60
 
 def _parse_version(v):
     try:
-        return tuple(int(x) for x in v.split("."))
+        parts = re.findall(r"\d+", v)
+        return tuple(int(x) for x in parts[:3]) if parts else (0,)
     except (ValueError, AttributeError):
         return (0,)
 

@@ -22,6 +22,7 @@ TEMPLATE_PATH = Path(__file__).parent / "default-config.json"
 
 SECRET_RE = re.compile(r"(TOKEN|KEY|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+TEMP_SETTINGS_TTL_S = 24 * 60 * 60
 
 
 def config_path():
@@ -86,6 +87,16 @@ def _resolve_opencode_api_key(raw):
     if m:
         return os.environ.get(m.group(1), raw)
     return raw
+
+
+def _opencode_api_key_ref(raw):
+    """Return opencode's env ref syntax for a config ${VAR} API key."""
+    if not isinstance(raw, str):
+        die("OPENCODE_API_KEY must be an environment variable reference like ${VAR_NAME}")
+    m = ENV_REF_RE.fullmatch(raw)
+    if not m:
+        die("OPENCODE_API_KEY must be an environment variable reference like ${VAR_NAME}")
+    return f"{{env:{m.group(1)}}}"
 
 
 def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model,
@@ -219,7 +230,17 @@ def profile_for(config, name):
 
 
 def write_settings_file(data):
-    fd, path = tempfile.mkstemp(prefix="aweswitch-settings-", suffix=".json")
+    settings_dir = Path(tempfile.gettempdir()) / "aweswitch"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - TEMP_SETTINGS_TTL_S
+    for old_path in settings_dir.glob("aweswitch-settings-*.json"):
+        try:
+            if old_path.stat().st_mtime < cutoff:
+                old_path.unlink()
+        except OSError:
+            pass
+
+    fd, path = tempfile.mkstemp(prefix="aweswitch-settings-", suffix=".json", dir=settings_dir)
     if os.name != "nt":
         os.chmod(path, 0o600)
     with os.fdopen(fd, "w") as f:
@@ -315,12 +336,8 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             die(f"unknown model '{model}' for opencode profile: {profile_name}\n  Available: {available}")
         base_url = expand_value(base_url_raw, expansion_env)
         api_key = expand_value(api_key_raw, expansion_env)
-        # Keep the raw ${VAR} reference for opencode.json ({env:VAR} syntax)
-        # so the actual key is never written to disk.
-        api_key_ref = api_key_raw
-        if ENV_REF_RE.fullmatch(api_key_ref):
-            var_name = ENV_REF_RE.match(api_key_ref).group(1)
-            api_key_ref = f"{{env:{var_name}}}"
+        # Keep an env reference in opencode.json so the actual key is never written to disk.
+        api_key_ref = _opencode_api_key_ref(api_key_raw)
         oc_write_info = {
             "base_url": base_url,
             "api_key": api_key,
@@ -690,10 +707,16 @@ def apply_command(profile, force):
     backed_up = False
     if settings_path.exists():
         if not backup_path.exists():
-            shutil.copy2(settings_path, backup_path)
+            try:
+                shutil.copy2(settings_path, backup_path)
+            except OSError as exc:
+                die(f"failed to create backup {backup_path}: {exc}")
             backed_up = True
         elif force:
-            shutil.copy2(settings_path, backup_path)
+            try:
+                shutil.copy2(settings_path, backup_path)
+            except OSError as exc:
+                die(f"failed to create backup {backup_path}: {exc}")
             backed_up = True
 
     settings_data["env"] = {**settings_data.get("env", {}), **expanded_env}

@@ -3,6 +3,7 @@ import os
 import stat
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -12,6 +13,7 @@ from click.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from aweswitch import cli as aweswitch
+from aweswitch import update_check
 
 
 class AweSwitchTests(unittest.TestCase):
@@ -497,7 +499,7 @@ class AweSwitchTests(unittest.TestCase):
     # --- opencode profiles ---
 
     def _make_oc_config(self, models=None,
-                        base_url="https://example.com/v1", api_key="sk-test"):
+                        base_url="https://example.com/v1", api_key="${OC_KEY}"):
         if models is None:
             models = {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}
         return {
@@ -517,22 +519,22 @@ class AweSwitchTests(unittest.TestCase):
     def test_prepare_opencode_uses_model_from_args(self):
         config = self._make_oc_config()
 
-        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {"OC_KEY": "sk-test"})
 
         self.assertEqual(argv[0], "opencode")
         self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
-        self.assertEqual(env, {})
+        self.assertEqual(env, {"OC_KEY": "sk-test"})
         self.assertEqual(oc_info["provider_name"], "oc-test")
         self.assertEqual(oc_info["model"], "glm-5.1")
         self.assertEqual(oc_info["base_url"], "https://example.com/v1")
         self.assertEqual(oc_info["api_key"], "sk-test")
-        self.assertEqual(oc_info["api_key_ref"], "sk-test")  # no ${VAR}, so ref == key
+        self.assertEqual(oc_info["api_key_ref"], "{env:OC_KEY}")
 
     def test_prepare_opencode_passes_extra_args(self):
         config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})
 
         argv, env, _ = aweswitch.prepare_run(config, "oc-test",
-                                              ["mimo-v2.5-pro", "--mini"], {})
+                                              ["mimo-v2.5-pro", "--mini"], {"OC_KEY": "sk-test"})
 
         self.assertEqual(argv[1:3], ["-m", "oc-test/mimo-v2.5-pro"])
         self.assertIn("--mini", argv)
@@ -550,7 +552,7 @@ class AweSwitchTests(unittest.TestCase):
     def test_prepare_opencode_defaults_to_first_model(self):
         config = self._make_oc_config()
 
-        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], {})
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], {"OC_KEY": "sk-test"})
 
         self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
         self.assertEqual(oc_info["model"], "glm-5.1")
@@ -559,7 +561,7 @@ class AweSwitchTests(unittest.TestCase):
         config = self._make_oc_config()
 
         with self.assertRaisesRegex(SystemExit, "unknown model 'glm-9.9'"):
-            aweswitch.prepare_run(config, "oc-test", ["glm-9.9"], {})
+            aweswitch.prepare_run(config, "oc-test", ["glm-9.9"], {"OC_KEY": "sk-test"})
 
     def test_prepare_opencode_rejects_missing_base_url(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
@@ -579,12 +581,71 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_prepare_opencode_rejects_empty_model(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
-            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k",
+            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "${OC_KEY}",
             "OPENCODE_MODEL": {},
         }}}}}
 
         with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
-            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {"OC_KEY": "sk-test"})
+
+    def test_prepare_opencode_rejects_plaintext_api_key(self):
+        config = self._make_oc_config(api_key="sk-test")
+
+        with self.assertRaisesRegex(SystemExit, "must be an environment variable reference"):
+            aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
+
+    def test_parse_version_accepts_prerelease_suffix(self):
+        self.assertEqual(update_check._parse_version("0.3.0a1"), (0, 3, 0))
+        self.assertTrue(update_check._version_gte("0.3.0a1", "0.3.0"))
+        self.assertTrue(update_check._version_gte("0.3.0", "0.3.0a1"))
+
+    def test_write_settings_file_removes_old_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            settings_dir = tmp_root / "aweswitch"
+            settings_dir.mkdir()
+            old_file = settings_dir / "aweswitch-settings-old.json"
+            old_file.write_text("{}")
+            old_time = time.time() - (25 * 60 * 60)
+            os.utime(old_file, (old_time, old_time))
+
+            with unittest.mock.patch("tempfile.gettempdir", return_value=tmp):
+                settings_path = aweswitch.write_settings_file({"env": {"A": "B"}})
+
+            self.assertFalse(old_file.exists())
+            self.assertTrue(settings_path.exists())
+            self.assertEqual(json.loads(settings_path.read_text()), {"env": {"A": "B"}})
+
+    def test_apply_stops_if_backup_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text(json.dumps({"env": {"OLD": "value"}}) + "\n")
+            config_path.write_text(json.dumps({
+                "profiles": {
+                    "claude": {
+                        "cc-test": {
+                            "env": {
+                                "ANTHROPIC_BASE_URL": "https://example.test",
+                                "ANTHROPIC_AUTH_TOKEN": "${TOKEN}",
+                                "ANTHROPIC_MODEL": "model",
+                            }
+                        }
+                    }
+                }
+            }) + "\n")
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path), \
+                 unittest.mock.patch("aweswitch.cli.shutil.copy2", side_effect=OSError("disk full")):
+                result = CliRunner().invoke(
+                    aweswitch.cli,
+                    ["apply", "cc-test"],
+                    env={"AWESWITCH_CONFIG": str(config_path), "TOKEN": "secret"},
+                )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("failed to create backup", result.output)
+            self.assertEqual(json.loads(settings_path.read_text()), {"env": {"OLD": "value"}})
 
     def test_profile_model_label_shows_available_models_for_opencode(self):
         profile = {"env": {"OPENCODE_MODEL": {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}}}
