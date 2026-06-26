@@ -496,8 +496,10 @@ class AweSwitchTests(unittest.TestCase):
 
     # --- opencode profiles ---
 
-    def _make_oc_config(self, provider="zhipu", model="glm-5.1",
+    def _make_oc_config(self, models=None,
                         base_url="https://example.com/v1", api_key="sk-test"):
+        if models is None:
+            models = {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}
         return {
             "profiles": {
                 "opencode": {
@@ -505,78 +507,88 @@ class AweSwitchTests(unittest.TestCase):
                         "env": {
                             "OPENCODE_BASE_URL": base_url,
                             "OPENCODE_API_KEY": api_key,
-                            "OPENCODE_PROVIDER": provider,
-                            "OPENCODE_MODEL": model,
+                            "OPENCODE_MODEL": models,
                         }
                     }
                 }
             }
         }
 
-    def test_prepare_opencode_uses_model_flag(self):
+    def test_prepare_opencode_uses_model_from_args(self):
         config = self._make_oc_config()
 
-        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], {})
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
 
         self.assertEqual(argv[0], "opencode")
-        self.assertEqual(argv[1:3], ["-m", "zhipu/glm-5.1"])
+        self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
         self.assertEqual(env, {})
-        self.assertEqual(oc_info["provider_name"], "zhipu")
+        self.assertEqual(oc_info["provider_name"], "oc-test")
         self.assertEqual(oc_info["model"], "glm-5.1")
         self.assertEqual(oc_info["base_url"], "https://example.com/v1")
         self.assertEqual(oc_info["api_key"], "sk-test")
+        self.assertEqual(oc_info["api_key_ref"], "sk-test")  # no ${VAR}, so ref == key
 
     def test_prepare_opencode_passes_extra_args(self):
-        config = self._make_oc_config(provider="mimo", model="mimo-v2.5-pro")
+        config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})
 
-        argv, env, _ = aweswitch.prepare_run(config, "oc-test", ["--mini"], {})
+        argv, env, _ = aweswitch.prepare_run(config, "oc-test",
+                                              ["mimo-v2.5-pro", "--mini"], {})
 
-        self.assertEqual(argv[1:3], ["-m", "mimo/mimo-v2.5-pro"])
+        self.assertEqual(argv[1:3], ["-m", "oc-test/mimo-v2.5-pro"])
         self.assertIn("--mini", argv)
+        self.assertNotIn("mimo-v2.5-pro", argv[3:])  # model stripped from extra args
 
     def test_prepare_opencode_expands_env_refs(self):
         config = self._make_oc_config(api_key="${MY_KEY}")
         base_env = {"MY_KEY": "sk-resolved"}
 
-        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], base_env)
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], base_env)
 
         self.assertEqual(oc_info["api_key"], "sk-resolved")
+        self.assertEqual(oc_info["api_key_ref"], "{env:MY_KEY}")
+
+    def test_prepare_opencode_rejects_no_model_arg(self):
+        config = self._make_oc_config()
+
+        with self.assertRaisesRegex(SystemExit, "model required"):
+            aweswitch.prepare_run(config, "oc-test", [], {})
+
+    def test_prepare_opencode_rejects_unknown_model(self):
+        config = self._make_oc_config()
+
+        with self.assertRaisesRegex(SystemExit, "unknown model 'glm-9.9'"):
+            aweswitch.prepare_run(config, "oc-test", ["glm-9.9"], {})
 
     def test_prepare_opencode_rejects_missing_base_url(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
-            "OPENCODE_API_KEY": "k", "OPENCODE_PROVIDER": "z", "OPENCODE_MODEL": "m",
+            "OPENCODE_API_KEY": "k", "OPENCODE_MODEL": {"m": "M"},
         }}}}}
 
         with self.assertRaisesRegex(SystemExit, "OPENCODE_BASE_URL is required"):
-            aweswitch.prepare_run(config, "oc-bad", [], {})
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
 
     def test_prepare_opencode_rejects_missing_api_key(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
-            "OPENCODE_BASE_URL": "https://x", "OPENCODE_PROVIDER": "z", "OPENCODE_MODEL": "m",
+            "OPENCODE_BASE_URL": "https://x", "OPENCODE_MODEL": {"m": "M"},
         }}}}}
 
         with self.assertRaisesRegex(SystemExit, "OPENCODE_API_KEY is required"):
-            aweswitch.prepare_run(config, "oc-bad", [], {})
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
 
-    def test_prepare_opencode_rejects_missing_provider(self):
+    def test_prepare_opencode_rejects_empty_model_dict(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
-            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k", "OPENCODE_MODEL": "m",
+            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k",
+            "OPENCODE_MODEL": {},
         }}}}}
 
-        with self.assertRaisesRegex(SystemExit, "OPENCODE_PROVIDER is required"):
-            aweswitch.prepare_run(config, "oc-bad", [], {})
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL must be a non-empty dict"):
+            aweswitch.prepare_run(config, "oc-bad", ["m"], {})
 
-    def test_prepare_opencode_rejects_missing_model(self):
-        config = {"profiles": {"opencode": {"oc-bad": {"env": {
-            "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k", "OPENCODE_PROVIDER": "z",
-        }}}}}
-
-        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
-            aweswitch.prepare_run(config, "oc-bad", [], {})
-
-    def test_profile_model_label_shows_provider_and_model_for_opencode(self):
-        profile = {"env": {"OPENCODE_PROVIDER": "zhipu", "OPENCODE_MODEL": "glm-5.1"}}
-        self.assertEqual(aweswitch.profile_model_label("opencode", profile), "zhipu/glm-5.1")
+    def test_profile_model_label_shows_available_models_for_opencode(self):
+        profile = {"env": {"OPENCODE_MODEL": {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}}}
+        label = aweswitch.profile_model_label("opencode", profile)
+        self.assertIn("glm-5.1", label)
+        self.assertIn("glm-5.2", label)
 
     def test_init_creates_opencode_profiles(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -586,48 +598,51 @@ class AweSwitchTests(unittest.TestCase):
 
             data = json.loads(path.read_text())
             self.assertIn("opencode", data["profiles"])
-            self.assertIn("oc-glm5.1", data["profiles"]["opencode"])
-            env = data["profiles"]["opencode"]["oc-glm5.1"]["env"]
-            self.assertEqual(env["OPENCODE_PROVIDER"], "zhipu")
-            self.assertEqual(env["OPENCODE_MODEL"], "glm-5.1")
+            self.assertIn("oc-glm", data["profiles"]["opencode"])
+            env = data["profiles"]["opencode"]["oc-glm"]["env"]
+            self.assertNotIn("OPENCODE_PROVIDER", env)
+            self.assertIsInstance(env["OPENCODE_MODEL"], dict)
+            self.assertIn("glm-5.1", env["OPENCODE_MODEL"])
 
-    def test_ensure_opencode_provider_creates_new_provider(self):
+    def test_ensure_opencode_provider_creates_new_provider_with_env_ref(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             oc_path.write_text(json.dumps({"provider": {}}))
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new", "doubao", "doubao-1")
+                aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new",
+                                                   "{env:MY_KEY}", "oc-doubao", "doubao-1")
 
             data = json.loads(oc_path.read_text())
-            prov = data["provider"]["doubao"]
+            prov = data["provider"]["oc-doubao"]
             self.assertEqual(prov["options"]["baseURL"], "https://new.com/v1")
-            self.assertEqual(prov["options"]["apiKey"], "sk-new")
+            self.assertEqual(prov["options"]["apiKey"], "{env:MY_KEY}")
             self.assertIn("doubao-1", prov["models"])
 
     def test_ensure_opencode_provider_adds_model_to_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             oc_path.write_text(json.dumps({"provider": {
-                "zhipu": {
-                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "sk-z"},
+                "oc-glm": {
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
                     "models": {"glm-5.1": {"name": "glm-5.1"}},
                 }
             }}))
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-z", "zhipu", "glm-5.2")
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-resolved",
+                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.2")
 
             data = json.loads(oc_path.read_text())
-            self.assertIn("glm-5.2", data["provider"]["zhipu"]["models"])
-            self.assertIn("glm-5.1", data["provider"]["zhipu"]["models"])
+            self.assertIn("glm-5.2", data["provider"]["oc-glm"]["models"])
+            self.assertIn("glm-5.1", data["provider"]["oc-glm"]["models"])
 
     def test_ensure_opencode_provider_skips_if_model_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             original = {"provider": {
-                "zhipu": {
-                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "sk-z"},
+                "oc-glm": {
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
                     "models": {"glm-5.1": {"name": "glm-5.1"}},
                 }
             }}
@@ -635,16 +650,16 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.write_text(original_text)
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-z", "zhipu", "glm-5.1")
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1", "sk-resolved",
+                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.1")
 
-            # File should not be rewritten
             self.assertEqual(oc_path.read_text(), original_text)
 
     def test_ensure_opencode_provider_rejects_credential_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             oc_path.write_text(json.dumps({"provider": {
-                "zhipu": {
+                "oc-glm": {
                     "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
                     "models": {},
                 }
@@ -652,7 +667,8 @@ class AweSwitchTests(unittest.TestCase):
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
                 with self.assertRaisesRegex(SystemExit, "already exists with different credentials"):
-                    aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new", "zhipu", "glm-5.1")
+                    aweswitch.ensure_opencode_provider("https://new.com/v1", "sk-new",
+                                                       "{env:NEW_KEY}", "oc-glm", "glm-5.1")
 
 
 if __name__ == "__main__":

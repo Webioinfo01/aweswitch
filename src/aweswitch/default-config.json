@@ -38,20 +38,24 @@
       }
     },
     "opencode": {
-      "oc-glm5.1": {
+      "oc-glm": {
         "env": {
           "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
           "OPENCODE_API_KEY": "${GLM_API_KEY}",
-          "OPENCODE_PROVIDER": "zhipu",
-          "OPENCODE_MODEL": "glm-5.1"
+          "OPENCODE_MODEL": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5.2": "GLM-5.2"
+          }
         }
       },
-      "oc-mimo-pro": {
+      "oc-mimo": {
         "env": {
           "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
           "OPENCODE_API_KEY": "${MIMO_API_KEY}",
-          "OPENCODE_PROVIDER": "mimo",
-          "OPENCODE_MODEL": "mimo-v2.5-pro"
+          "OPENCODE_MODEL": {
+            "mimo-v2.5-pro": "MiMo-v2.5-Pro",
+            "mimo-v2.5": "MiMo-v2.5"
+          }
         }
       }
     }

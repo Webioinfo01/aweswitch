@@ -59,9 +59,9 @@ def write_opencode_config(data):
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def build_opencode_provider_entry(base_url, api_key):
+def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
     return {
-        "name": "aweswitch",
+        "name": name,
         "npm": "@ai-sdk/openai-compatible",
         "options": {
             "apiKey": api_key,
@@ -70,7 +70,24 @@ def build_opencode_provider_entry(base_url, api_key):
     }
 
 
-def ensure_opencode_provider(base_url, api_key, provider_name, model):
+def _resolve_opencode_api_key(raw):
+    """Normalize an apiKey value for comparison.
+
+    Handles ${VAR} (shell), {env:VAR} (opencode), and literal keys.
+    Returns the resolved value from the environment, or the raw string if not a ref.
+    """
+    if not isinstance(raw, str):
+        return raw
+    m = ENV_REF_RE.match(raw)
+    if m:
+        return os.environ.get(m.group(1), raw)
+    m = re.match(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$", raw)
+    if m:
+        return os.environ.get(m.group(1), raw)
+    return raw
+
+
+def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model, display_name=None):
     """Ensure provider+model exist in opencode.json. Writes if needed."""
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
@@ -78,11 +95,20 @@ def ensure_opencode_provider(base_url, api_key, provider_name, model):
 
     if existing:
         opts = existing.get("options", {})
-        if opts.get("baseURL") == base_url and opts.get("apiKey") == api_key:
+        existing_key = opts.get("apiKey", "")
+        keys_match = (
+            existing_key == api_key
+            or existing_key == api_key_ref
+            or _resolve_opencode_api_key(existing_key) == api_key
+        )
+        if opts.get("baseURL") == base_url and keys_match:
+            # Normalize existing key to {env:VAR} format if needed
+            if existing_key != api_key_ref:
+                opts["apiKey"] = api_key_ref
             models = existing.setdefault("models", {})
             if model not in models:
                 models[model] = {"name": model}
-                write_opencode_config(oc_config)
+            write_opencode_config(oc_config)
         else:
             die(
                 f"opencode provider '{provider_name}' already exists with different credentials.\n"
@@ -90,7 +116,8 @@ def ensure_opencode_provider(base_url, api_key, provider_name, model):
                 f"  Either update opencode.json manually or use a different provider name."
             )
     else:
-        entry = build_opencode_provider_entry(base_url, api_key)
+        name = display_name or provider_name
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
         entry["models"] = {model: {"name": model}}
         providers[provider_name] = entry
         write_opencode_config(oc_config)
@@ -258,26 +285,39 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     elif provider == "opencode":
         base_url_raw = profile_env.get("OPENCODE_BASE_URL")
         api_key_raw = profile_env.get("OPENCODE_API_KEY")
-        oc_provider = profile_env.get("OPENCODE_PROVIDER")
-        model = profile_env.get("OPENCODE_MODEL")
+        models_dict = profile_env.get("OPENCODE_MODEL")
         if not base_url_raw:
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        if not oc_provider:
-            die(f"OPENCODE_PROVIDER is required for opencode profile: {profile_name}")
-        if not model:
-            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        if not isinstance(models_dict, dict) or not models_dict:
+            die(f"OPENCODE_MODEL must be a non-empty dict for opencode profile: {profile_name}")
+        # First positional arg is the model name
+        if not user_args:
+            available = ", ".join(sorted(models_dict))
+            die(f"model required for opencode profile: {profile_name}\n  Available: {available}\n  Usage: aweswitch {profile_name} <model>")
+        model = user_args[0]
+        if model not in models_dict:
+            available = ", ".join(sorted(models_dict))
+            die(f"unknown model '{model}' for opencode profile: {profile_name}\n  Available: {available}")
         base_url = expand_value(base_url_raw, expansion_env)
         api_key = expand_value(api_key_raw, expansion_env)
+        # Keep the raw ${VAR} reference for opencode.json ({env:VAR} syntax)
+        # so the actual key is never written to disk.
+        api_key_ref = api_key_raw
+        if ENV_REF_RE.fullmatch(api_key_ref):
+            var_name = ENV_REF_RE.match(api_key_ref).group(1)
+            api_key_ref = f"{{env:{var_name}}}"
         oc_write_info = {
             "base_url": base_url,
             "api_key": api_key,
-            "provider_name": oc_provider,
+            "api_key_ref": api_key_ref,
+            "provider_name": profile_name,
             "model": model,
+            "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
         }
-        argv = ["opencode", "-m", f"{oc_provider}/{model}"]
-        argv += user_args
+        argv = ["opencode", "-m", f"{profile_name}/{model}"]
+        argv += user_args[1:]  # skip the model arg, pass the rest
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
@@ -320,9 +360,10 @@ def profile_model_label(provider, profile):
     if provider == "codex":
         return env.get("OPENAI_BASE_URL", "?")
     if provider == "opencode":
-        oc_provider = env.get("OPENCODE_PROVIDER", "?")
-        model = env.get("OPENCODE_MODEL", "?")
-        return f"{oc_provider}/{model}"
+        models = env.get("OPENCODE_MODEL", {})
+        if isinstance(models, dict):
+            return ", ".join(sorted(models))
+        return "?"
     return "?"
 
 
@@ -554,14 +595,13 @@ def add_command():
         base_url = click.prompt("OPENCODE_BASE_URL")
         auth_var = click.prompt("OPENCODE_API_KEY env var name (saved as ${VAR_NAME})")
         auth_token = f"${{{auth_var}}}"
-        oc_provider = click.prompt("OPENCODE_PROVIDER (e.g. zhipu, mimo, stepfun)")
-        model = click.prompt("OPENCODE_MODEL (e.g. glm-5.1, mimo-v2.5-pro)")
+        models_str = click.prompt("OPENCODE_MODEL (comma-separated, e.g. glm-5.1,glm-5.2)")
+        models_dict = {m.strip(): m.strip() for m in models_str.split(",") if m.strip()}
 
         env_vars = {
             "OPENCODE_BASE_URL": base_url,
             "OPENCODE_API_KEY": auth_token,
-            "OPENCODE_PROVIDER": oc_provider,
-            "OPENCODE_MODEL": model,
+            "OPENCODE_MODEL": models_dict,
         }
         save_profile(path, name, env_vars, provider=provider)
         click.echo(f"Profile '{name}' added.")
@@ -687,8 +727,10 @@ def run_profile(ctx, category, title):
         ensure_opencode_provider(
             oc_write_info["base_url"],
             oc_write_info["api_key"],
+            oc_write_info["api_key_ref"],
             oc_write_info["provider_name"],
             oc_write_info["model"],
+            display_name=oc_write_info["display_name"],
         )
     exec_agent(run_argv, run_env)
 
