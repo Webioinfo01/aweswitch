@@ -66,6 +66,7 @@ def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
         "options": {
             "apiKey": api_key,
             "baseURL": base_url,
+            "setCacheKey": True,
         },
     }
 
