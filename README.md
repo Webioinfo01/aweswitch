@@ -15,7 +15,7 @@
   </p>
   <p>
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex-7C3AED?style=flat-square" alt="Provider">
+    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -30,7 +30,7 @@
 - **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Different terminals can run different profiles simultaneously. Env is frozen at launch time.
 - **Write mode** (`aweswitch apply <profile>`) — writes profile env into `~/.claude/settings.json`. Start Claude first, then run `aweswitch apply <profile>` in a new terminal (or let the aweswitch skill do it for you). Restart the session or use `/model` to pick the new model. Only one profile can be active at a time.
 
-It is intentionally small. Today it supports Claude Code and Codex profiles. Hermes profile groups may appear in the config shape later, but they are not executable yet.
+It is intentionally small. Today it supports Claude Code, Codex, and OpenCode profiles.
 
 ## Support Tools
 
@@ -107,7 +107,7 @@ Or add a new profile interactively:
 aweswitch add
 ```
 
-This prompts for provider (claude or codex), profile name, and provider-specific fields.
+This prompts for provider (claude, codex, or opencode), profile name, and provider-specific fields.
 
 The default config shape groups profiles under their provider. This is a reference config you can adapt:
 
@@ -120,13 +120,6 @@ The default config shape groups profiles under their provider. This is a referen
           "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
           "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
           "ANTHROPIC_MODEL": "glm-5.1"
-        }
-      },
-      "cc-gemini": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://openclaw.chatgo.best",
-          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
         }
       },
       "cc-xiaomi": {
@@ -143,11 +136,25 @@ The default config shape groups profiles under their provider. This is a referen
           "OPENAI_BASE_URL": "https://api.openai.com",
           "OPENAI_API_KEY": "${OPENAI_API_KEY}"
         }
-      },
-      "cx-aihubmix": {
+      }
+    },
+    "opencode": {
+      "oc-glm": {
         "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_NAME": "Zhipu GLM",
+          "OPENCODE_MODEL": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5.2": "GLM-5.2"
+          }
+        }
+      },
+      "oc-mimo": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
+          "OPENCODE_API_KEY": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_MODEL": ["mimo-v2.5-pro", "mimo-v2.5"]
         }
       }
     }
@@ -158,14 +165,12 @@ The default config shape groups profiles under their provider. This is a referen
 Configure the token variables referenced by your profiles:
 
 ```bash
-# Claude profiles
+# Claude / OpenCode profiles
 export GLM_ANTHROPIC_AUTH_TOKEN="..."
-export GEMINI_ANTHROPIC_AUTH_TOKEN="..."
 export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 
 # Codex profiles
 export OPENAI_API_KEY="..."
-export AIHUBMIX_OPENAI_KEY="..."
 ```
 
 Put long-lived variables in `~/.zshrc` if you want them available in every shell.
@@ -180,8 +185,10 @@ aweswitch show cc-glm
 Run a profile:
 
 ```bash
-aweswitch cc-glm       # Claude Code
-aweswitch cx-openai    # Codex
+aweswitch cc-glm                      # Claude Code
+aweswitch cx-openai                   # Codex
+aweswitch oc-glm                      # OpenCode (default: first model)
+aweswitch oc-glm glm-5.2              # OpenCode (specific model)
 ```
 
 Pass extra arguments through to the agent:
@@ -189,6 +196,7 @@ Pass extra arguments through to the agent:
 ```bash
 aweswitch cc-glm --dangerously-skip-permissions
 aweswitch cx-openai --model o3
+aweswitch oc-glm glm-5.1 --mini
 ```
 
 Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
@@ -332,12 +340,12 @@ See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full docu
 `aweswitch` is for people who use AI coding agents with more than one runtime endpoint, model, or token source and want a repeatable local command instead of editing settings by hand.
 
 - **One local config file** at `~/.config/aweswitch/config.json`
-- **Named agent profiles** such as `cc-glm`, `cc-gemini`, `cc-xiaomi`, or `cx-openai`
+- **Named agent profiles** such as `cc-glm`, `cc-gemini`, `cc-xiaomi`, `cx-openai`, or `oc-glm`
 - **Side-by-side sessions** where different terminals can launch different API/model combinations
 - **Runtime-only injection** through provider-specific arguments
 - **No mutation of global agent config**, so already-open agent sessions keep working with the settings they started with
 - **Token references** through shell variables or `~/.claude/settings.json`
-- **Readable JSON** with provider grouping under `profiles.claude` and `profiles.codex`
+- **Readable JSON** with provider grouping under `profiles.claude`, `profiles.codex`, and `profiles.opencode`
 
 ### Where does aweswitch store profiles?
 
@@ -359,6 +367,12 @@ You can override that path with `AWESWITCH_CONFIG`.
 
 Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` block. aweswitch injects the base URL via Codex's `-c` config overrides and the API key via environment variable, so no files are written to `~/.codex/`.
 
+### Does aweswitch support OpenCode?
+
+Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in their `env` block. On launch, aweswitch writes the provider entry to `~/.config/opencode/opencode.json` (using `{env:VAR}` syntax so the actual key is never stored on disk), then runs `opencode -m <provider>/<model>`.
+
+The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used.
+
 ### Does aweswitch support Hermes?
 
 Not yet. The config format groups profiles by provider so future support can fit naturally.
@@ -376,7 +390,7 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 ## Profile Rules
 
 - Profiles are grouped under `profiles.<provider>.<profileName>`.
-- Supported providers: `claude`, `codex`.
+- Supported providers: `claude`, `codex`, `opencode`.
 - Profile names must be unique across all provider groups.
 - `env` values only apply to the launched process.
 - `${VAR_NAME}` values are expanded from the current shell environment.
@@ -443,6 +457,67 @@ aweswitch add
 # Profile name: cx-myprovider
 # OPENAI_BASE_URL: https://myprovider.com/v1
 # OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+```
+
+### OpenCode Profiles
+
+- Requires `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in `env`.
+- The profile name (e.g. `oc-glm`) is used as the provider key in `~/.config/opencode/opencode.json`.
+- `OPENCODE_MODEL` supports three formats: dict, list, or comma-separated string.
+- Model is specified as the first positional argument: `aweswitch oc-glm glm-5.1`.
+- If no model is given, the first model in the list is used as default.
+- Extra arguments are passed through to the `opencode` CLI.
+- API key is written to `opencode.json` as `{env:VAR}` — the actual key is never stored on disk.
+
+```json
+{
+  "profiles": {
+    "opencode": {
+      "oc-glm": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_NAME": "Zhipu GLM",
+          "OPENCODE_MODEL": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5.2": "GLM-5.2"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`OPENCODE_MODEL` formats:
+
+| Format | Example | Model `name` in opencode.json |
+|--------|---------|-------------------------------|
+| Dict | `{"glm-5.1": "GLM-5.1"}` | Uses the value (`GLM-5.1`) |
+| List | `["glm-5.1", "glm-5.2"]` | Uses the key (`glm-5.1`) |
+| String | `"glm-5.1,glm-5.2"` | Uses the key (`glm-5.1`) |
+
+`OPENCODE_NAME` (optional) sets the display name for the provider in `opencode.json`. Defaults to the profile name.
+
+Launch:
+
+```bash
+aweswitch oc-glm                      # default: first model (glm-5.1)
+aweswitch oc-glm glm-5.2              # specific model
+aweswitch oc-glm glm-5.1 --mini       # pass extra args
+```
+
+On first launch, aweswitch writes the provider entry to `~/.config/opencode/opencode.json`. Subsequent launches reuse the existing entry and only add new models if needed.
+
+To add an OpenCode profile interactively:
+
+```bash
+aweswitch add
+# Provider: opencode
+# Profile name: oc-myprovider
+# OPENCODE_BASE_URL: https://myprovider.com/v1
+# OPENCODE_API_KEY env var name: MY_API_KEY
+# OPENCODE_MODEL: model-1,model-2
 ```
 
 ## Development

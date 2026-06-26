@@ -15,7 +15,7 @@
   </p>
   <p>
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex-7C3AED?style=flat-square" alt="Provider">
+    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -30,7 +30,7 @@
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
 - **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端运行 `aweswitch apply <profile>`（或通过 aweswitch skill 让 agent 操作）。重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
 
-它刻意保持小而直接。目前支持 Claude Code 和 Codex profile，后续会为 Hermes、OpenCode 等 agent 提供支持。
+它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile。
 
 ## 支持工具
 
@@ -119,13 +119,6 @@ aweswitch add
           "ANTHROPIC_MODEL": "glm-5.1"
         }
       },
-      "cc-gemini": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://openclaw.chatgo.best",
-          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
-        }
-      },
       "cc-xiaomi": {
         "env": {
           "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
@@ -140,11 +133,25 @@ aweswitch add
           "OPENAI_BASE_URL": "https://api.openai.com",
           "OPENAI_API_KEY": "${OPENAI_API_KEY}"
         }
-      },
-      "cx-aihubmix": {
+      }
+    },
+    "opencode": {
+      "oc-glm": {
         "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_NAME": "Zhipu GLM",
+          "OPENCODE_MODEL": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5.2": "GLM-5.2"
+          }
+        }
+      },
+      "oc-mimo": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
+          "OPENCODE_API_KEY": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_MODEL": ["mimo-v2.5-pro", "mimo-v2.5"]
         }
       }
     }
@@ -155,14 +162,12 @@ aweswitch add
 配置 profile 引用的 token 环境变量：
 
 ```bash
-# Claude profiles
+# Claude / OpenCode profiles
 export GLM_ANTHROPIC_AUTH_TOKEN="..."
-export GEMINI_ANTHROPIC_AUTH_TOKEN="..."
 export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 
 # Codex profiles
 export OPENAI_API_KEY="..."
-export AIHUBMIX_OPENAI_KEY="..."
 ```
 
 如果希望每次打开终端都可用，可以把这些变量放进 `~/.zshrc`。
@@ -191,7 +196,10 @@ aweswitch show cc-glm
 ```bash
 aweswitch cc-glm                      # 启动 Claude Code profile
 aweswitch cx-openai                   # 启动 Codex profile
+aweswitch oc-glm                      # 启动 OpenCode profile（默认第一个模型）
+aweswitch oc-glm glm-5.2              # 指定模型
 aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
+aweswitch oc-glm glm-5.1 --mini       # OpenCode 传递额外参数
 aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
 ```
 
@@ -302,12 +310,12 @@ aweshelf browse                 # 交互式 TUI 浏览器
 `aweswitch` 适合同时使用多个 AI coding agent 运行时端点、模型或 token 来源的人。它提供一个可重复的本地命令，避免你来回手改 settings。
 
 - **一个本地配置文件**：`~/.config/aweswitch/config.json`
-- **命名 agent profile**：例如 `cc-glm`、`cc-gemini`、`cc-xiaomi`、`cx-openai`
+- **命名 agent profile**：例如 `cc-glm`、`cc-gemini`、`cc-xiaomi`、`cx-openai`、`oc-glm`
 - **并行会话**：不同终端可以启动不同 API/model 组合
 - **只在运行时注入配置**：通过 provider 对应的运行参数
 - **不修改全局 agent 配置**：已经打开的 agent 会话继续使用启动时的配置
 - **token 引用**：来自 shell 环境变量或 `~/.claude/settings.json`
-- **可读 JSON**：profile 按 `profiles.claude` 和 `profiles.codex` 分组
+- **可读 JSON**：profile 按 `profiles.claude`、`profiles.codex` 和 `profiles.opencode` 分组
 
 ### aweswitch 把 profile 存在哪里？
 
@@ -329,6 +337,12 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 支持。Codex profile 在 `env` 中使用 `OPENAI_BASE_URL` 和 `OPENAI_API_KEY`。aweswitch 通过 Codex 的 `-c` 配置覆盖注入 base URL，通过环境变量注入 API key，不会写入 `~/.codex/`。
 
+### aweswitch 支持 OpenCode 吗？
+
+支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
+
+Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。
+
 ### aweswitch 支持 Hermes 吗？
 
 暂时不支持。配置格式已经按 provider 分组，后续可以自然扩展。
@@ -346,7 +360,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 ## Profile 规则
 
 - Profile 放在 `profiles.<provider>.<profileName>` 下。
-- 支持的 provider：`claude`、`codex`。
+- 支持的 provider：`claude`、`codex`、`opencode`。
 - 所有 provider 分组下的 profile 名必须全局唯一。
 - `env` 只作用于本次启动的子进程。
 - `${VAR_NAME}` 会从当前 shell 环境变量中展开。
@@ -413,6 +427,67 @@ aweswitch add
 # Profile name: cx-myprovider
 # OPENAI_BASE_URL: https://myprovider.com/v1
 # OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+```
+
+### OpenCode Profile
+
+- 需要在 `env` 中配置 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。
+- Profile name（如 `oc-glm`）作为 `~/.config/opencode/opencode.json` 中的 provider key。
+- `OPENCODE_MODEL` 支持三种格式：dict、list 或逗号分隔字符串。
+- 模型作为第一个位置参数指定：`aweswitch oc-glm glm-5.1`。
+- 不指定模型时，默认使用列表中的第一个。
+- 额外参数透传给 `opencode` CLI。
+- API key 以 `{env:VAR}` 格式写入 opencode.json — 实际 key 不落盘。
+
+```json
+{
+  "profiles": {
+    "opencode": {
+      "oc-glm": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_NAME": "Zhipu GLM",
+          "OPENCODE_MODEL": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5.2": "GLM-5.2"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`OPENCODE_MODEL` 格式：
+
+| 格式 | 示例 | opencode.json 中的 model `name` |
+|------|------|--------------------------------|
+| Dict | `{"glm-5.1": "GLM-5.1"}` | 使用值（`GLM-5.1`） |
+| List | `["glm-5.1", "glm-5.2"]` | 使用 key（`glm-5.1`） |
+| String | `"glm-5.1,glm-5.2"` | 使用 key（`glm-5.1`） |
+
+`OPENCODE_NAME`（可选）设置 opencode.json 中 provider 的显示名称。默认使用 profile name。
+
+启动：
+
+```bash
+aweswitch oc-glm                      # 默认：第一个模型（glm-5.1）
+aweswitch oc-glm glm-5.2              # 指定模型
+aweswitch oc-glm glm-5.1 --mini       # 传递额外参数
+```
+
+首次启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`。后续启动复用已有条目，仅在需要时添加新模型。
+
+交互式添加 OpenCode profile：
+
+```bash
+aweswitch add
+# Provider: opencode
+# Profile name: oc-myprovider
+# OPENCODE_BASE_URL: https://myprovider.com/v1
+# OPENCODE_API_KEY env var name: MY_API_KEY
+# OPENCODE_MODEL: model-1,model-2
 ```
 
 ## 开发
