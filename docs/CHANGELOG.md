@@ -1,5 +1,30 @@
 # change log
 
+## v0.3.3
+
+`v0.3.3` hardens several runtime paths and cleans up version management.
+
+### OpenCode API key validation
+
+`OPENCODE_API_KEY` must now be an environment variable reference (`${VAR_NAME}`). Plain-text keys are rejected at startup with a clear error message, preventing accidental secret writes to `opencode.json`.
+
+### Temp settings cleanup
+
+Temporary settings files in `/tmp/aweswitch/` are now garbage-collected on each launch. Files older than 24 hours are removed before creating a new one, preventing unbounded accumulation.
+
+### Backup error handling
+
+`aweswitch apply` now fails with a clear message if the settings backup cannot be created (e.g. disk full), instead of silently continuing and overwriting the original.
+
+### Highlights
+
+- Reject plain-text `OPENCODE_API_KEY`; require `${VAR}` env-ref syntax
+- Auto-clean temp settings files older than 24h
+- Die with clear message if settings backup fails
+- Parse pre-release version suffixes (e.g. `0.3.0a1`) correctly
+- Use `pyproject.toml` as single version source; `__init__.py` reads via `importlib.metadata`
+- Switch README version badges to PyPI dynamic badge
+
 ## v0.3.2
 
 `v0.3.2` adds OpenCode as a supported provider, alongside Claude Code and Codex. Profiles targeting OpenCode are written to `~/.config/opencode/opencode.json` and launched via `opencode -m <provider>/<model>`. This release also refreshes documentation for the new provider and normalizes model handling across formats.

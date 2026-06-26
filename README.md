@@ -6,7 +6,7 @@
   <p>
     <strong>English</strong> ·
     <a href="./README_cn.md">简体中文</a> ·
-    <a href="https://we.webioinfo.top/">Webioinfo</a>
+    <a href="https://www.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
     <img src="https://img.shields.io/pypi/v/aweswitch?style=flat-square&color=7C3AED" alt="Version">
