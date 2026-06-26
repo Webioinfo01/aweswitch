@@ -547,11 +547,13 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(oc_info["api_key"], "sk-resolved")
         self.assertEqual(oc_info["api_key_ref"], "{env:MY_KEY}")
 
-    def test_prepare_opencode_rejects_no_model_arg(self):
+    def test_prepare_opencode_defaults_to_first_model(self):
         config = self._make_oc_config()
 
-        with self.assertRaisesRegex(SystemExit, "model required"):
-            aweswitch.prepare_run(config, "oc-test", [], {})
+        argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", [], {})
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/glm-5.1"])
+        self.assertEqual(oc_info["model"], "glm-5.1")
 
     def test_prepare_opencode_rejects_unknown_model(self):
         config = self._make_oc_config()
@@ -575,13 +577,13 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "OPENCODE_API_KEY is required"):
             aweswitch.prepare_run(config, "oc-bad", ["m"], {})
 
-    def test_prepare_opencode_rejects_empty_model_dict(self):
+    def test_prepare_opencode_rejects_empty_model(self):
         config = {"profiles": {"opencode": {"oc-bad": {"env": {
             "OPENCODE_BASE_URL": "https://x", "OPENCODE_API_KEY": "k",
             "OPENCODE_MODEL": {},
         }}}}}
 
-        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL must be a non-empty dict"):
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
             aweswitch.prepare_run(config, "oc-bad", ["m"], {})
 
     def test_profile_model_label_shows_available_models_for_opencode(self):

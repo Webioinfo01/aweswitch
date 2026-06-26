@@ -88,11 +88,13 @@ def _resolve_opencode_api_key(raw):
     return raw
 
 
-def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model, display_name=None):
+def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model,
+                             display_name=None, model_display_name=None):
     """Ensure provider+model exist in opencode.json. Writes if needed."""
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
     existing = providers.get(provider_name)
+    model_name = model_display_name or model
 
     if existing:
         opts = existing.get("options", {})
@@ -108,7 +110,7 @@ def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, mode
                 opts["apiKey"] = api_key_ref
             models = existing.setdefault("models", {})
             if model not in models:
-                models[model] = {"name": model}
+                models[model] = {"name": model_name}
             write_opencode_config(oc_config)
         else:
             die(
@@ -119,7 +121,7 @@ def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, mode
     else:
         name = display_name or provider_name
         entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
-        entry["models"] = {model: {"name": model}}
+        entry["models"] = {model: {"name": model_name}}
         providers[provider_name] = entry
         write_opencode_config(oc_config)
 
@@ -286,18 +288,24 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     elif provider == "opencode":
         base_url_raw = profile_env.get("OPENCODE_BASE_URL")
         api_key_raw = profile_env.get("OPENCODE_API_KEY")
-        models_dict = profile_env.get("OPENCODE_MODEL")
+        models_raw = profile_env.get("OPENCODE_MODEL")
         if not base_url_raw:
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        if not isinstance(models_dict, dict) or not models_dict:
-            die(f"OPENCODE_MODEL must be a non-empty dict for opencode profile: {profile_name}")
-        # First positional arg is the model name
-        if not user_args:
-            available = ", ".join(sorted(models_dict))
-            die(f"model required for opencode profile: {profile_name}\n  Available: {available}\n  Usage: aweswitch {profile_name} <model>")
-        model = user_args[0]
+        # Normalize OPENCODE_MODEL: dict or string → {id: name}
+        if isinstance(models_raw, dict) and models_raw:
+            models_dict = models_raw
+        elif isinstance(models_raw, str) and models_raw.strip():
+            models_dict = {m.strip(): m.strip() for m in models_raw.split(",") if m.strip()}
+        else:
+            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        # First positional arg is the model name; default to first in dict
+        if user_args:
+            model = user_args[0]
+            user_args = user_args[1:]
+        else:
+            model = next(iter(models_dict))
         if model not in models_dict:
             available = ", ".join(sorted(models_dict))
             die(f"unknown model '{model}' for opencode profile: {profile_name}\n  Available: {available}")
@@ -316,9 +324,10 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "provider_name": profile_name,
             "model": model,
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
+            "model_display_name": models_dict.get(model, model),
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
-        argv += user_args[1:]  # skip the model arg, pass the rest
+        argv += user_args
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
@@ -732,6 +741,7 @@ def run_profile(ctx, category, title):
             oc_write_info["provider_name"],
             oc_write_info["model"],
             display_name=oc_write_info["display_name"],
+            model_display_name=oc_write_info["model_display_name"],
         )
     exec_agent(run_argv, run_env)
 
