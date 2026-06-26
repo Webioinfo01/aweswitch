@@ -1,6 +1,6 @@
 ---
 name: aweswitch
-description: "Use when helping users manage aweswitch profiles — adding, editing, or switching Claude Code and Codex API configurations. 中文触发词：切换profile、添加profile、配置aweswitch、API切换、provider管理。"
+description: "Use when helping users manage aweswitch profiles — adding, editing, or switching Claude Code, Codex, and OpenCode API configurations. 中文触发词：切换profile、添加profile、配置aweswitch、API切换、provider管理。"
 ---
 
 # aweswitch
@@ -13,24 +13,37 @@ This skill covers **configuring** aweswitch profiles and applying them to settin
 
 ## Two Modes
 
-aweswitch has two ways to switch profiles. This agent can only help with **Apply mode**.
+aweswitch has two ways to switch profiles. This agent can only help with **Apply mode** for Claude profiles.
 
 ### Launch mode — `aweswitch <profile>` (user only, not for this agent)
 
 Launches a new session with isolated env. Each session is independent. User runs this themselves in a terminal. **Do not run or suggest running this inside the agent.**
 
+This is the only mode available for **Codex** and **OpenCode** profiles.
+
 ### Apply mode — `aweswitch apply <profile>` (this agent can do this)
 
 Writes profile env to `~/.claude/settings.json`. User restarts the session or uses `/model` to pick the new model. Only one profile can be active at a time. Use `aweswitch restore` to undo.
+
+**Apply mode only works for Claude profiles.** For Codex and OpenCode profiles, tell the user to use Launch mode in their own terminal.
 
 ### When to recommend which
 
 | User wants... | Recommend | Agent role |
 |---|---|---|
-| Switch models within a session via `/model` | Apply | Run `aweswitch apply` directly |
-| A persistent default profile | Apply | Run `aweswitch apply` directly |
+| Switch models within a session via `/model` | Apply (Claude only) | Run `aweswitch apply` directly |
+| A persistent default profile | Apply (Claude only) | Run `aweswitch apply` directly |
 | Run multiple profiles side by side | Launch | Tell user to run in their terminal |
 | Try a different API quickly | Launch | Tell user to run in their terminal |
+| Use OpenCode with a profile | Launch | Tell user to run in their terminal |
+
+### Mode availability by provider
+
+| Provider | Apply mode (`aweswitch apply`) | Launch mode (`aweswitch <profile>`) |
+|----------|-------------------------------|-------------------------------------|
+| Claude | supported | supported |
+| Codex | not supported | supported |
+| OpenCode | not supported | supported |
 
 You may run these read-only commands:
 - `aweswitch list`
@@ -39,14 +52,17 @@ You may run these read-only commands:
 - `aweswitch config show`
 
 You may also run these commands (they modify files but are non-interactive):
-- `aweswitch apply <profile>` — write profile env to `~/.claude/settings.json`
+- `aweswitch apply <profile>` — write Claude profile env to `~/.claude/settings.json`
 - `aweswitch restore` — restore settings from backup
+
+**Note:** `aweswitch apply` only works for Claude profiles. Do not attempt to run `aweswitch apply` for Codex or OpenCode profiles.
 
 ## Intent Router
 
 | User intent | Domain | Approach |
 |---|---|---|
 | "Add a new profile", "add a codex provider" | Add Profile | Edit config file. |
+| "Add an opencode profile" | Add Profile | Edit config file; use `opencode` provider group. |
 | "List profiles", "what profiles do I have" | Browse | `aweswitch list` |
 | "Show profile X", "what's in profile X" | Inspect | `aweswitch show <profile>` |
 | "Edit profile X", "change the API key" | Edit | Edit config file directly. |
@@ -55,11 +71,12 @@ You may also run these commands (they modify files but are non-interactive):
 | "Where is the config?" | Config Path | `aweswitch config path` |
 | "Show all config" | Config Show | `aweswitch config show` |
 | "Switch to profile X", "launch profile X" | Launch | Tell user to run `aweswitch <profile>` in their terminal. |
-| "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <profile>`, then restart session or use `/model`. |
-| "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` |
+| "Launch opencode profile" | Launch | Tell user to run `aweswitch oc-<name> [model]` in their terminal. |
+| "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <profile>` (Claude only). |
+| "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (Claude only). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
-| "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session. |
+| "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session (Claude only). |
 
 ## Config Location
 
@@ -91,6 +108,16 @@ Always read the config file before modifying it.
           "OPENAI_API_KEY": "${ENV_VAR_NAME}"
         }
       }
+    },
+    "opencode": {
+      "<profile-name>": {
+        "env": {
+          "OPENCODE_BASE_URL": "<url>",
+          "OPENCODE_API_KEY": "${ENV_VAR_NAME}",
+          "OPENCODE_NAME": "<display-name>",
+          "OPENCODE_MODEL": "<model-id-or-list>"
+        }
+      }
     }
   }
 }
@@ -98,40 +125,67 @@ Always read the config file before modifying it.
 
 ### Provider fields
 
-| Field | Claude | Codex |
-|-------|--------|-------|
-| Base URL | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` |
-| Auth token | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` |
-| Model | `ANTHROPIC_MODEL` | not applicable |
-| Injection | `--settings` temp file | `-c` flag + env var |
+| Field | Claude | Codex | OpenCode |
+|-------|--------|-------|----------|
+| Base URL | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` | `OPENCODE_BASE_URL` |
+| Auth token | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` | `OPENCODE_API_KEY` |
+| Model | `ANTHROPIC_MODEL` | not applicable | `OPENCODE_MODEL` (list/dict/string) |
+| Injection | `--settings` temp file | `-c` flag + env var | writes to `~/.config/opencode/opencode.json` via `{env:VAR}` |
 
 ### Naming convention
 
 - Claude profiles: `cc-` prefix (e.g. `cc-glm`, `cc-xiaomi`)
-- Codex profiles: `cx-` prefix (e.g. `cx-openai`, `cx-aihubmix`)
+- Codex profiles: `cx-` prefix (e.g. `cx-openai`)
+- OpenCode profiles: `oc-` prefix (e.g. `oc-glm`, `oc-mimo`)
 
 ### Token references
 
-Token values use `${VAR_NAME}` syntax. They expand from:
+Token values use `${VAR_NAME}` syntax in the aweswitch config. They expand from:
 1. Shell environment variables (primary)
 2. `~/.claude/settings.json` env section (Claude only, fallback)
 
-Never hardcode secrets. Always use `${VAR_NAME}` references.
+**OpenCode auth key:** aweswitch writes the API key to `~/.config/opencode/opencode.json` using `{env:VAR_NAME}` syntax, so the actual key is never stored on disk. The `${VAR_NAME}` reference in the aweswitch config still expands from the shell env at launch time.
+
+Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch config.
 
 ## Workflows
 
 ### Add a Profile
 
 1. Read the config file
-2. Add the new profile under the appropriate provider key (`claude` or `codex`)
+2. Add the new profile under the appropriate provider key (`claude`, `codex`, or `opencode`)
 3. Use `${ENV_VAR_NAME}` for token values
 4. Ensure profile name is unique across all providers
 5. Validate the JSON is well-formed
 
+#### OpenCode profile fields
+
+- `OPENCODE_BASE_URL` — provider API endpoint
+- `OPENCODE_API_KEY` — token env var name (use `${VAR}` reference)
+- `OPENCODE_NAME` — optional display name (defaults to profile name)
+- `OPENCODE_MODEL` — models as comma-separated string, list, or dict mapping
+
+```json
+{
+  "profiles": {
+    "opencode": {
+      "oc-glm": {
+        "env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+          "OPENCODE_NAME": "Zhipu GLM",
+          "OPENCODE_MODEL": ["glm-5.1", "glm-5.2"]
+        }
+      }
+    }
+  }
+}
+```
+
 ### Edit a Profile
 
 1. Read the config file
-2. Locate the profile by name under its provider
+2. Locate the profile by name under its provider (`claude`, `codex`, or `opencode`)
 3. Modify the target fields
 4. Write back the file, preserving JSON formatting (2-space indent)
 
@@ -163,7 +217,7 @@ Steps:
 Example:
 
 ```bash
-# Claude profiles
+# Claude / OpenCode profiles
 export GLM_ANTHROPIC_AUTH_TOKEN="sk-..."
 export XIAOMI_ANTHROPIC_AUTH_TOKEN="sk-..."
 
@@ -197,14 +251,20 @@ aweswitch restore
 
 If the user wants to run multiple profiles in separate terminals instead, tell them to run `aweswitch <profile-name>` in their own terminal. Do not run it yourself.
 
-## Codex Limitations
+## Provider Limitations
 
-Codex profiles only switch the API source (base URL + API key), not the model. Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case.
+### Codex
+
+Codex profiles only switch the API source (base URL + API key), not the model. Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case. Apply mode is not available for Codex; use Launch mode only.
+
+### OpenCode
+
+OpenCode profiles require the model to be specified as a positional argument: `aweswitch <profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used. Apply mode is not available for OpenCode; use Launch mode only. The first launch writes the provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse and extend it.
 
 ## Core Rules
 
 1. **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
-2. **Default to apply mode.** Run `aweswitch apply <profile>` for the user. Only mention launch mode if they specifically need multiple simultaneous sessions.
+2. **Default to apply mode for Claude profiles.** Run `aweswitch apply <profile>` for the user. For Codex and OpenCode profiles, tell the user to use Launch mode in their own terminal.
 3. Always read the config file before editing. Never overwrite existing profiles without checking.
 4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
 5. Profile names must be unique across all provider groups. Check before adding.
