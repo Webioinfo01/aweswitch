@@ -258,6 +258,8 @@ Restart the session or use `/model` to pick the new model.
 | Set a persistent default profile | Write |
 
 > **Note:** The two modes do not interfere with each other. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
+>
+> `apply` only works with Claude profiles. OpenCode and Codex profiles are configured automatically when you launch them via `aweswitch <profile>`.
 
 #### Config management
 

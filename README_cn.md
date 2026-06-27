@@ -225,6 +225,8 @@ aweswitch restore                      # 从备份恢复 settings
 | 设置持久默认 profile | 写入 |
 
 > **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
+>
+> `apply` 仅支持 Claude profile。OpenCode 和 Codex profile 在通过 `aweswitch <profile>` 启动时自动配置。
 
 #### 配置管理
 

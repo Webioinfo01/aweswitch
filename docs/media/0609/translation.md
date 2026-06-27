@@ -215,7 +215,7 @@ Claude Code 在不同场景下使用不同的模型——主模型处理复杂�
 
 ## 用例 5：搭配 aweshelf 和 aweskill
 
-`aweswitch` 独立可用，但 [Webioinfo](https://we.webioinfo.top/) 生态里有两个搭档让工作流更完整：
+`aweswitch` 独立可用，但 [Webioinfo](https://www.webioinfo.top/) 生态里有两个搭档让工作流更完整：
 
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI 编程会话管理器。收藏会话时，会记录当时激活的 aweswitch profile。恢复会话时，自动用相同的端点、模型和 token 重启。你的 GLM 调试会话不会被错误地恢复到 Gemini 端点上。
 - **[aweskill](https://github.com/Webioinfo01/aweskill)** — 面向 47+ AI 编程 Agent 的 Skill 包管理器。把 `aweswitch` 作为 Skill 安装一次，你用的任何 Agent 都能读取 SKILL.md 并操作 CLI，无需手动配置。
@@ -290,7 +290,7 @@ AI 编程 Agent 的生态正在快速多样化。开发者不再只用一个端�
 
 ## 更多来自 Webioinfo
 
-`aweswitch` 是 [Webioinfo](https://we.webioinfo.top/) 生态的一部分——一系列面向 AI 辅助开发的工具：
+`aweswitch` 是 [Webioinfo](https://www.webioinfo.top/) 生态的一部分——一系列面向 AI 辅助开发的工具：
 
 - **[aweskill](https://aweskill.webioinfo.top/)** — 面向 47+ AI 编程 Agent 的 CLI Skill 包管理器。在 Claude Code、Codex、Cursor 等 Agent 之间安装、更新和投影 Skill。
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI 编程会话管理器。保存、搜索、恢复 Agent 会话，支持 profile 感知的恢复。

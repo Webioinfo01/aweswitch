@@ -139,7 +139,7 @@ These are not flashy features. They do not change how aweswitch switches profile
 
 ## More from Webioinfo
 
-aweswitch is part of the [Webioinfo](https://we.webioinfo.top/) ecosystem:
+aweswitch is part of the [Webioinfo](https://www.webioinfo.top/) ecosystem:
 
 - **[aweskill](https://aweskill.webioinfo.top/)** — CLI-first Skill package manager for 47+ AI coding agents
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI coding session manager with profile-aware restoration

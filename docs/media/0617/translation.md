@@ -139,7 +139,7 @@ aweswitch 的核心没有变：named profiles、runtime injection、不碰全局
 
 ## 更多来自 Webioinfo
 
-aweswitch 是 [Webioinfo](https://we.webioinfo.top/) 生态的一部分：
+aweswitch 是 [Webioinfo](https://www.webioinfo.top/) 生态的一部分：
 
 - **[aweskill](https://aweskill.webioinfo.top/)** — 面向 47+ AI 编程 Agent 的 Skill 包管理器
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI 编程 session 管理器，支持 profile 感知的 session 恢复

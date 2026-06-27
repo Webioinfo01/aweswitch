@@ -214,7 +214,7 @@ The primary model stays on `mimo-v2.5-pro`. Haiku-tier tasks automatically use `
 
 ## Use Case 5: Pair with aweshelf and aweskill
 
-`aweswitch` works well on its own. But in the [Webioinfo](https://we.webioinfo.top/) ecosystem, two companion tools make the workflow more complete:
+`aweswitch` works well on its own. But in the [Webioinfo](https://www.webioinfo.top/) ecosystem, two companion tools make the workflow more complete:
 
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI coding session manager. When bookmarking a session, it records the aweswitch profile that was active. When restoring, the session restarts with the same endpoint, model, and token. Your GLM debugging session will not accidentally resume against the Gemini endpoint.
 - **[aweskill](https://github.com/Webioinfo01/aweskill)** — Skill package manager for 47+ AI coding agents. Install `aweswitch` as a skill once, and any agent you use can read the SKILL.md and operate the CLI without manual setup.
@@ -289,7 +289,7 @@ It does not try to be a platform. It does not require an account. It does not sy
 
 ## More from Webioinfo
 
-`aweswitch` is part of the [Webioinfo](https://we.webioinfo.top/) ecosystem — a collection of tools for AI-assisted development:
+`aweswitch` is part of the [Webioinfo](https://www.webioinfo.top/) ecosystem — a collection of tools for AI-assisted development:
 
 - **[aweskill](https://aweskill.webioinfo.top/)** — CLI-first Skill package manager for 47+ AI coding agents. Install, update, and project Skills across Claude Code, Codex, Cursor, and more.
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI coding session manager. Save, search, and restore agent sessions with profile-aware restoration.
