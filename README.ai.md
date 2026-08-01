@@ -73,7 +73,7 @@ aweskill store init
 ##### A3. Install aweswitch skill from GitHub
 
 ```bash
-aweskill install mugpeng/aweswitch
+aweskill install Webioinfo01/aweswitch
 ```
 
 ##### A4. Identify the current agent
@@ -132,7 +132,7 @@ If the agent is not in this list, ask the user where to place the skill file.
 
 ```bash
 mkdir -p <skill-directory>
-curl -fsSL https://raw.githubusercontent.com/mugpeng/aweswitch/main/resources/skills/aweswitch/SKILL.md -o <skill-directory>/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/Webioinfo01/aweswitch/main/resources/skills/aweswitch/SKILL.md -o <skill-directory>/SKILL.md
 ```
 
 Replace `<skill-directory>` with the path from step B1.
