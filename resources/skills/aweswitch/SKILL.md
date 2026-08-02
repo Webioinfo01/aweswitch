@@ -206,15 +206,20 @@ Shell config file location:
 |-------|------|
 | zsh (macOS default) | `~/.zshrc` |
 | bash | `~/.bashrc` or `~/.bash_profile` |
+| PowerShell (Windows) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) |
 
 Steps:
 
 1. Read the shell config file
 2. Check which env vars are already set (avoid duplicates)
-3. Append `export VAR_NAME="value"` lines
-4. Tell the user to run `source ~/.zshrc` or open a new terminal
+3. Append env vars using the platform-appropriate syntax:
+   - bash/zsh: `export VAR_NAME="value"`
+   - PowerShell: `$env:VAR_NAME = "value"`
+4. Tell the user to reload the shell:
+   - bash/zsh: `source ~/.zshrc` (or `~/.bashrc`), or open a new terminal
+   - PowerShell: `. $PROFILE`, or open a new PowerShell window
 
-Example:
+Example (bash/zsh):
 
 ```bash
 # Claude / OpenCode profiles
@@ -223,6 +228,17 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="sk-..."
 
 # Codex profiles
 export OPENAI_API_KEY="sk-..."
+```
+
+Example (PowerShell):
+
+```powershell
+# Claude / OpenCode profiles
+$env:GLM_ANTHROPIC_AUTH_TOKEN = "sk-..."
+$env:XIAOMI_ANTHROPIC_AUTH_TOKEN = "sk-..."
+
+# Codex profiles
+$env:OPENAI_API_KEY = "sk-..."
 ```
 
 ### Verify Configuration
@@ -268,7 +284,7 @@ OpenCode profiles require the model to be specified as a positional argument: `a
 3. Always read the config file before editing. Never overwrite existing profiles without checking.
 4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
 5. Profile names must be unique across all provider groups. Check before adding.
-6. When editing `~/.zshrc`, check for existing entries to avoid duplicates.
+6. When editing the shell config file, check for existing entries to avoid duplicates. The target file depends on the platform: `~/.zshrc` (macOS zsh), `~/.bashrc` or `~/.bash_profile` (bash), or `$PROFILE` (PowerShell on Windows).
 7. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
 8. If the config file does not exist, run `aweswitch config init` first.
 9. Do not run `config init` if the config already exists — it will error.
