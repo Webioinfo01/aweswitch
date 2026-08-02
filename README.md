@@ -173,7 +173,7 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 export OPENAI_API_KEY="..."
 ```
 
-Put long-lived variables in `~/.zshrc` if you want them available in every shell.
+Put long-lived variables in your shell config file if you want them available in every shell — `~/.zshrc` on macOS, `~/.bashrc` or `~/.bash_profile` on bash, or `$PROFILE` on PowerShell.
 
 Verify the configured profiles:
 
@@ -221,7 +221,7 @@ Install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main
 
 - List, inspect, add, edit, and delete profiles
 - Apply profiles to settings (`aweswitch apply`) or restore from backup (`aweswitch restore`)
-- Guide environment variable setup (e.g. adding tokens to `~/.zshrc`)
+- Guide environment variable setup (e.g. adding tokens to `~/.zshrc` on macOS, `~/.bashrc` on bash, or `$PROFILE` on PowerShell)
 
 After install, you can tell the agent things like "Add an AiHubMix codex profile", "Change the model in cc-glm to glm-5.2", or "List all profiles". The agent reads the config, makes changes, and verifies the result.
 

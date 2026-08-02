@@ -212,14 +212,17 @@ Token values in profiles use `${VAR_NAME}` references that expand from the shell
 
 ### Where to put them
 
-Add `export` lines to the user's shell config file:
+Add env-var lines to the user's shell config file:
 
 | Shell | File |
 |-------|------|
 | zsh (default on macOS) | `~/.zshrc` |
 | bash | `~/.bashrc` or `~/.bash_profile` |
+| PowerShell (Windows) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) |
 
 ### Format
+
+bash/zsh:
 
 ```bash
 # Claude profiles
@@ -231,12 +234,24 @@ export OPENAI_API_KEY="sk-..."
 export AIHUBMIX_OPENAI_KEY="sk-..."
 ```
 
+PowerShell:
+
+```powershell
+# Claude profiles
+$env:GLM_ANTHROPIC_AUTH_TOKEN = "sk-..."
+$env:XIAOMI_ANTHROPIC_AUTH_TOKEN = "sk-..."
+
+# Codex profiles
+$env:OPENAI_API_KEY = "sk-..."
+$env:AIHUBMIX_OPENAI_KEY = "sk-..."
+```
+
 ### Steps
 
-1. Read the user's current `~/.zshrc` (or `~/.bashrc`).
+1. Read the user's current shell config file (e.g. `~/.zshrc`, `~/.bashrc`, or `$PROFILE`).
 2. Check which env vars are already set to avoid duplicates.
-3. Append the new `export` lines at the end.
-4. Tell the user to run `source ~/.zshrc` or open a new terminal.
+3. Append the new env-var lines at the end using the platform-appropriate syntax (`export VAR="..."` on bash/zsh, `$env:VAR = "..."` on PowerShell).
+4. Tell the user to reload the shell: `source ~/.zshrc` (bash/zsh), or `. $PROFILE` (PowerShell), or open a new terminal.
 
 ---
 
@@ -319,7 +334,7 @@ aweswitch restore                 # restore settings.json from backup
 - **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
 - Read the existing config before modifying it. Do not overwrite profiles the user already has.
 - Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
-- When adding env vars to `~/.zshrc`, check for existing entries first to avoid duplicates.
+- When adding env vars to the user's shell config file (`~/.zshrc`, `~/.bashrc`, or `$PROFILE`), check for existing entries first to avoid duplicates.
 - If the user's config already has profiles, ask before adding or renaming anything.
 - If any command fails, report the exact command and error message. Do not silently retry.
 - Do not run `aweswitch config init` if the config already exists — it will refuse and error.

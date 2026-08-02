@@ -170,7 +170,7 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 export OPENAI_API_KEY="..."
 ```
 
-如果希望每次打开终端都可用，可以把这些变量放进 `~/.zshrc`。
+如果希望每次打开终端都可用，可以把这些变量放进你的 shell 配置文件：macOS 用 `~/.zshrc`，bash 用 `~/.bashrc` 或 `~/.bash_profile`，PowerShell 用 `$PROFILE`。
 
 验证：
 
@@ -185,7 +185,7 @@ aweswitch show cc-glm
 
 - 列出、查看、添加、编辑、删除 profile
 - 将 profile 写入 settings（`aweswitch apply`）或恢复备份（`aweswitch restore`）
-- 引导配置环境变量（如 `~/.zshrc` 中的 token）
+- 引导配置环境变量（如 `~/.zshrc`、`~/.bashrc` 或 PowerShell 的 `$PROFILE` 中的 token）
 
 安装后你可以直接告诉 agent："添加一个 AiHubMix 的 codex profile"、"把 cc-glm 的 model 改成 glm-5.2"、"列出所有 profile"，agent 会读取配置文件、做修改、验证结果。
 
