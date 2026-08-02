@@ -486,6 +486,76 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "command not found"):
             aweswitch.exec_agent(["/tmp/aweswitch-command-that-does-not-exist"], {})
 
+    @unittest.mock.patch.object(aweswitch.os, "name", "nt")
+    @unittest.mock.patch.object(aweswitch.shutil, "which")
+    @unittest.mock.patch.object(aweswitch.subprocess, "run")
+    @unittest.mock.patch.object(aweswitch.sys, "exit")
+    def test_exec_agent_resolves_cmd_on_windows(self, mock_exit, mock_run, mock_which):
+        """A bare 'claude' resolves to claude.cmd and is exec'd as-is."""
+        mock_which.return_value = r"C:\Users\me\AppData\Roaming\npm\claude.cmd"
+        mock_run.return_value = unittest.mock.MagicMock(returncode=0)
+
+        aweswitch.exec_agent(["claude", "--settings", "/tmp/settings.json"], {"PATH": r"C:\Windows"})
+
+        mock_which.assert_called_once_with("claude", path=r"C:\Windows")
+        called_argv = mock_run.call_args[0][0]
+        self.assertEqual(
+            called_argv,
+            [r"C:\Users\me\AppData\Roaming\npm\claude.cmd", "--settings", "/tmp/settings.json"],
+        )
+        mock_exit.assert_called_once_with(0)
+
+    @unittest.mock.patch.object(aweswitch.os, "name", "nt")
+    @unittest.mock.patch.object(aweswitch.shutil, "which")
+    @unittest.mock.patch.object(aweswitch.subprocess, "run")
+    @unittest.mock.patch.object(aweswitch.sys, "exit")
+    def test_exec_agent_wraps_ps1_in_powershell_on_windows(self, mock_exit, mock_run, mock_which):
+        """A 'claude' that resolves to claude.ps1 is routed through powershell.exe -File."""
+        # shutil.which is called twice: first for the user's command, then for powershell itself.
+        mock_which.side_effect = [
+            r"C:\Users\me\bin\claude.ps1",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        ]
+        mock_run.return_value = unittest.mock.MagicMock(returncode=0)
+
+        aweswitch.exec_agent(
+            ["claude", "--settings", "/tmp/settings.json"],
+            {"PATH": r"C:\Windows"},
+        )
+
+        self.assertEqual(mock_which.call_count, 2)
+        self.assertEqual(mock_which.call_args_list[0], unittest.mock.call("claude", path=r"C:\Windows"))
+        self.assertEqual(mock_which.call_args_list[1][0][0], "powershell")
+        called_argv = mock_run.call_args[0][0]
+        self.assertEqual(
+            called_argv,
+            [
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                "-NoLogo", "-ExecutionPolicy", "Bypass",
+                "-File", r"C:\Users\me\bin\claude.ps1",
+                "--settings", "/tmp/settings.json",
+            ],
+        )
+        mock_exit.assert_called_once_with(0)
+
+    @unittest.mock.patch.object(aweswitch.os, "name", "nt")
+    @unittest.mock.patch.object(aweswitch.shutil, "which")
+    @unittest.mock.patch.object(aweswitch.subprocess, "run")
+    @unittest.mock.patch.object(aweswitch.sys, "exit")
+    def test_exec_agent_resolves_exe_on_windows(self, mock_exit, mock_run, mock_which):
+        """A 'opencode' that resolves to opencode.exe is exec'd as-is (Go binary case)."""
+        mock_which.return_value = r"C:\Program Files\opencode\opencode.exe"
+        mock_run.return_value = unittest.mock.MagicMock(returncode=0)
+
+        aweswitch.exec_agent(["opencode", "-m", "oc-glm/glm-5.1"], {"PATH": r"C:\Windows"})
+
+        called_argv = mock_run.call_args[0][0]
+        self.assertEqual(
+            called_argv,
+            [r"C:\Program Files\opencode\opencode.exe", "-m", "oc-glm/glm-5.1"],
+        )
+        mock_exit.assert_called_once_with(0)
+
     def test_generate_codex_config_produces_valid_toml(self):
         config = aweswitch.generate_codex_config("AiHubMix", "https://aihubmix.com/v1")
 

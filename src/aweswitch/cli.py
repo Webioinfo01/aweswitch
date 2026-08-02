@@ -456,6 +456,23 @@ def _auto_bookmark(category, profile, title=None):
 
 def exec_agent(argv, env):
     if os.name == "nt":
+        # On Windows, CreateProcess (which subprocess.run uses) does not
+        # perform PATHEXT resolution for a bare command name, and it
+        # cannot execute .ps1 scripts directly. Resolve the command via
+        # shutil.which (which honors PATHEXT), then re-route .ps1 hits
+        # through PowerShell. .exe / .cmd / .bat can be exec'd as-is.
+        resolved = shutil.which(argv[0], path=env.get("PATH"))
+        if resolved:
+            if resolved.lower().endswith(".ps1"):
+                pwsh = (
+                    shutil.which("powershell", path=env.get("PATH"))
+                    or shutil.which("powershell.exe", path=env.get("PATH"))
+                    or "powershell.exe"
+                )
+                argv = [pwsh, "-NoLogo", "-ExecutionPolicy", "Bypass",
+                        "-File", resolved, *argv[1:]]
+            else:
+                argv = [resolved, *argv[1:]]
         try:
             result = subprocess.run(argv, env=env)
             sys.exit(result.returncode)
