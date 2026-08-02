@@ -2,6 +2,7 @@
   <img src="logo/hero.png" alt="aweswitch" width="860">
   <h1>aweswitch: Agent Profile Switcher</h1>
   <p><strong>一个很小的本地启动器，用来切换 AI agent 运行时 profile。</strong></p>
+<p><strong>一份配置，一条命令 — Ubuntu、macOS、Windows 上用法一致。</strong></p>
   <p>用不同 API、token 和模型启动不同 agent 会话，同时不改写全局 agent 配置。</p>
   <p>
     <a href="./README.md">English</a> ·
@@ -17,7 +18,7 @@
     <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
     <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
-    <img src="https://img.shields.io/badge/platform-local_CLI-334155?style=flat-square" alt="Local CLI">
+    <img src="https://img.shields.io/badge/platform-ubuntu%20%7C%20macOS%20%7C%20windows-334155?style=flat-square" alt="Platform">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
     <img src="https://img.shields.io/github/stars/mugpeng/aweswitch?style=flat-square" alt="GitHub stars">
   </p>

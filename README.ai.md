@@ -212,17 +212,20 @@ Token values in profiles use `${VAR_NAME}` references that expand from the shell
 
 ### Where to put them
 
-Add env-var lines to the user's shell config file:
+| Platform | Target | Scope |
+|----------|--------|-------|
+| zsh (default on macOS) | `~/.zshrc` | all zsh shells |
+| bash | `~/.bashrc` or `~/.bash_profile` | all bash shells |
+| Windows | `setx` (writes user environment variables) | **cmd and PowerShell both** |
+| Windows (PowerShell only) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) | PowerShell only |
 
-| Shell | File |
-|-------|------|
-| zsh (default on macOS) | `~/.zshrc` |
-| bash | `~/.bashrc` or `~/.bash_profile` |
-| PowerShell (Windows) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) |
+On Windows, prefer `setx` — it persists to the user environment (the same place
+as the System Properties GUI), so both cmd and PowerShell pick it up. Use
+`$PROFILE` only if the user explicitly wants PowerShell-only scope.
 
 ### Format
 
-bash/zsh:
+bash/zsh — append to the shell config file:
 
 ```bash
 # Claude profiles
@@ -234,7 +237,24 @@ export OPENAI_API_KEY="sk-..."
 export AIHUBMIX_OPENAI_KEY="sk-..."
 ```
 
-PowerShell:
+Windows — run `setx` (works from cmd and PowerShell, and both see the result):
+
+```bat
+setx GLM_ANTHROPIC_AUTH_TOKEN "sk-..."
+setx XIAOMI_ANTHROPIC_AUTH_TOKEN "sk-..."
+setx OPENAI_API_KEY "sk-..."
+setx AIHUBMIX_OPENAI_KEY "sk-..."
+```
+
+Do not pass `/M` to `setx` — that targets machine scope and requires admin.
+
+PowerShell equivalent of `setx` (same user-scope target):
+
+```powershell
+[Environment]::SetEnvironmentVariable("GLM_ANTHROPIC_AUTH_TOKEN", "sk-...", "User")
+```
+
+PowerShell-only scope, via `$PROFILE`:
 
 ```powershell
 # Claude profiles
@@ -248,10 +268,10 @@ $env:AIHUBMIX_OPENAI_KEY = "sk-..."
 
 ### Steps
 
-1. Read the user's current shell config file (e.g. `~/.zshrc`, `~/.bashrc`, or `$PROFILE`).
+1. Read the user's current values (shell config file on macOS/Linux; on Windows read the user env with `[Environment]::GetEnvironmentVariable("VAR", "User")`).
 2. Check which env vars are already set to avoid duplicates.
-3. Append the new env-var lines at the end using the platform-appropriate syntax (`export VAR="..."` on bash/zsh, `$env:VAR = "..."` on PowerShell).
-4. Tell the user to reload the shell: `source ~/.zshrc` (bash/zsh), or `. $PROFILE` (PowerShell), or open a new terminal.
+3. Set them using the platform-appropriate method: append `export VAR="..."` on bash/zsh, run `setx VAR "..."` on Windows, or append `$env:VAR = "..."` to `$PROFILE` for PowerShell-only scope.
+4. Tell the user to reload: `source ~/.zshrc` (bash/zsh), open a new terminal (Windows `setx` — it does not affect the current one), or `. $PROFILE` (PowerShell).
 
 ---
 
@@ -334,7 +354,7 @@ aweswitch restore                 # restore settings.json from backup
 - **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
 - Read the existing config before modifying it. Do not overwrite profiles the user already has.
 - Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
-- When adding env vars to the user's shell config file (`~/.zshrc`, `~/.bashrc`, or `$PROFILE`), check for existing entries first to avoid duplicates.
+- Before setting env vars, check for existing values first to avoid duplicates — in the shell config file (`~/.zshrc`, `~/.bashrc`) or, on Windows, the user environment (`setx` target, readable via `[Environment]::GetEnvironmentVariable("VAR", "User")`).
 - If the user's config already has profiles, ask before adding or renaming anything.
 - If any command fails, report the exact command and error message. Do not silently retry.
 - Do not run `aweswitch config init` if the config already exists — it will refuse and error.

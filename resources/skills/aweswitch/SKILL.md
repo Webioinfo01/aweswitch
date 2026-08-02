@@ -54,6 +54,7 @@ You may run these read-only commands:
 You may also run these commands (they modify files but are non-interactive):
 - `aweswitch apply <profile>` — write Claude profile env to `~/.claude/settings.json`
 - `aweswitch restore` — restore settings from backup
+- `setx VAR_NAME "value"` (Windows only) — persist a user environment variable so both cmd and PowerShell see it
 
 **Note:** `aweswitch apply` only works for Claude profiles. Do not attempt to run `aweswitch apply` for Codex or OpenCode profiles.
 
@@ -67,7 +68,7 @@ You may also run these commands (they modify files but are non-interactive):
 | "Show profile X", "what's in profile X" | Inspect | `aweswitch show <profile>` |
 | "Edit profile X", "change the API key" | Edit | Edit config file directly. |
 | "Delete profile X" | Remove | Edit config file directly. |
-| "Set up API key for X" | Env Vars | Edit `~/.zshrc` or `~/.bashrc`. |
+| "Set up API key for X" | Env Vars | Edit `~/.zshrc` or `~/.bashrc`; on Windows run `setx`. |
 | "Where is the config?" | Config Path | `aweswitch config path` |
 | "Show all config" | Config Show | `aweswitch config show` |
 | "Switch to profile X", "launch profile X" | Launch | Tell user to run `aweswitch <profile>` in their terminal. |
@@ -200,24 +201,31 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 
 Token values reference shell variables that must be defined before launching a profile.
 
-Shell config file location:
+Where to persist them:
 
-| Shell | File |
-|-------|------|
-| zsh (macOS default) | `~/.zshrc` |
-| bash | `~/.bashrc` or `~/.bash_profile` |
-| PowerShell (Windows) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) |
+| Platform | Target | Scope |
+|----------|--------|-------|
+| macOS (zsh) | `~/.zshrc` | all zsh shells |
+| bash | `~/.bashrc` or `~/.bash_profile` | all bash shells |
+| Windows | `setx` (writes user environment variables) | **cmd and PowerShell both** |
+| Windows (PowerShell only) | `$PROFILE` (default: `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) | PowerShell only |
+
+On Windows, prefer `setx` — it persists to the user environment (the same
+place as the System Properties GUI), so both cmd and PowerShell pick it up.
+Use `$PROFILE` only if the user explicitly wants PowerShell-only scope.
 
 Steps:
 
-1. Read the shell config file
+1. Read the current values (shell config file, or `setx`-backed env on Windows)
 2. Check which env vars are already set (avoid duplicates)
-3. Append env vars using the platform-appropriate syntax:
-   - bash/zsh: `export VAR_NAME="value"`
-   - PowerShell: `$env:VAR_NAME = "value"`
-4. Tell the user to reload the shell:
+3. Set the env vars using the platform-appropriate method:
+   - bash/zsh: append `export VAR_NAME="value"` to the shell config file
+   - Windows: run `setx VAR_NAME "value"` (no `/M` — that requires admin and sets machine scope)
+   - PowerShell-only alternative: append `$env:VAR_NAME = "value"` to `$PROFILE`
+4. Tell the user to reload:
    - bash/zsh: `source ~/.zshrc` (or `~/.bashrc`), or open a new terminal
-   - PowerShell: `. $PROFILE`, or open a new PowerShell window
+   - Windows (`setx`): open a new terminal — `setx` does not affect the current one
+   - PowerShell (`$PROFILE`): `. $PROFILE`, or open a new PowerShell window
 
 Example (bash/zsh):
 
@@ -230,7 +238,21 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="sk-..."
 export OPENAI_API_KEY="sk-..."
 ```
 
-Example (PowerShell):
+Example (Windows — works in both cmd and PowerShell):
+
+```bat
+setx GLM_ANTHROPIC_AUTH_TOKEN "sk-..."
+setx XIAOMI_ANTHROPIC_AUTH_TOKEN "sk-..."
+setx OPENAI_API_KEY "sk-..."
+```
+
+PowerShell equivalent of `setx` (same user-scope target):
+
+```powershell
+[Environment]::SetEnvironmentVariable("GLM_ANTHROPIC_AUTH_TOKEN", "sk-...", "User")
+```
+
+Example (PowerShell-only scope, via `$PROFILE`):
 
 ```powershell
 # Claude / OpenCode profiles
@@ -239,6 +261,13 @@ $env:XIAOMI_ANTHROPIC_AUTH_TOKEN = "sk-..."
 
 # Codex profiles
 $env:OPENAI_API_KEY = "sk-..."
+```
+
+To read back or remove a Windows user env var:
+
+```powershell
+[Environment]::GetEnvironmentVariable("GLM_ANTHROPIC_AUTH_TOKEN", "User")   # read
+[Environment]::SetEnvironmentVariable("GLM_ANTHROPIC_AUTH_TOKEN", $null, "User")   # remove
 ```
 
 ### Verify Configuration
@@ -284,7 +313,7 @@ OpenCode profiles require the model to be specified as a positional argument: `a
 3. Always read the config file before editing. Never overwrite existing profiles without checking.
 4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
 5. Profile names must be unique across all provider groups. Check before adding.
-6. When editing the shell config file, check for existing entries to avoid duplicates. The target file depends on the platform: `~/.zshrc` (macOS zsh), `~/.bashrc` or `~/.bash_profile` (bash), or `$PROFILE` (PowerShell on Windows).
+6. Check for existing values before setting env vars, to avoid duplicates. Where they live depends on the platform: `~/.zshrc` (macOS zsh), `~/.bashrc` or `~/.bash_profile` (bash), or the user environment via `setx` on Windows (`$PROFILE` if the user wants PowerShell-only scope).
 7. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
 8. If the config file does not exist, run `aweswitch config init` first.
 9. Do not run `config init` if the config already exists — it will error.
