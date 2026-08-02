@@ -1,5 +1,34 @@
 # change log
 
+## v0.3.5
+
+`v0.3.5` improves the Windows experience with PowerShell-first agent launcher routing and updated documentation. Windows users can now run `aweswitch` against PowerShell-installed agent binaries without manual script invocation.
+
+### Windows PowerShell support
+
+When resolving the agent command on Windows, `aweswitch` now prefers `shutil.which` with PATHEXT resolution (`.cmd`, `.exe`, `.bat`, `.ps1`). `.ps1` scripts are automatically routed through `powershell.exe -ExecutionPolicy Bypass -File`, matching how users typically install Claude Code and other agent CLIs on Windows.
+
+### PowerShell env-var documentation
+
+Setup docs in both READMEs and the bundled skill now document `setx` for persisting tokens on Windows, so `cmd` and PowerShell agree on the same persistent environment without requiring shell-specific rc files.
+
+### OpenCode documentation
+
+The READMEs and AI bootstrap guide now include full OpenCode provider examples, covering the three supported `OPENCODE_MODEL` formats and the `{env:VAR}` key storage policy.
+
+### Cross-platform README updates
+
+Both READMEs now advertise cross-platform support explicitly with updated badges and a one-line positioning statement.
+
+### Highlights
+
+- Route `.ps1` agent binaries through PowerShell automatically on Windows
+- Prefer `setx` for persistent Windows env vars in setup docs
+- Documented PowerShell env-var setup in READMEs and skill
+- Added OpenCode provider documentation with model format examples
+- Updated README badges to show `ubuntu | macOS | windows`
+- Added cross-platform positioning line to both READMEs
+
 ## v0.3.3
 
 `v0.3.3` hardens several runtime paths and cleans up version management.
