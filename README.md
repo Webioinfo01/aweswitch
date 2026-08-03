@@ -1,6 +1,6 @@
 <div align="center">
   <img src="logo/hero.png" alt="aweswitch" width="860">
-  <h1>aweswitch: Agent Profile Switcher</h1>
+  <h1>aweswitch: Agent Profile Switcher <a href="https://github.com/Webioinfo01/aweskill"><img src="https://raw.githubusercontent.com/Webioinfo01/aweskill/main/logo/aweskill-badge2.svg" alt="aweskill companion"></a></h1>
   <p><strong>A tiny local launcher for switching AI agent runtime profiles.</strong></p>
 <p><strong>One config, one command — works the same on Ubuntu, macOS, and Windows.</strong></p>
   <p>Start different agent sessions with different API endpoints, tokens, and models without rewriting global agent config.</p>
