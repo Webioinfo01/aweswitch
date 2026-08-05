@@ -1,5 +1,21 @@
 # change log
 
+## v0.3.6
+
+`v0.3.6` fixes a profile-switching bug where a Claude profile could launch against the wrong model.
+
+### Default unset model tiers to ANTHROPIC_MODEL
+
+When launching a Claude profile, `aweswitch` now defaults every model-tier env var it does not explicitly set — `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, and `ANTHROPIC_DEFAULT_FABLE_MODEL` — to the profile's `ANTHROPIC_MODEL`.
+
+Previously only the OPUS tier was defaulted. Claude Code merges the `--settings` file with `~/.claude/settings.json`, so a tier the profile left unset inherited a stale model mapping from a previous provider. If the selected `/model` tier was one of those, the request resolved to a model the current provider does not serve (for example, a minimax profile erroring with "selected model (mimo-v2.5)"). Explicit per-tier overrides in a profile are preserved.
+
+### Highlights
+
+- Default all unset Claude model tiers (OPUS/SONNET/HAIKU/FABLE) to `ANTHROPIC_MODEL`
+- Prevent stale tier→model mappings from leaking across providers via settings merge
+- Preserve explicit per-tier model overrides in profiles
+
 ## v0.3.5
 
 `v0.3.5` improves the Windows experience with PowerShell-first agent launcher routing and updated documentation. Windows users can now run `aweswitch` against PowerShell-installed agent binaries without manual script invocation.
