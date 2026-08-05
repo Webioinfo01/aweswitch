@@ -226,9 +226,13 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
-                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
             }
         })
         self.assertEqual(argv[3:], ["--verbose"])
@@ -269,9 +273,13 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
-                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
             }
         })
         self.assertEqual(env, {})
@@ -306,11 +314,48 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_AUTH_TOKEN": "secret",
                 "ANTHROPIC_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.1",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.1",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Not set",
-                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Not set",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
             }
         })
+
+    def test_prepare_claude_defaults_unset_tiers_to_main_model(self):
+        # Regression: a profile that only sets ANTHROPIC_MODEL must still emit
+        # every tier var. Claude Code merges --settings with ~/.claude/settings.json,
+        # so an omitted tier lets a stale model from a different provider leak
+        # through (e.g. minimax profile erroring with "selected model (mimo-v2.5)").
+        config = {
+            "profiles": {
+                "claude": {
+                    "cc-doubao-minimax": {
+                        "env": {
+                            "ANTHROPIC_BASE_URL": "https://ark.cn-beijing.volces.com/api/coding",
+                            "ANTHROPIC_AUTH_TOKEN": "secret",
+                            "ANTHROPIC_MODEL": "minimax-m3",
+                        },
+                    }
+                }
+            }
+        }
+
+        argv, env, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {})
+        settings_path = argv[2]
+        settings_env = json.loads(Path(settings_path).read_text())["env"]
+
+        # Every tier resolves to the provider's own model, never a leaked stale one.
+        for tier in ("OPUS", "SONNET", "HAIKU", "FABLE"):
+            self.assertEqual(settings_env[f"ANTHROPIC_DEFAULT_{tier}_MODEL"], "minimax-m3")
+        # An explicit per-tier override is preserved, not clobbered by the default.
+        config["profiles"]["claude"]["cc-doubao-minimax"]["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "minimax-m3-mini"
+        argv, _, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {})
+        settings_env = json.loads(Path(argv[2]).read_text())["env"]
+        self.assertEqual(settings_env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "minimax-m3-mini")
+        self.assertEqual(settings_env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "minimax-m3")
 
     def test_prepare_claude_ignores_top_level_model(self):
         config = {

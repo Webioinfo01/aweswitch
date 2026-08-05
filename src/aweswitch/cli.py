@@ -24,6 +24,18 @@ SECRET_RE = re.compile(r"(TOKEN|KEY|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 TEMP_SETTINGS_TTL_S = 24 * 60 * 60
 
+# Claude Code reads these env vars to remap each /model tier to a concrete model
+# id. Claude Code MERGES the --settings file with ~/.claude/settings.json, so a
+# tier var the profile omits would let a stale value from a different provider
+# leak through. build_claude_env defaults every unset tier to ANTHROPIC_MODEL to
+# keep the --settings file authoritative regardless of which tier is selected.
+CLAUDE_TIER_VARS = (
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+)
+
 
 def config_path():
     return Path(os.environ.get("AWESWITCH_CONFIG", "~/.config/aweswitch/config.json")).expanduser()
@@ -249,7 +261,15 @@ def write_settings_file(data):
 
 
 def build_claude_env(config, profile_name, base_env=None, claude_settings_env=None):
-    """Build expanded env dict for a Claude profile, including _NAME variants."""
+    """Build expanded env dict for a Claude profile, including _NAME variants.
+
+    Every model-tier var (OPUS/SONNET/HAIKU/FABLE) the profile does not set is
+    defaulted to ANTHROPIC_MODEL, and each gets a matching _NAME label. Without
+    explicit values, Claude Code merges --settings with ~/.claude/settings.json
+    and a stale tier->model mapping from a previous provider wins, so /model can
+    resolve to a model the current provider doesn't serve (e.g. a minimax profile
+    erroring with "selected model (mimo-v2.5)").
+    """
     base_env = dict(os.environ if base_env is None else base_env)
     provider, profile = profile_for(config, profile_name)
     if provider != "claude":
@@ -258,16 +278,21 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     settings_env = load_claude_settings_env() if claude_settings_env is None else claude_settings_env
     expansion_env = {**settings_env, **base_env}
     result = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
-    # ANTHROPIC_MODEL populates OPUS tier when not explicitly set.
-    if "ANTHROPIC_MODEL" in result and "ANTHROPIC_DEFAULT_OPUS_MODEL" not in result:
-        result["ANTHROPIC_DEFAULT_OPUS_MODEL"] = result["ANTHROPIC_MODEL"]
-    # Ensure _NAME variants are set so Claude Code /model picker shows
-    # the correct label instead of a stale value from base settings.
-    for suffix in ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL"):
-        name_key = f"{suffix}_NAME"
-        if suffix in result and name_key not in result:
-            result[name_key] = result[suffix]
-        elif suffix not in result:
+
+    # Default every unset tier to the main model so /model always resolves to a
+    # model this provider serves, no matter which tier is selected.
+    main_model = result.get("ANTHROPIC_MODEL")
+    if main_model:
+        for tier in CLAUDE_TIER_VARS:
+            result.setdefault(tier, main_model)
+
+    # Ensure _NAME variants are set so Claude Code /model picker shows the
+    # correct label instead of a stale value from base settings.
+    for tier in CLAUDE_TIER_VARS:
+        name_key = f"{tier}_NAME"
+        if tier in result:
+            result.setdefault(name_key, result[tier])
+        else:
             result[name_key] = "Not set"
     return result
 
