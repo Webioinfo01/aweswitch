@@ -10,12 +10,15 @@
     <a href="https://www.webioinfo.top/">Webioinfo</a>
   </p>
   <p>
+    <a href="https://ko-fi.com/mugpeng"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
+  </p>
+  <p>
     <img src="https://img.shields.io/pypi/v/aweswitch?style=flat-square&color=7C3AED" alt="Version">
     <img src="https://img.shields.io/badge/python-%E2%89%A53.9-0EA5E9?style=flat-square" alt="Python">
     <img src="https://img.shields.io/badge/license-MPL--2.0-22C55E?style=flat-square" alt="License">
   </p>
   <p>
-    <img src="https://img.shields.io/badge/status-alpha-c96a3d?style=flat-square" alt="Status">
+    <img src="https://img.shields.io/badge/status-beta-c96a3d?style=flat-square" alt="Status">
     <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-ubuntu%20%7C%20macOS%20%7C%20windows-334155?style=flat-square" alt="Platform">
