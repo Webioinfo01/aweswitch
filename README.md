@@ -523,6 +523,20 @@ aweswitch add
 # OPENCODE_MODEL: model-1,model-2
 ```
 
+## Support
+
+If aweswitch saves you time, consider supporting it:
+
+- ⭐ Star the repo — it helps others find it.
+- ☕ [Ko-fi](https://ko-fi.com/mugpeng) — buy me a coffee.
+- 💬 WeChat — scan the QR code below.
+
+<p align="center">
+  <img src="assets/images/wechat-pay.jpg" alt="WeChat Pay" width="240">
+</p>
+
+> aweswitch is free and open source. Sponsors keep it maintained — thank you.
+
 ## Development
 
 See [Contributing](./docs/CONTRIBUTING.md) for setup, testing, branching, and release workflow.

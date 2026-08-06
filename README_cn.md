@@ -493,6 +493,20 @@ aweswitch add
 # OPENCODE_MODEL: model-1,model-2
 ```
 
+## 赞助与支持
+
+如果 aweswitch 帮到了你，欢迎支持一下：
+
+- ⭐ 给项目点个 Star — 让更多人看到它。
+- ☕ [Ko-fi](https://ko-fi.com/mugpeng) — 请我喝杯咖啡。
+- 💬 微信 — 扫描下方收款码。
+
+<p align="center">
+  <img src="assets/images/wechat-pay.jpg" alt="微信收款码" width="240">
+</p>
+
+> aweswitch 是免费开源的，你的支持让它持续维护下去 — 谢谢。
+
 ## 开发
 
 详见 [贡献指南](./docs/CONTRIBUTING.md)，包含环境搭建、测试、分支规范和发布流程。
