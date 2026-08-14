@@ -371,7 +371,7 @@ You can override that path with `AWESWITCH_CONFIG`.
 
 ### Does aweswitch support Codex?
 
-Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` block. aweswitch injects the base URL via Codex's `-c` config overrides and the API key via environment variable, so no files are written to `~/.codex/`.
+Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` block, plus an optional `OPENAI_MODEL` to choose a model at launch. aweswitch injects the base URL and model via Codex's `-c` config overrides and the API key via environment variable, so no files are written to `~/.codex/`.
 
 ### Does aweswitch support OpenCode?
 
@@ -432,11 +432,12 @@ This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `
 ### Codex Profiles
 
 - Requires `OPENAI_BASE_URL` and `OPENAI_API_KEY` in `env`.
-- Base URL is injected via `-c model_providers.custom.base_url=...` (no file writes).
+- Optionally set `OPENAI_MODEL` (dict, list, or comma-separated string) to pick a model at launch: `aweswitch <profile> [model]`. The first entry is the default; without the key, the profile only switches the API source and the first positional argument passes through to `codex` as usual.
+- Base URL is injected via `-c model_providers.custom.base_url=...`, the model via `-c model=...` (no file writes).
 - API key is injected via environment variable (no writes to `~/.codex/auth.json`).
 - Extra arguments are passed through to the `codex` CLI.
 
-Codex profiles only switch the API source (base URL + API key), not the model. In practice, Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case, while switching to entirely different model providers tends to give a poor experience.
+Note that Codex has no model-tier system like Claude's OPUS/SONNET/HAIKU slots — only one model is active at a time, and `OPENAI_MODEL` selects it per launch. In practice, Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case, while switching to entirely different model providers tends to give a poor experience.
 
 ```json
 {

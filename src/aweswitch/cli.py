@@ -297,6 +297,30 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     return result
 
 
+def normalize_models(raw, profile_name, key):
+    """Normalize a model list (dict, list, or comma-separated str) → {id: name}."""
+    if isinstance(raw, dict) and raw:
+        return raw
+    if isinstance(raw, list) and raw:
+        return {m: m for m in raw if isinstance(m, str) and m.strip()}
+    if isinstance(raw, str) and raw.strip():
+        return {m.strip(): m.strip() for m in raw.split(",") if m.strip()}
+    die(f"{key} is required for {profile_name}")
+
+
+def select_model(models_dict, user_args, profile_name):
+    """Treat the first positional arg as the model name; default to the first entry."""
+    if user_args:
+        model = user_args[0]
+        user_args = user_args[1:]
+    else:
+        model = next(iter(models_dict))
+    if model not in models_dict:
+        available = ", ".join(sorted(models_dict))
+        die(f"unknown model '{model}' for {profile_name}\n  Available: {available}")
+    return model, user_args
+
+
 def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None, oc_providers=None):
     base_env = dict(os.environ if base_env is None else base_env)
     provider, profile = profile_for(config, profile_name)
@@ -322,12 +346,22 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             die(f"OPENAI_BASE_URL is required for codex profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENAI_API_KEY is required for codex profile: {profile_name}")
+        # OPENAI_MODEL is optional: without it the profile only switches the API
+        # source (legacy behavior). With it, the first positional arg selects the
+        # model, same convention as opencode profiles.
+        model = None
+        if profile_env.get("OPENAI_MODEL"):
+            models_dict = normalize_models(profile_env["OPENAI_MODEL"], profile_name, "OPENAI_MODEL")
+            model, user_args = select_model(models_dict, user_args, profile_name)
         base_url = expand_value(base_url_raw, expansion_env)
         api_key = expand_value(api_key_raw, expansion_env)
         argv = ["codex"]
+        if model:
+            argv += ["-c", f'model="{model}"']
         argv += ["-c", f'model_provider="custom"']
         argv += ["-c", f'model_providers.custom.base_url="{base_url}"']
         argv += ["-c", f'model_providers.custom.wire_api="responses"']
+        argv += ["-c", f'model_providers.custom.env_key="OPENAI_API_KEY"']
         argv += ["-c", f'disable_response_storage=true']
         env["OPENAI_API_KEY"] = api_key
         argv += user_args
@@ -339,26 +373,9 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        # Normalize OPENCODE_MODEL: dict, list, or string → {id: name}
-        if isinstance(models_raw, dict) and models_raw:
-            models_dict = models_raw
-        elif isinstance(models_raw, list) and models_raw:
-            models_dict = {m: m for m in models_raw if isinstance(m, str) and m.strip()}
-        elif isinstance(models_raw, str) and models_raw.strip():
-            models_dict = {m.strip(): m.strip() for m in models_raw.split(",") if m.strip()}
-        else:
-            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
-        if not models_dict:
-            die(f"OPENCODE_MODEL is required for opencode profile: {profile_name}")
+        models_dict = normalize_models(models_raw, profile_name, "OPENCODE_MODEL")
         # First positional arg is the model name; default to first in dict
-        if user_args:
-            model = user_args[0]
-            user_args = user_args[1:]
-        else:
-            model = next(iter(models_dict))
-        if model not in models_dict:
-            available = ", ".join(sorted(models_dict))
-            die(f"unknown model '{model}' for opencode profile: {profile_name}\n  Available: {available}")
+        model, user_args = select_model(models_dict, user_args, profile_name)
         base_url = expand_value(base_url_raw, expansion_env)
         api_key = expand_value(api_key_raw, expansion_env)
         # Keep an env reference in opencode.json so the actual key is never written to disk.
@@ -414,6 +431,9 @@ def profile_model_label(provider, profile):
     if provider == "claude":
         return env.get("ANTHROPIC_MODEL", "?")
     if provider == "codex":
+        models = env.get("OPENAI_MODEL")
+        if isinstance(models, dict) and models:
+            return ", ".join(sorted(models))
         return env.get("OPENAI_BASE_URL", "?")
     if provider == "opencode":
         models = env.get("OPENCODE_MODEL", {})
@@ -699,11 +719,14 @@ def add_command():
         base_url = click.prompt("OPENAI_BASE_URL")
         auth_var = click.prompt("OPENAI_API_KEY env var name (saved as ${VAR_NAME})")
         auth_token = f"${{{auth_var}}}"
+        models_str = click.prompt("OPENAI_MODEL (comma-separated, Enter to skip)", default="", show_default=False)
 
         env_vars = {
             "OPENAI_BASE_URL": base_url,
             "OPENAI_API_KEY": auth_token,
         }
+        if models_str.strip():
+            env_vars["OPENAI_MODEL"] = {m.strip(): m.strip() for m in models_str.split(",") if m.strip()}
         save_profile(path, name, env_vars, provider=provider)
         click.echo(f"Profile '{name}' added.")
 

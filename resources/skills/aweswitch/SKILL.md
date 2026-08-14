@@ -73,6 +73,7 @@ You may also run these commands (they modify files but are non-interactive):
 | "Show all config" | Config Show | `aweswitch config show` |
 | "Switch to profile X", "launch profile X" | Launch | Tell user to run `aweswitch <profile>` in their terminal. |
 | "Launch opencode profile" | Launch | Tell user to run `aweswitch oc-<name> [model]` in their terminal. |
+| "Launch codex profile" | Launch | Tell user to run `aweswitch cx-<name> [model]` in their terminal. |
 | "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <profile>` (Claude only). |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (Claude only). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
@@ -106,7 +107,8 @@ Always read the config file before modifying it.
       "<profile-name>": {
         "env": {
           "OPENAI_BASE_URL": "<url>",
-          "OPENAI_API_KEY": "${ENV_VAR_NAME}"
+          "OPENAI_API_KEY": "${ENV_VAR_NAME}",
+          "OPENAI_MODEL": "<model-id-or-list>"
         }
       }
     },
@@ -130,7 +132,7 @@ Always read the config file before modifying it.
 |-------|--------|-------|----------|
 | Base URL | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` | `OPENCODE_BASE_URL` |
 | Auth token | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` | `OPENCODE_API_KEY` |
-| Model | `ANTHROPIC_MODEL` | not applicable | `OPENCODE_MODEL` (list/dict/string) |
+| Model | `ANTHROPIC_MODEL` | `OPENAI_MODEL` (list/dict/string, optional) | `OPENCODE_MODEL` (list/dict/string) |
 | Injection | `--settings` temp file | `-c` flag + env var | writes to `~/.config/opencode/opencode.json` via `{env:VAR}` |
 
 ### Naming convention
@@ -300,7 +302,7 @@ If the user wants to run multiple profiles in separate terminals instead, tell t
 
 ### Codex
 
-Codex profiles only switch the API source (base URL + API key), not the model. Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case. Apply mode is not available for Codex; use Launch mode only.
+Codex profiles support optional `OPENAI_MODEL` (list/dict/string) to pick a model at launch: `aweswitch cx-<name> [model]`. Without it, the profile only switches the API source (base URL + API key) and the positional argument passes through to the `codex` CLI as-is. The model and base URL are injected via `-c` flags; the API key is injected via `OPENAI_API_KEY` env var. Apply mode is not available for Codex; use Launch mode only.
 
 ### OpenCode
 

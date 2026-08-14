@@ -186,7 +186,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\n",
+            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\ngpt-5.2-codex, kimi-k2.7\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -196,6 +196,24 @@ class AweSwitchTests(unittest.TestCase):
             profile = data["profiles"]["codex"]["cx-test"]
             self.assertEqual(profile["env"]["OPENAI_BASE_URL"], "https://api.example.com/v1")
             self.assertEqual(profile["env"]["OPENAI_API_KEY"], "${MY_KEY}")
+            self.assertEqual(profile["env"]["OPENAI_MODEL"],
+                             {"gpt-5.2-codex": "gpt-5.2-codex", "kimi-k2.7": "kimi-k2.7"})
+
+    def test_add_command_codex_model_prompt_optional(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\n\n",
+                env={"AWESWITCH_CONFIG": str(path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+
+            data = json.loads(path.read_text())
+            profile = data["profiles"]["codex"]["cx-test"]
+            self.assertNotIn("OPENAI_MODEL", profile["env"])
 
     def test_prepare_claude_uses_provider_command_and_env_overrides(self):
         config = {
@@ -411,9 +429,9 @@ class AweSwitchTests(unittest.TestCase):
         self.assertIn('model_providers.custom.base_url="https://provider.test/v1"', c_args)
         self.assertIn('model_providers.custom.wire_api="responses"', c_args)
         self.assertIn('disable_response_storage=true', c_args)
-        # API key injected via env, not argv
+        # API key injected via env; argv carries only the env var NAME (env_key), never the secret
         self.assertEqual(env["OPENAI_API_KEY"], "sk-test")
-        self.assertNotIn("OPENAI_API_KEY", " ".join(argv))
+        self.assertNotIn("sk-test", " ".join(argv))
         # User args passed through
         self.assertIn("--verbose", argv)
 
@@ -449,6 +467,68 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "OPENAI_API_KEY is required"):
             aweswitch.prepare_run(config, "cx-bad", [], {})
 
+    def _make_cx_config(self, models=None):
+        env = {
+            "OPENAI_BASE_URL": "https://provider.test/v1",
+            "OPENAI_API_KEY": "${CX_KEY}",
+        }
+        if models is not None:
+            env["OPENAI_MODEL"] = models
+        return {"profiles": {"codex": {"cx-test": {"env": env}}}}
+
+    def _c_args(self, argv):
+        c_args = []
+        i = 1
+        while i < len(argv):
+            if argv[i] == "-c" and i + 1 < len(argv):
+                c_args.append(argv[i + 1])
+                i += 2
+            else:
+                break
+        return c_args
+
+    def test_prepare_codex_uses_model_from_args(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "kimi-k2.7": "Kimi"})
+
+        argv, env, _ = aweswitch.prepare_run(config, "cx-test", ["kimi-k2.7"], {"CX_KEY": "sk-test"})
+
+        self.assertEqual(argv[0], "codex")
+        self.assertIn('model="kimi-k2.7"', self._c_args(argv))
+        self.assertIn('model_providers.custom.env_key="OPENAI_API_KEY"', self._c_args(argv))
+        self.assertEqual(env["OPENAI_API_KEY"], "sk-test")
+
+    def test_prepare_codex_defaults_to_first_model(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "kimi-k2.7": "Kimi"})
+
+        argv, env, _ = aweswitch.prepare_run(config, "cx-test", [], {"CX_KEY": "sk-test"})
+
+        self.assertIn('model="gpt-5.2-codex"', self._c_args(argv))
+
+    def test_prepare_codex_rejects_unknown_model(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2"})
+
+        with self.assertRaisesRegex(SystemExit, "unknown model 'gpt-9.9'"):
+            aweswitch.prepare_run(config, "cx-test", ["gpt-9.9"], {"CX_KEY": "sk-test"})
+
+    def test_prepare_codex_without_models_keeps_legacy_behavior(self):
+        config = self._make_cx_config(models=None)
+
+        argv, env, _ = aweswitch.prepare_run(config, "cx-test", ["--verbose"], {"CX_KEY": "sk-test"})
+
+        c_args = self._c_args(argv)
+        self.assertNotIn('model="--verbose"', c_args)  # no model injected, arg passes through
+        for c in c_args:
+            self.assertFalse(c.startswith("model="))
+        self.assertIn("--verbose", argv)
+        self.assertIn('model_providers.custom.env_key="OPENAI_API_KEY"', c_args)
+
+    def test_prepare_codex_normalizes_string_models(self):
+        config = self._make_cx_config("gpt-5.2-codex, kimi-k2.7")
+
+        argv, env, _ = aweswitch.prepare_run(config, "cx-test", ["kimi-k2.7"], {"CX_KEY": "sk-test"})
+
+        self.assertIn('model="kimi-k2.7"', self._c_args(argv))
+
     def test_prepare_rejects_unknown_provider(self):
         config = {
             "profiles": {
@@ -471,6 +551,16 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(
             aweswitch.profile_model_label("codex", {"env": {"OPENAI_BASE_URL": "https://api.test/v1"}}),
             "https://api.test/v1",
+        )
+
+    def test_profile_model_label_shows_models_for_codex(self):
+        self.assertEqual(
+            aweswitch.profile_model_label(
+                "codex",
+                {"env": {"OPENAI_BASE_URL": "https://api.test/v1",
+                         "OPENAI_MODEL": {"kimi-k2.7": "Kimi", "gpt-5.2-codex": "GPT"}}},
+            ),
+            "gpt-5.2-codex, kimi-k2.7",
         )
 
     def test_profile_for_errors_on_duplicate_profile_names(self):
