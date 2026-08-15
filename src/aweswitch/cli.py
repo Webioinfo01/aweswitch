@@ -84,23 +84,6 @@ def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
     }
 
 
-def _resolve_opencode_api_key(raw):
-    """Normalize an apiKey value for comparison.
-
-    Handles ${VAR} (shell), {env:VAR} (opencode), and literal keys.
-    Returns the resolved value from the environment, or the raw string if not a ref.
-    """
-    if not isinstance(raw, str):
-        return raw
-    m = ENV_REF_RE.match(raw)
-    if m:
-        return os.environ.get(m.group(1), raw)
-    m = re.match(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$", raw)
-    if m:
-        return os.environ.get(m.group(1), raw)
-    return raw
-
-
 def _opencode_api_key_ref(raw):
     """Return opencode's env ref syntax for a config ${VAR} API key."""
     if not isinstance(raw, str):
@@ -111,39 +94,35 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
-def ensure_opencode_provider(base_url, api_key, api_key_ref, provider_name, model,
+def ensure_opencode_provider(base_url, api_key_ref, provider_name, model,
                              display_name=None, model_display_name=None):
-    """Ensure provider+model exist in opencode.json. Writes if needed."""
+    """Ensure provider+model exist in opencode.json, synced to the aweswitch config.
+
+    The provider entry is owned by aweswitch (its name is the profile name), so
+    stale credentials are updated to match the config instead of rejected.
+    """
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
     existing = providers.get(provider_name)
     model_name = model_display_name or model
 
     if existing:
-        opts = existing.get("options", {})
-        existing_key = opts.get("apiKey", "")
-        keys_match = (
-            existing_key == api_key
-            or existing_key == api_key_ref
-            or _resolve_opencode_api_key(existing_key) == api_key
-        )
-        if opts.get("baseURL") == base_url and keys_match:
-            # Normalize existing key to {env:VAR} format if needed
-            if existing_key != api_key_ref:
-                opts["apiKey"] = api_key_ref
-            models = existing.setdefault("models", {})
-            if model not in models:
-                models[model] = {"name": model_name}
+        opts = existing.setdefault("options", {})
+        changed = False
+        if opts.get("baseURL") != base_url:
+            opts["baseURL"] = base_url
+            changed = True
+        if opts.get("apiKey") != api_key_ref:
+            opts["apiKey"] = api_key_ref
+            changed = True
+        models = existing.setdefault("models", {})
+        if model not in models:
+            models[model] = {"name": model_name}
+            changed = True
+        if changed:
             write_opencode_config(oc_config)
-        else:
-            die(
-                f"opencode provider '{provider_name}' already exists with different credentials.\n"
-                f"  Existing baseURL: {opts.get('baseURL', '?')}\n"
-                f"  Either update opencode.json manually or use a different provider name."
-            )
     else:
-        name = display_name or provider_name
-        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=display_name or provider_name)
         entry["models"] = {model: {"name": model_name}}
         providers[provider_name] = entry
         write_opencode_config(oc_config)
@@ -377,12 +356,10 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         # First positional arg is the model name; default to first in dict
         model, user_args = select_model(models_dict, user_args, profile_name)
         base_url = expand_value(base_url_raw, expansion_env)
-        api_key = expand_value(api_key_raw, expansion_env)
         # Keep an env reference in opencode.json so the actual key is never written to disk.
         api_key_ref = _opencode_api_key_ref(api_key_raw)
         oc_write_info = {
             "base_url": base_url,
-            "api_key": api_key,
             "api_key_ref": api_key_ref,
             "provider_name": profile_name,
             "model": model,
@@ -828,7 +805,6 @@ def run_profile(ctx, category, title):
     if oc_write_info is not None:
         ensure_opencode_provider(
             oc_write_info["base_url"],
-            oc_write_info["api_key"],
             oc_write_info["api_key_ref"],
             oc_write_info["provider_name"],
             oc_write_info["model"],
