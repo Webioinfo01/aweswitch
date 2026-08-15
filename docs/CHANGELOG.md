@@ -1,5 +1,24 @@
 # change log
 
+## v0.3.7
+
+`v0.3.7` lets Codex profiles select a model at launch, and keeps OpenCode provider entries in sync when their credentials change.
+
+### Third-party models for Codex profiles
+
+Codex profiles now support an optional `OPENAI_MODEL` (dict, list, or comma-separated string), following the same convention as OpenCode profiles: `aweswitch cx-<name> [model]` picks the model at launch, defaulting to the first entry. The model is injected via Codex `-c` config overrides, so nothing is written to `~/.codex/`. Without the key, the profile keeps the legacy behavior of only switching the API source.
+
+### Sync stale OpenCode provider entries
+
+When an OpenCode profile's `OPENCODE_BASE_URL` or `OPENCODE_API_KEY` changes, `aweswitch` now updates the existing provider entry in `~/.config/opencode/opencode.json` to match instead of erroring with "different credentials". The entry is owned by aweswitch (its name is the profile name), so the aweswitch config is the source of truth. The API key is always stored as an `{env:VAR}` reference — the resolved key is no longer passed through internal launch state.
+
+### Highlights
+
+- Add optional `OPENAI_MODEL` for Codex profiles: `aweswitch cx-<name> [model]`
+- Support dict/list/string model formats for Codex, same as OpenCode
+- Update stale OpenCode provider credentials instead of failing
+- Drop internal plaintext API key from launch state; only `{env:VAR}` refs are written
+
 ## v0.3.6
 
 `v0.3.6` fixes a profile-switching bug where a Claude profile could launch against the wrong model.
