@@ -1,5 +1,17 @@
 # change log
 
+## v0.3.8
+
+`v0.3.8` softens auth-token validation across Claude and OpenCode profiles: plaintext values are now allowed with a tip instead of a hard error, reducing friction for users who don't need `${VAR}` references.
+
+### Highlights
+- **Plaintext API keys allowed with a tip**: `OPENCODE_API_KEY` and `ANTHROPIC_AUTH_TOKEN` now emit a warning when the value is not a `${VAR_NAME}` env reference, but no longer block launch. The env-ref form is still recommended to keep keys out of the config file.
+- **Claude auth validation aligned with Codex/OpenCode**: `ANTHROPIC_BASE_URL` is now required (existence check), and `ANTHROPIC_AUTH_TOKEN` format is checked with the same warn-only policy.
+- **Model list display**: `aweswitch list` now renders `OPENAI_MODEL` / `OPENCODE_MODEL` correctly when they are dicts, lists, or comma-separated strings.
+
+### Docs
+- README: added `awerouter` to the companion tools list.
+
 ## v0.3.7
 
 `v0.3.7` lets Codex profiles select a model at launch, and keeps OpenCode provider entries in sync when their credentials change.
