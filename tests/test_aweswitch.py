@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+import io
 import unittest.mock
 from pathlib import Path
 
@@ -309,14 +310,14 @@ class AweSwitchTests(unittest.TestCase):
                     "cc-glm": {
                         "env": {
                             "ANTHROPIC_BASE_URL": "https://example.test",
-                            "ANTHROPIC_AUTH_TOKEN": "secret",
+                            "ANTHROPIC_AUTH_TOKEN": "${SECRET_TOKEN}",
                             "ANTHROPIC_MODEL": "glm-5.1",
                         },
                     }
                 }
             }
         }
-        base_env = {"ANTHROPIC_MODEL": "old-model"}
+        base_env = {"ANTHROPIC_MODEL": "old-model", "SECRET_TOKEN": "secret"}
 
         argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], base_env)
 
@@ -353,7 +354,7 @@ class AweSwitchTests(unittest.TestCase):
                     "cc-doubao-minimax": {
                         "env": {
                             "ANTHROPIC_BASE_URL": "https://ark.cn-beijing.volces.com/api/coding",
-                            "ANTHROPIC_AUTH_TOKEN": "secret",
+                            "ANTHROPIC_AUTH_TOKEN": "${SECRET_TOKEN}",
                             "ANTHROPIC_MODEL": "minimax-m3",
                         },
                     }
@@ -361,7 +362,7 @@ class AweSwitchTests(unittest.TestCase):
             }
         }
 
-        argv, env, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {})
+        argv, env, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {"SECRET_TOKEN": "secret"})
         settings_path = argv[2]
         settings_env = json.loads(Path(settings_path).read_text())["env"]
 
@@ -370,7 +371,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(settings_env[f"ANTHROPIC_DEFAULT_{tier}_MODEL"], "minimax-m3")
         # An explicit per-tier override is preserved, not clobbered by the default.
         config["profiles"]["claude"]["cc-doubao-minimax"]["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "minimax-m3-mini"
-        argv, _, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {})
+        argv, _, _ = aweswitch.prepare_run(config, "cc-doubao-minimax", [], {"SECRET_TOKEN": "secret"})
         settings_env = json.loads(Path(argv[2]).read_text())["env"]
         self.assertEqual(settings_env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "minimax-m3-mini")
         self.assertEqual(settings_env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "minimax-m3")
@@ -383,7 +384,7 @@ class AweSwitchTests(unittest.TestCase):
                         "model": "ignored-model",
                         "env": {
                             "ANTHROPIC_BASE_URL": "https://example.test",
-                            "ANTHROPIC_AUTH_TOKEN": "secret",
+                            "ANTHROPIC_AUTH_TOKEN": "${SECRET_TOKEN}",
                             "ANTHROPIC_MODEL": "glm-5.1",
                         },
                     }
@@ -391,9 +392,11 @@ class AweSwitchTests(unittest.TestCase):
             }
         }
 
-        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], {})
+        argv, env, _ = aweswitch.prepare_run(config, "cc-glm", [], {"SECRET_TOKEN": "secret"})
 
-        self.assertEqual(env, {})
+        self.assertNotIn("ANTHROPIC_MODEL", env)
+        self.assertNotIn("ANTHROPIC_BASE_URL", env)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)
         self.assertNotIn("--model", argv)
         self.assertNotIn("ignored-model", argv)
 
@@ -809,11 +812,13 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "OPENCODE_MODEL is required"):
             aweswitch.prepare_run(config, "oc-bad", ["m"], {"OC_KEY": "sk-test"})
 
-    def test_prepare_opencode_rejects_plaintext_api_key(self):
+    def test_prepare_opencode_warns_on_plaintext_api_key(self):
         config = self._make_oc_config(api_key="sk-test")
 
-        with self.assertRaisesRegex(SystemExit, "must be an environment variable reference"):
-            aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
+        with unittest.mock.patch("sys.stderr", new=io.StringIO()) as mock_stderr:
+            argv, env, oc_info = aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {})
+            self.assertEqual(oc_info["api_key_ref"], "sk-test")
+            self.assertIn("tip: OPENCODE_API_KEY is a plain value", mock_stderr.getvalue())
 
     def test_parse_version_accepts_prerelease_suffix(self):
         self.assertEqual(update_check._parse_version("0.3.0a1"), (0, 3, 0))

@@ -85,12 +85,27 @@ def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
 
 
 def _opencode_api_key_ref(raw):
-    """Return opencode's env ref syntax for a config ${VAR} API key."""
+    """Return opencode's env ref syntax for a config ${VAR} API key.
+
+    Allows bare values through with a warning so users aren't blocked from
+    using plain strings; the env-ref form is still recommended because it
+    keeps the actual key out of the config file.
+    """
     if not isinstance(raw, str):
-        die("OPENCODE_API_KEY must be an environment variable reference like ${VAR_NAME}")
+        click.echo(
+            "  tip: OPENCODE_API_KEY is not a string — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  Example: \"OPENCODE_API_KEY\": \"${MY_API_KEY}\"",
+            err=True,
+        )
+        return str(raw)
     m = ENV_REF_RE.fullmatch(raw)
     if not m:
-        die("OPENCODE_API_KEY must be an environment variable reference like ${VAR_NAME}")
+        click.echo(
+            "  tip: OPENCODE_API_KEY is a plain value — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  Example: \"OPENCODE_API_KEY\": \"${MY_API_KEY}\"",
+            err=True,
+        )
+        return raw
     return f"{{env:{m.group(1)}}}"
 
 
@@ -254,6 +269,15 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     if provider != "claude":
         die(f"only claude profiles are supported, got: {provider}")
     profile_env = profile.get("env", {})
+    if not profile_env.get("ANTHROPIC_BASE_URL"):
+        die("ANTHROPIC_BASE_URL is required for claude profile")
+    auth_token_raw = profile_env.get("ANTHROPIC_AUTH_TOKEN")
+    if auth_token_raw and not ENV_REF_RE.fullmatch(auth_token_raw):
+        click.echo(
+            "  tip: ANTHROPIC_AUTH_TOKEN is a plain value — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  Example: \"ANTHROPIC_AUTH_TOKEN\": \"${MY_API_KEY}\"",
+            err=True,
+        )
     settings_env = load_claude_settings_env() if claude_settings_env is None else claude_settings_env
     expansion_env = {**settings_env, **base_env}
     result = {key: expand_value(value, expansion_env) for key, value in profile_env.items()}
