@@ -38,10 +38,11 @@ It is intentionally small. Today it supports Claude Code, Codex, and OpenCode pr
 
 ## Support Tools
 
-aweswitch is powered by two companion tools:
+aweswitch is powered by three companion tools:
 
 - **[aweskill](https://github.com/Webioinfo01/aweskill)** — CLI skill package manager for AI agents. Handles skill installation, updates, and projection across 47+ coding agents.
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Session bookmark manager for Claude Code and Codex. Bookmark, categorize, and restore sessions with aweswitch profiles.
+- **[awerouter](https://github.com/Webioinfo01/awerouter)** — Local model router / proxy. Routes requests to multiple model providers through a single endpoint for unified access.
 
 aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later.
 

@@ -553,6 +553,24 @@ class AweSwitchTests(unittest.TestCase):
             "https://api.test/v1",
         )
 
+    def test_profile_model_label_shows_string_model_for_codex(self):
+        self.assertEqual(
+            aweswitch.profile_model_label("codex", {"env": {"OPENAI_MODEL": "auto"}}),
+            "auto",
+        )
+
+    def test_profile_model_label_shows_list_model_for_codex(self):
+        self.assertEqual(
+            aweswitch.profile_model_label("codex", {"env": {"OPENAI_MODEL": ["gpt-5.2-codex", "kimi-k2.7"]}}),
+            "gpt-5.2-codex, kimi-k2.7",
+        )
+
+    def test_profile_model_label_falls_back_to_base_url_for_empty_codex_model(self):
+        self.assertEqual(
+            aweswitch.profile_model_label("codex", {"env": {"OPENAI_BASE_URL": "https://api.test/v1", "OPENAI_MODEL": ""}}),
+            "https://api.test/v1",
+        )
+
     def test_profile_model_label_shows_models_for_codex(self):
         self.assertEqual(
             aweswitch.profile_model_label(
@@ -855,6 +873,22 @@ class AweSwitchTests(unittest.TestCase):
         label = aweswitch.profile_model_label("opencode", profile)
         self.assertIn("glm-5.1", label)
         self.assertIn("glm-5.2", label)
+
+    def test_profile_model_label_shows_string_models_for_opencode(self):
+        profile = {"env": {"OPENCODE_MODEL": "glm-5.1, glm-5.2"}}
+        label = aweswitch.profile_model_label("opencode", profile)
+        self.assertIn("glm-5.1", label)
+        self.assertIn("glm-5.2", label)
+
+    def test_profile_model_label_shows_list_models_for_opencode(self):
+        profile = {"env": {"OPENCODE_MODEL": ["glm-5.1", "glm-5.2"]}}
+        label = aweswitch.profile_model_label("opencode", profile)
+        self.assertIn("glm-5.1", label)
+        self.assertIn("glm-5.2", label)
+
+    def test_profile_model_label_shows_auto_for_opencode(self):
+        profile = {"env": {"OPENCODE_MODEL": "auto"}}
+        self.assertEqual(aweswitch.profile_model_label("opencode", profile), "auto")
 
     def test_init_creates_opencode_profiles(self):
         with tempfile.TemporaryDirectory() as tmp:

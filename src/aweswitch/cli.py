@@ -409,13 +409,22 @@ def profile_model_label(provider, profile):
         return env.get("ANTHROPIC_MODEL", "?")
     if provider == "codex":
         models = env.get("OPENAI_MODEL")
-        if isinstance(models, dict) and models:
-            return ", ".join(sorted(models))
+        if isinstance(models, dict):
+            return ", ".join(sorted(models)) if models else env.get("OPENAI_BASE_URL", "?")
+        if isinstance(models, list):
+            return ", ".join(models) if models else env.get("OPENAI_BASE_URL", "?")
+        if isinstance(models, str) and models.strip():
+            return models.strip()
         return env.get("OPENAI_BASE_URL", "?")
     if provider == "opencode":
         models = env.get("OPENCODE_MODEL", {})
         if isinstance(models, dict):
-            return ", ".join(sorted(models))
+            return ", ".join(sorted(models)) if models else "?"
+        if isinstance(models, list):
+            return ", ".join(models) if models else "?"
+        if isinstance(models, str):
+            parts = [m.strip() for m in models.split(",")]
+            return ", ".join(p for p in parts if p) or "?"
         return "?"
     return "?"
 
