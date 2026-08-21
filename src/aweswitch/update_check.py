@@ -32,8 +32,8 @@ def _cache_path():
 
 def _load_cache(path):
     try:
-        return json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -54,9 +54,11 @@ def get_pypi_latest():
 
 
 def _should_skip(args):
+    if not args:
+        return True  # bare invocation only prints help; don't hit PyPI
     if "-h" in args or "--help" in args or "-v" in args or "-V" in args or "--version" in args:
         return True
-    return args and args[0] == "self-update"
+    return args[0] == "self-update"
 
 
 def check_async(args):

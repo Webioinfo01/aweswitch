@@ -1,5 +1,36 @@
 # change log
 
+## v0.3.9
+
+`v0.3.9` hardens the runtime against corrupt configs and fixes the auto-bookmark worker so it survives agent launches on POSIX. Editable installs now report the correct version after bumps.
+
+### Version detection
+
+`aweswitch.__version__` now reads from `pyproject.toml` when running from source, instead of relying on `importlib.metadata` which freezes the installed dist-info version at install time. This fixes stale version reports after bumps in editable installs.
+
+### Config parsing
+
+JSON loading now uses explicit `encoding="utf-8"` across the config, OpenCode, and update-check paths, and handles `UnicodeDecodeError` alongside `JSONDecodeError`.
+
+`load_opencode_config` now validates the top-level structure and the `provider` key before returning. Corrupt or unexpected JSON causes a loud exit instead of silently falling through to `write_opencode_config`, which could otherwise clobber the user's `opencode.json`.
+
+### Auto-bookmark worker
+
+The background bookmark worker now runs in a detached forked child on POSIX. The previous daemon-thread approach died before its first poll because `os.execvpe()` destroys every thread in the process during agent launch. On Windows the launch path uses `subprocess.run()`, which keeps this process alive, so the daemon thread is retained there.
+
+### Editor fallback
+
+`aweswitch config edit` now reports a clear error when the configured editor binary is not found, instead of raising an unhandled `FileNotFoundError`.
+
+### Highlights
+
+- Read version from `pyproject.toml` for editable installs
+- Harden JSON loading with explicit UTF-8 and `UnicodeDecodeError` handling
+- Fail loudly on corrupt `opencode.json` instead of silently overwriting it
+- Fork detached bookmark worker on POSIX to survive `execvpe()`
+- Clear error when editor binary is missing in `config edit`
+- Skip PyPI update check on bare invocation
+
 ## v0.3.8
 
 `v0.3.8` softens auth-token validation across Claude and OpenCode profiles: plaintext values are now allowed with a tip instead of a hard error, reducing friction for users who don't need `${VAR}` references.

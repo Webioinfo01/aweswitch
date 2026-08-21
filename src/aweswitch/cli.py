@@ -58,11 +58,18 @@ def load_opencode_config():
     if not path.exists():
         return {"provider": {}}
     try:
-        data = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return {"provider": {}}
-    if not isinstance(data.get("provider"), dict):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # Never fall through to write_opencode_config with an empty config:
+        # that would silently replace the user's whole opencode.json.
+        die(f"invalid JSON in {path}: {exc}\n  Fix or remove the file, then retry.")
+    if not isinstance(data, dict):
+        die(f"unexpected JSON in {path}: expected an object at the top level")
+    provider = data.get("provider")
+    if provider is None:
         data["provider"] = {}
+    elif not isinstance(provider, dict):
+        die(f"'provider' in {path} must be an object")
     return data
 
 
@@ -177,8 +184,8 @@ def load_config(path):
     if not path.exists():
         die(f"config not found: {path}\nrun: aweswitch config init")
     try:
-        data = json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         die(f"invalid config JSON at {path}: {exc}")
     if not isinstance(data.get("profiles"), dict):
         die("config must contain a profiles object")
@@ -190,8 +197,8 @@ def load_claude_settings_env(path=None):
     if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text())
-    except json.JSONDecodeError:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return {}
     env = data.get("env", {})
     if not isinstance(env, dict):
@@ -332,10 +339,6 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     expansion_env = dict(base_env)
     oc_write_info = None
     if provider == "claude":
-        settings_env = load_claude_settings_env() if claude_settings_env is None else claude_settings_env
-        expansion_env = {**settings_env, **base_env}
-
-    if provider == "claude":
         argv = ["claude"]
         settings_env = build_claude_env(config, profile_name, base_env, claude_settings_env)
         if settings_env:
@@ -466,7 +469,7 @@ CLAUDE_PROJECTS_DIR = Path("~/.claude/projects").expanduser()
 
 
 def _bookmark_worker(start_time, category, profile, title):
-    """Background thread: poll for a new session file and bookmark it."""
+    """Poll for a new session file and bookmark it."""
     try:
         aweshelf_bin = shutil.which("aweshelf")
         if not aweshelf_bin:
@@ -478,7 +481,7 @@ def _bookmark_worker(start_time, category, profile, title):
                 continue
 
             for jsonl_path in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
-                if "/subagents/" in str(jsonl_path):
+                if "subagents" in jsonl_path.parts:
                     continue
                 try:
                     if jsonl_path.stat().st_mtime < start_time:
@@ -500,13 +503,31 @@ def _bookmark_worker(start_time, category, profile, title):
 
 
 def _auto_bookmark(category, profile, title=None):
-    """Spawn a daemon thread to auto-bookmark the session after Claude creates it."""
-    t = threading.Thread(
-        target=_bookmark_worker,
-        args=(time.time(), category, profile, title),
-        daemon=True,
-    )
-    t.start()
+    """Spawn a detached worker to auto-bookmark the session after Claude creates it.
+
+    On POSIX the launch path os.execvpe()s the agent, which destroys every
+    thread in the process — a background thread would die before its first
+    poll. Fork a detached child instead; it survives the exec. On Windows the
+    agent runs via subprocess.run(), which keeps this process (and its
+    threads) alive, so a daemon thread is enough.
+    """
+    start = time.time()
+    if os.name == "nt":
+        threading.Thread(
+            target=_bookmark_worker,
+            args=(start, category, profile, title),
+            daemon=True,
+        ).start()
+        return
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.setsid()
+            _bookmark_worker(start, category, profile, title)
+        except BaseException:
+            pass
+        finally:
+            os._exit(0)
 
 
 def exec_agent(argv, env):
@@ -578,7 +599,10 @@ def command_config(argv):
             result = subprocess.run(argv)
             sys.exit(result.returncode)
         else:
-            os.execvp(argv[0], argv)
+            try:
+                os.execvp(argv[0], argv)
+            except FileNotFoundError:
+                die(f"editor not found: {argv[0]}")
     else:
         die(f"unknown config command: {subcommand}")
 
@@ -828,7 +852,9 @@ def restore_command():
 @click.option("-t", "--title", default=None, help="Bookmark title.")
 @click.pass_context
 def run_profile(ctx, category, title):
-    profile_name = ctx.parent.meta["profile_name"]
+    profile_name = ctx.parent.meta.get("profile_name")
+    if not profile_name:
+        die("missing profile name")
     if category:
         if not shutil.which("aweshelf"):
             click.echo("warning: aweshelf not found; -c/-t ignored. Install: pip3 install aweshelf (https://github.com/Webioinfo01/aweshelf)", err=True)

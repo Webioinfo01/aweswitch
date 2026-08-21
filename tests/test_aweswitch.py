@@ -980,6 +980,43 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["options"]["apiKey"], "{env:NEW_KEY}")
             self.assertIn("glm-5.1", prov["models"])
 
+    def test_ensure_opencode_provider_refuses_to_clobber_invalid_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            original = '{ "provider": { broken json ,,'
+            oc_path.write_text(original)
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                with self.assertRaisesRegex(SystemExit, "invalid JSON"):
+                    aweswitch.ensure_opencode_provider("https://new.com/v1",
+                                                       "{env:KEY}", "oc-x", "m-1")
+
+            self.assertEqual(oc_path.read_text(), original)
+
+    def test_auto_bookmark_runs_worker_in_detached_child(self):
+        """On POSIX the bookmark worker must run in a forked child, because
+        os.execvpe() in exec_agent destroys threads before their first poll."""
+        if os.name == "nt":
+            self.skipTest("POSIX fork path")
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "done"
+
+            def fake_worker(start_time, category, profile, title):
+                marker.write_text(f"{category}/{profile}/{title}")
+
+            with unittest.mock.patch.object(aweswitch, "_bookmark_worker", side_effect=fake_worker):
+                aweswitch._auto_bookmark("dev", "cc-x", title="t")
+
+            for _ in range(50):
+                if marker.exists():
+                    break
+                time.sleep(0.1)
+            self.assertTrue(marker.exists(), "detached bookmark worker never ran")
+            self.assertEqual(marker.read_text(), "dev/cc-x/t")
+
+    def test_should_skip_empty_args(self):
+        self.assertTrue(update_check._should_skip([]))
+
 
 if __name__ == "__main__":
     unittest.main()
