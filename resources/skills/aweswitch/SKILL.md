@@ -65,7 +65,7 @@ You may also run these commands (they modify files but are non-interactive):
 |---|---|---|
 | "Add a new profile", "add a codex provider" | Add Profile | Edit config file. |
 | "Add an opencode profile" | Add Profile | Edit config file; use `opencode` provider group. |
-| "Save my official login", "添加官方帐号" | Add Account | Run `aweswitch account add <provider> <name>` (imports current login), or tell user to run `account login`. |
+| "Save my official login", "添加官方帐号" | Add Account | Run `aweswitch account add <provider> <name>` (imports current login), or tell user to run `account login`. The interactive `aweswitch add` → `official` covers both paths for the user. |
 | "Log in another official account", "再登一个帐号" | Login Account | Tell user to run `aweswitch account login <provider> <name>` in their terminal (interactive). |
 | "Sync account tokens", "刷新帐号凭证" | Sync Account | Run `aweswitch account sync <provider> <name>`. |
 | "Delete account X", "删除帐号" | Remove Account | Run `aweswitch account remove <provider> <name> [--purge]`. |
@@ -337,6 +337,7 @@ Tell the user to run themselves (interactive login flow):
 
 ```bash
 aweswitch account login <provider> <name>   # codex: runs `codex login`; claude: run /login then exit
+aweswitch add                               # type `official`, then pick login/import — same flows interactively
 aweswitch <account-name>                    # launch the account
 ```
 

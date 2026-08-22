@@ -907,6 +907,21 @@ def add_command():
     path = config_path()
     load_config(path)
 
+    kind = click.prompt("Type", type=click.Choice(["api", "official"]))
+    if kind == "official":
+        provider = click.prompt("Provider", type=click.Choice(ACCOUNT_PROVIDERS))
+        name = click.prompt("Account name")
+        method = click.prompt(
+            "Method",
+            type=click.Choice(["login", "import"]),
+            default="login",
+        )
+        if method == "login":
+            login_account(path, provider, name)
+        else:
+            import_account(path, provider, name)
+        return
+
     provider = click.prompt("Provider", type=click.Choice(["claude", "codex", "opencode"]))
     name = click.prompt("Profile name")
 
@@ -1045,17 +1060,8 @@ def account():
     """
 
 
-@account.command("add")
-@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
-@click.argument("name")
-def account_add_command(provider, name):
-    """Save the currently logged-in official account as NAME.
-
-    Imports the CLI's live credentials (~/.codex/auth.json or
-    ~/.claude/.credentials.json). Claude Code on macOS usually keeps login
-    in the Keychain instead; use `aweswitch account login` there.
-    """
-    path = config_path()
+def import_account(path, provider, name):
+    """Save an official account from the CLI's live credentials."""
     load_config(path)
     live = live_credentials_path(provider)
     if not live.exists():
@@ -1067,16 +1073,8 @@ def account_add_command(provider, name):
     click.echo(f"Account '{name}' added ({provider}). Launch it with: aweswitch {name}")
 
 
-@account.command("login")
-@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
-@click.argument("name")
-def account_login_command(provider, name):
-    """Log in to an official account NAME and capture its credentials.
-
-    Runs the CLI's own login flow inside the account's private config dir,
-    then stores the resulting credentials in the aweswitch config.
-    """
-    path = config_path()
+def login_account(path, provider, name):
+    """Run the CLI's own OAuth login inside the account dir and capture it."""
     data = load_config(path)
     existing = kind_group(data, "account").get(provider, {}).get(name)
     if existing is None and profile_name_taken(data, name):
@@ -1102,6 +1100,31 @@ def account_login_command(provider, name):
         die(f"no credentials captured at {cred_path} (login exited with code {result.returncode})")
     save_account(path, provider, name, read_json_object(cred_path, "captured credentials"))
     click.echo(f"Account '{name}' saved. Launch it with: aweswitch {name}")
+
+
+@account.command("add")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+def account_add_command(provider, name):
+    """Save the currently logged-in official account as NAME.
+
+    Imports the CLI's live credentials (~/.codex/auth.json or
+    ~/.claude/.credentials.json). Claude Code on macOS usually keeps login
+    in the Keychain instead; use `aweswitch account login` there.
+    """
+    import_account(config_path(), provider, name)
+
+
+@account.command("login")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+def account_login_command(provider, name):
+    """Log in to an official account NAME and capture its credentials.
+
+    Runs the CLI's own login flow inside the account's private config dir,
+    then stores the resulting credentials in the aweswitch config.
+    """
+    login_account(config_path(), provider, name)
 
 
 @account.command("sync")

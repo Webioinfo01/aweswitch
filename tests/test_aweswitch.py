@@ -150,7 +150,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="claude\ntest-profile\nhttps://example.com\nMY_TOKEN\ntest-model\n\n\n",
+            ], input="api\nclaude\ntest-profile\nhttps://example.com\nMY_TOKEN\ntest-model\n\n\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -171,7 +171,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="claude\nfull-profile\nhttps://example.com\nMY_TOKEN\nmy-model\nhaiku-m\nsonnet-m\n",
+            ], input="api\nclaude\nfull-profile\nhttps://example.com\nMY_TOKEN\nmy-model\nhaiku-m\nsonnet-m\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -188,7 +188,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\ngpt-5.2-codex, kimi-k2.7\n",
+            ], input="api\ncodex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\ngpt-5.2-codex, kimi-k2.7\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -208,7 +208,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(aweswitch.cli, [
                 "add",
-            ], input="codex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\n\n",
+            ], input="api\ncodex\ncx-test\nhttps://api.example.com/v1\nMY_KEY\n\n",
                 env={"AWESWITCH_CONFIG": str(path)})
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -216,6 +216,49 @@ class AweSwitchTests(unittest.TestCase):
             data = json.loads(path.read_text())
             profile = data["profiles"]["api"]["codex"]["cx-test"]
             self.assertNotIn("OPENAI_MODEL", profile["env"])
+
+    @unittest.mock.patch("aweswitch.cli.subprocess.run")
+    def test_add_command_official_login_runs_login_flow(self, mock_run):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "config.json"
+            aweswitch.init_config(config_file)
+
+            def fake_login(argv, env=None):
+                cred_path = Path(env["CODEX_HOME"]) / "auth.json"
+                cred_path.write_text(json.dumps({"tokens": {"access_token": "fresh"}}))
+                return unittest.mock.MagicMock(returncode=0)
+
+            mock_run.side_effect = fake_login
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="official\ncodex\ncxo-work\n\n",
+                env={"AWESWITCH_CONFIG": str(config_file)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            data = json.loads(config_file.read_text())
+            self.assertEqual(data["profiles"]["accounts"]["codex"]["cxo-work"]["auth"],
+                             {"tokens": {"access_token": "fresh"}})
+
+    def test_add_command_official_import_reads_live_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "config.json"
+            aweswitch.init_config(config_file)
+            live_dir = Path(tmp) / "codex"
+            live_dir.mkdir()
+            blob = {"tokens": {"access_token": "tok", "refresh_token": "ref"}}
+            (live_dir / "auth.json").write_text(json.dumps(blob))
+
+            result = CliRunner().invoke(aweswitch.cli, [
+                "add",
+            ], input="official\ncodex\ncxo-work\nimport\n",
+                env={"AWESWITCH_CONFIG": str(config_file),
+                     "CODEX_CONFIG": str(live_dir / "config.toml")})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            data = json.loads(config_file.read_text())
+            self.assertEqual(data["profiles"]["accounts"]["codex"]["cxo-work"]["auth"], blob)
+            self.assert_settings_file_secure(config_file)
 
     def test_prepare_claude_uses_provider_command_and_env_overrides(self):
         config = {

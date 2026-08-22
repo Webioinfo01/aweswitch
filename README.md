@@ -112,7 +112,7 @@ Or add a new profile interactively:
 aweswitch add
 ```
 
-This prompts for provider (claude, codex, or opencode), profile name, and provider-specific fields.
+This prompts for a type — `api` (provider, profile name, and provider-specific fields) or `official` (interactive OAuth login / import of a Claude Code or Codex official account).
 
 The default config shape splits profiles by kind (`api` for env-based API profiles, `accounts` for official logins) and then by provider. This is a reference config you can adapt:
 
@@ -268,7 +268,7 @@ Restart the session or use `/model` to pick the new model.
 #### Config management
 
 ```bash
-aweswitch add                         # add a profile interactively
+aweswitch add                         # add a profile or official account interactively
 aweswitch list                        # list all profiles (api + account kinds)
 aweswitch show cc-glm                 # inspect one profile (secrets redacted)
 aweswitch config show                 # full config (secrets redacted)
@@ -286,6 +286,8 @@ aweswitch cxo-work                    # launch codex with the "work" account
 aweswitch account sync codex work     # copy refreshed tokens back into the config
 aweswitch account remove codex work --purge
 ```
+
+`aweswitch add` → type `official` is the interactive route to the same two flows: it asks for provider, account name, and method (`login` runs the OAuth flow, `import` reads the current CLI login).
 
 How it works:
 

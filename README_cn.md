@@ -104,11 +104,13 @@ aweswitch config init
 aweswitch config edit
 ```
 
-或者用交互方式添加 profile：
+或者用交互方式添加 profile / 官方帐号：
 
 ```bash
 aweswitch add
 ```
+
+第一步选择类型：`api`（依次询问 provider、profile 名和各 provider 字段）或 `official`（交互式 OAuth 登录或导入 Claude Code / Codex 官方帐号）。
 
 默认配置先按类型分组（`api` 为基于 env 的 API profile，`accounts` 为官方登录帐号），再按 provider 分组。以下是可以直接修改的参考配置：
 
@@ -234,7 +236,7 @@ aweswitch restore                      # 从备份恢复 settings
 #### 配置管理
 
 ```bash
-aweswitch add                         # 交互式添加 profile
+aweswitch add                         # 交互式添加 profile 或官方帐号
 aweswitch list                        # 列出所有 profile（含 api/account 类型）
 aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
 aweswitch config path                 # 查看配置文件路径
@@ -253,6 +255,8 @@ aweswitch cxo-work                    # 用 work 帐号启动 codex
 aweswitch account sync codex work     # 把刷新过的 token 回写到配置
 aweswitch account remove codex work --purge
 ```
+
+`aweswitch add` 选 `official` 类型是同样两条路径的交互式入口：依次询问 provider、帐号名和方式（`login` 运行 OAuth 登录，`import` 读取当前 CLI 登录）。
 
 工作方式：
 
