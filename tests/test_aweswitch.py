@@ -1119,6 +1119,17 @@ class AweSwitchTests(unittest.TestCase):
 
             self.assertEqual(path.read_text(), original)
 
+    def test_load_config_keeps_empty_profiles_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            original = json.dumps({"profiles": {}}) + "\n"
+            path.write_text(original)
+
+            aweswitch.load_config(path)
+
+            self.assertEqual(path.read_text(), original)
+            self.assertFalse((Path(tmp) / "config.json.bak").exists())
+
     def test_profile_for_resolves_kind(self):
         config = {
             "profiles": {
@@ -1215,6 +1226,45 @@ class AweSwitchTests(unittest.TestCase):
             self.assert_settings_file_secure(d / ".credentials.json")
             self.assertEqual(json.loads((d / "settings.json").read_text()), {"permissions": {}})
 
+    def test_ensure_account_dir_removes_provider_overrides_from_seed_configs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_settings = Path(tmp) / "settings.json"
+            claude_settings.write_text(json.dumps({
+                "permissions": {"allow": ["Read"]},
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://third-party.example",
+                    "ANTHROPIC_AUTH_TOKEN": "secret",
+                    "KEEP_ME": "yes",
+                },
+            }) + "\n")
+            codex_config = Path(tmp) / "config.toml"
+            codex_config.write_text(
+                'model = "gpt-5"\n'
+                'model_provider = "relay"\n\n'
+                '[model_providers.relay]\n'
+                'base_url = "https://third-party.example/v1"\n'
+                'wire_api = "responses"\n\n'
+                '[mcp_servers.docs]\n'
+                'command = "docs-mcp"\n'
+            )
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                "CLAUDE_SETTINGS": str(claude_settings),
+                "CODEX_CONFIG": str(codex_config),
+            }
+            with unittest.mock.patch.dict(os.environ, env):
+                claude_dir = aweswitch.ensure_account_dir("claude", "cco-work", {})
+                codex_dir = aweswitch.ensure_account_dir("codex", "cxo-work", {})
+
+            seeded_settings = json.loads((claude_dir / "settings.json").read_text())
+            self.assertEqual(seeded_settings["permissions"], {"allow": ["Read"]})
+            self.assertEqual(seeded_settings["env"], {"KEEP_ME": "yes"})
+            seeded_codex = (codex_dir / "config.toml").read_text()
+            self.assertIn('model = "gpt-5"', seeded_codex)
+            self.assertNotIn("model_provider", seeded_codex)
+            self.assertNotIn("model_providers.relay", seeded_codex)
+            self.assertIn("[mcp_servers.docs]", seeded_codex)
+
     def test_account_add_imports_live_codex_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_file = Path(tmp) / "config.json"
@@ -1277,6 +1327,35 @@ class AweSwitchTests(unittest.TestCase):
             login_env = mock_run.call_args.kwargs["env"]
             self.assertEqual(login_env["CODEX_HOME"],
                              str(Path(tmp) / "accounts" / "codex" / "cxo-work"))
+
+    @unittest.mock.patch("aweswitch.cli.subprocess.run")
+    def test_account_login_rejects_old_credentials_when_relogin_fails(self, mock_run):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "config.json"
+            old_blob = {"tokens": {"access_token": "old"}}
+            config_file.write_text(json.dumps({
+                "profiles": {"api": {}, "accounts": {"codex": {
+                    "cxo-work": {"auth": old_blob},
+                }}},
+            }) + "\n")
+            mock_run.return_value = unittest.mock.MagicMock(returncode=1)
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["account", "login", "codex", "cxo-work"],
+                env={"AWESWITCH_CONFIG": str(config_file)})
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no credentials captured", result.output)
+            saved = json.loads(config_file.read_text())
+            self.assertEqual(saved["profiles"]["accounts"]["codex"]["cxo-work"]["auth"], old_blob)
+
+    def test_build_claude_env_names_rejected_profile_kind(self):
+        config = {"profiles": {"accounts": {"claude": {
+            "cco-work": {"credentials": {}},
+        }}}}
+
+        with self.assertRaisesRegex(SystemExit, "provider=claude, kind=account"):
+            aweswitch.build_claude_env(config, "cco-work", {})
 
     def test_account_sync_updates_blob_from_runtime_dir(self):
         with tempfile.TemporaryDirectory() as tmp:

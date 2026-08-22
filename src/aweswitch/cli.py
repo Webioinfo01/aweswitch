@@ -239,6 +239,8 @@ def migrate_profiles(data):
     that mixes both layouts is rejected instead of guessed at.
     """
     profiles = data["profiles"]
+    if not profiles:
+        return False
     if not any(key in profiles for key in ("api", "accounts")):
         data["profiles"] = {"api": profiles}
         return True
@@ -352,6 +354,47 @@ def write_secret_json(path, data):
         os.chmod(path, 0o600)
 
 
+def seed_claude_settings(source, destination):
+    """Copy settings while dropping API-provider overrides for an OAuth account."""
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        shutil.copy2(source, destination)
+        return
+    if not isinstance(data, dict):
+        shutil.copy2(source, destination)
+        return
+    env = data.get("env")
+    if isinstance(env, dict):
+        data = copy.deepcopy(data)
+        data["env"] = {key: value for key, value in env.items() if not key.startswith("ANTHROPIC_")}
+    destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def seed_codex_config(source, destination):
+    """Copy config.toml without the selected third-party model provider."""
+    text = source.read_text(encoding="utf-8")
+    match = re.search(r'^\s*model_provider\s*=\s*["\']([^"\']+)["\']\s*$', text, re.MULTILINE)
+    if not match:
+        shutil.copy2(source, destination)
+        return
+
+    provider = re.escape(match.group(1))
+    provider_table = re.compile(rf"^\s*\[\s*model_providers\.{provider}(?:\.|\s*\])")
+    table_header = re.compile(r"^\s*\[")
+    model_provider = re.compile(r"^\s*model_provider\s*=")
+    filtered = []
+    skipping_provider_table = False
+    for line in text.splitlines(keepends=True):
+        if model_provider.match(line):
+            continue
+        if table_header.match(line):
+            skipping_provider_table = bool(provider_table.match(line))
+        if not skipping_provider_table:
+            filtered.append(line)
+    destination.write_text("".join(filtered), encoding="utf-8")
+
+
 def ensure_account_dir(provider, name, blob, force=False):
     """Materialize an official account's runtime dir and return its path.
 
@@ -369,11 +412,11 @@ def ensure_account_dir(provider, name, blob, force=False):
     if (force or not cred_path.exists()) and isinstance(blob, dict) and blob:
         write_secret_json(cred_path, blob)
     if provider == "codex":
-        seed, src = d / "config.toml", codex_config_path()
+        seed, src, seed_config = d / "config.toml", codex_config_path(), seed_codex_config
     else:
-        seed, src = d / "settings.json", claude_settings_path()
+        seed, src, seed_config = d / "settings.json", claude_settings_path(), seed_claude_settings
     if not seed.exists() and src.exists():
-        shutil.copy2(src, seed)
+        seed_config(src, seed)
     return d
 
 
@@ -425,7 +468,7 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     base_env = dict(os.environ if base_env is None else base_env)
     provider, kind, profile = profile_for(config, profile_name)
     if provider != "claude" or kind != "api":
-        die(f"only claude api profiles are supported, got: {provider} {kind}")
+        die(f"only claude api profiles are supported, got: provider={provider}, kind={kind}")
     profile_env = profile.get("env", {})
     if not profile_env.get("ANTHROPIC_BASE_URL"):
         die("ANTHROPIC_BASE_URL is required for claude profile")
@@ -995,7 +1038,7 @@ def apply_command(profile, force):
     config = load_config(config_path())
     provider, kind, _ = profile_for(config, profile)
     if provider != "claude" or kind != "api":
-        die(f"apply only supports claude api profiles, got: {provider} {kind}")
+        die(f"apply only supports claude api profiles, got: provider={provider}, kind={kind}")
 
     settings_path = claude_settings_path()
     if settings_path.exists():
@@ -1081,6 +1124,19 @@ def login_account(path, provider, name):
         die(f"name already used: {name}")
     blob = existing.get(ACCOUNT_BLOB_KEY[provider]) if isinstance(existing, dict) else None
     d = ensure_account_dir(provider, name, blob)
+    cred_path = d / ACCOUNT_CRED_FILENAME[provider]
+    backup_path = cred_path.with_name(f".{cred_path.name}.login-backup")
+    if cred_path.exists():
+        if backup_path.exists():
+            backup_path.unlink()
+        cred_path.replace(backup_path)
+
+    def restore_previous_credentials():
+        if backup_path.exists():
+            if cred_path.exists():
+                cred_path.unlink()
+            backup_path.replace(cred_path)
+
     env = dict(os.environ)
     if provider == "codex":
         env["CODEX_HOME"] = str(d)
@@ -1094,11 +1150,19 @@ def login_account(path, provider, name):
     try:
         result = subprocess.run(argv, env=env)
     except FileNotFoundError:
+        restore_previous_credentials()
         die(f"command not found: {argv[0]}")
-    cred_path = d / ACCOUNT_CRED_FILENAME[provider]
-    if not cred_path.exists():
+    if result.returncode != 0 or not cred_path.exists():
+        restore_previous_credentials()
         die(f"no credentials captured at {cred_path} (login exited with code {result.returncode})")
-    save_account(path, provider, name, read_json_object(cred_path, "captured credentials"))
+    try:
+        captured = read_json_object(cred_path, "captured credentials")
+    except SystemExit:
+        restore_previous_credentials()
+        raise
+    if backup_path.exists():
+        backup_path.unlink()
+    save_account(path, provider, name, captured)
     click.echo(f"Account '{name}' saved. Launch it with: aweswitch {name}")
 
 
