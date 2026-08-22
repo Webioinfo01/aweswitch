@@ -158,26 +158,31 @@ The config file is at `~/.config/aweswitch/config.json` (override with `AWESWITC
 ```json
 {
   "profiles": {
-    "claude": {
-      "<profile-name>": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "<url>",
-          "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
-          "ANTHROPIC_MODEL": "<model-id>"
+    "api": {
+      "claude": {
+        "<profile-name>": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "<url>",
+            "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
+            "ANTHROPIC_MODEL": "<model-id>"
+          }
+        }
+      },
+      "codex": {
+        "<profile-name>": {
+          "env": {
+            "OPENAI_BASE_URL": "<url>",
+            "OPENAI_API_KEY": "${ENV_VAR_NAME}"
+          }
         }
       }
     },
-    "codex": {
-      "<profile-name>": {
-        "env": {
-          "OPENAI_BASE_URL": "<url>",
-          "OPENAI_API_KEY": "${ENV_VAR_NAME}"
-        }
-      }
-    }
+    "accounts": {}
   }
 }
 ```
+
+Profiles go under `profiles.api.<provider>`; official-login accounts (Claude Code / Codex OAuth) under `profiles.accounts.<provider>` — managed via `aweswitch account add/login/sync/remove`, never edited by hand.
 
 ### Provider differences
 
@@ -200,9 +205,9 @@ Edit the config file directly (do not run `aweswitch add` — it is interactive 
 
 Steps:
 1. Read the current config first.
-2. Add the new profile under the appropriate provider key.
+2. Add the new profile under `profiles.api.<provider>`.
 3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
-4. Ensure profile names are unique across all providers.
+4. Ensure names are unique across the whole `profiles` tree (api and accounts).
 
 ---
 

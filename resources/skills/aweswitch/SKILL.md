@@ -1,6 +1,6 @@
 ---
 name: aweswitch
-description: "Use when helping users manage aweswitch profiles — adding, editing, or switching Claude Code, Codex, and OpenCode API configurations. 中文触发词：切换profile、添加profile、配置aweswitch、API切换、provider管理。"
+description: "Use when helping users manage aweswitch profiles — adding, editing, or switching Claude Code, Codex, and OpenCode API configurations, plus official-login accounts (Claude Code / Codex OAuth). 中文触发词：切换profile、添加profile、配置aweswitch、API切换、provider管理、官方帐号、多帐号切换、account管理。"
 ---
 
 # aweswitch
@@ -44,6 +44,7 @@ Writes profile env to `~/.claude/settings.json`. User restarts the session or us
 | Claude | supported | supported |
 | Codex | not supported | supported |
 | OpenCode | not supported | supported |
+| Official accounts (claude/codex) | not supported | supported |
 
 You may run these read-only commands:
 - `aweswitch list`
@@ -64,6 +65,10 @@ You may also run these commands (they modify files but are non-interactive):
 |---|---|---|
 | "Add a new profile", "add a codex provider" | Add Profile | Edit config file. |
 | "Add an opencode profile" | Add Profile | Edit config file; use `opencode` provider group. |
+| "Save my official login", "添加官方帐号" | Add Account | Run `aweswitch account add <provider> <name>` (imports current login), or tell user to run `account login`. |
+| "Log in another official account", "再登一个帐号" | Login Account | Tell user to run `aweswitch account login <provider> <name>` in their terminal (interactive). |
+| "Sync account tokens", "刷新帐号凭证" | Sync Account | Run `aweswitch account sync <provider> <name>`. |
+| "Delete account X", "删除帐号" | Remove Account | Run `aweswitch account remove <provider> <name> [--purge]`. |
 | "List profiles", "what profiles do I have" | Browse | `aweswitch list` |
 | "Show profile X", "what's in profile X" | Inspect | `aweswitch show <profile>` |
 | "Edit profile X", "change the API key" | Edit | Edit config file directly. |
@@ -89,42 +94,56 @@ Always read the config file before modifying it.
 
 ## Config Structure
 
+Profiles split by kind first, then by provider. `api` holds env-based profiles; `accounts` holds official-login credential blobs (opaque, never edit them by hand).
+
 ```json
 {
   "profiles": {
-    "claude": {
-      "<profile-name>": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "<url>",
-          "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
-          "ANTHROPIC_MODEL": "<model-id>",
-          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "<optional>",
-          "ANTHROPIC_DEFAULT_SONNET_MODEL": "<optional>"
+    "api": {
+      "claude": {
+        "<profile-name>": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "<url>",
+            "ANTHROPIC_AUTH_TOKEN": "${ENV_VAR_NAME}",
+            "ANTHROPIC_MODEL": "<model-id>",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "<optional>",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "<optional>"
+          }
+        }
+      },
+      "codex": {
+        "<profile-name>": {
+          "env": {
+            "OPENAI_BASE_URL": "<url>",
+            "OPENAI_API_KEY": "${ENV_VAR_NAME}",
+            "OPENAI_MODEL": "<model-id-or-list>"
+          }
+        }
+      },
+      "opencode": {
+        "<profile-name>": {
+          "env": {
+            "OPENCODE_BASE_URL": "<url>",
+            "OPENCODE_API_KEY": "${ENV_VAR_NAME}",
+            "OPENCODE_NAME": "<display-name>",
+            "OPENCODE_MODEL": "<model-id-or-list>"
+          }
         }
       }
     },
-    "codex": {
-      "<profile-name>": {
-        "env": {
-          "OPENAI_BASE_URL": "<url>",
-          "OPENAI_API_KEY": "${ENV_VAR_NAME}",
-          "OPENAI_MODEL": "<model-id-or-list>"
-        }
-      }
-    },
-    "opencode": {
-      "<profile-name>": {
-        "env": {
-          "OPENCODE_BASE_URL": "<url>",
-          "OPENCODE_API_KEY": "${ENV_VAR_NAME}",
-          "OPENCODE_NAME": "<display-name>",
-          "OPENCODE_MODEL": "<model-id-or-list>"
-        }
+    "accounts": {
+      "claude": {
+        "<account-name>": { "credentials": "<opaque credential blob>" }
+      },
+      "codex": {
+        "<account-name>": { "auth": "<opaque credential blob>" }
       }
     }
   }
 }
 ```
+
+Names must be unique across the whole `profiles` tree (api and accounts). Pre-0.4 configs (providers directly under `profiles`) are migrated automatically on first load — if you see one, just run any aweswitch command once and it will be rewritten with a `.json.bak` backup.
 
 ### Provider fields
 
@@ -140,6 +159,8 @@ Always read the config file before modifying it.
 - Claude profiles: `cc-` prefix (e.g. `cc-glm`, `cc-xiaomi`)
 - Codex profiles: `cx-` prefix (e.g. `cx-openai`)
 - OpenCode profiles: `oc-` prefix (e.g. `oc-glm`, `oc-mimo`)
+- Claude official accounts: `cco-` prefix (e.g. `cco-team-a`) — convention, not enforced
+- Codex official accounts: `cxo-` prefix (e.g. `cxo-work`) — convention, not enforced
 
 ### Token references
 
@@ -156,9 +177,9 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 ### Add a Profile
 
 1. Read the config file
-2. Add the new profile under the appropriate provider key (`claude`, `codex`, or `opencode`)
+2. Add the new profile under `profiles.api.<provider>` (`claude`, `codex`, or `opencode`)
 3. Use `${ENV_VAR_NAME}` for token values
-4. Ensure profile name is unique across all providers
+4. Ensure the name is unique across the whole `profiles` tree (api and accounts)
 5. Validate the JSON is well-formed
 
 #### OpenCode profile fields
@@ -171,13 +192,15 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 ```json
 {
   "profiles": {
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_NAME": "Zhipu GLM",
-          "OPENCODE_MODEL": ["glm-5.1", "glm-5.2"]
+    "api": {
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "OPENCODE_NAME": "Zhipu GLM",
+            "OPENCODE_MODEL": ["glm-5.1", "glm-5.2"]
+          }
         }
       }
     }
@@ -298,6 +321,32 @@ aweswitch restore
 
 If the user wants to run multiple profiles in separate terminals instead, tell them to run `aweswitch <profile-name>` in their own terminal. Do not run it yourself.
 
+### Official Accounts
+
+Official-login accounts (Claude Code / Codex OAuth) live in `profiles.accounts.<provider>.<name>` as opaque credential blobs. Launch works like any profile: `aweswitch <account-name>` runs the CLI in a private per-account config dir (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`), so several accounts run side by side.
+
+You may run (non-interactive):
+
+```bash
+aweswitch account add <provider> <name>     # import the currently logged-in account
+aweswitch account sync <provider> <name>    # copy refreshed tokens back into the config
+aweswitch account remove <provider> <name> [--purge]
+```
+
+Tell the user to run themselves (interactive login flow):
+
+```bash
+aweswitch account login <provider> <name>   # codex: runs `codex login`; claude: run /login then exit
+aweswitch <account-name>                    # launch the account
+```
+
+Rules:
+
+- Never print, copy, or edit account blobs — `show`/`config show` mask them entirely by design.
+- On macOS, `account add` for claude usually fails (login lives in the Keychain) — recommend `account login` instead.
+- Accounts are launch-only; `apply` rejects them.
+- After the CLI refreshes tokens inside an account dir, `account sync` updates the config copy.
+
 ## Provider Limitations
 
 ### Codex
@@ -314,8 +363,9 @@ OpenCode profiles require the model to be specified as a positional argument: `a
 2. **Default to apply mode for Claude profiles.** Run `aweswitch apply <profile>` for the user. For Codex and OpenCode profiles, tell the user to use Launch mode in their own terminal.
 3. Always read the config file before editing. Never overwrite existing profiles without checking.
 4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
-5. Profile names must be unique across all provider groups. Check before adding.
-6. Check for existing values before setting env vars, to avoid duplicates. Where they live depends on the platform: `~/.zshrc` (macOS zsh), `~/.bashrc` or `~/.bash_profile` (bash), or the user environment via `setx` on Windows (`$PROFILE` if the user wants PowerShell-only scope).
-7. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
-8. If the config file does not exist, run `aweswitch config init` first.
-9. Do not run `config init` if the config already exists — it will error.
+5. Profile and account names must be unique across the whole `profiles` tree. Check before adding.
+6. Never print or paste account credential blobs; they are masked in all show output for a reason.
+7. Check for existing values before setting env vars, to avoid duplicates. Where they live depends on the platform: `~/.zshrc` (macOS zsh), `~/.bashrc` or `~/.bash_profile` (bash), or the user environment via `setx` on Windows (`$PROFILE` if the user wants PowerShell-only scope).
+8. Use `aweswitch list` and `aweswitch show` to verify changes after editing.
+9. If the config file does not exist, run `aweswitch config init` first.
+10. Do not run `config init` if the config already exists — it will error.

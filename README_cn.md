@@ -34,7 +34,7 @@
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
 - **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端运行 `aweswitch apply <profile>`（或通过 aweswitch skill 让 agent 操作）。重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
 
-它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile。
+它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
 ## 支持工具
 
@@ -110,58 +110,56 @@ aweswitch config edit
 aweswitch add
 ```
 
-默认配置按 provider 分组。以下是可以直接修改的参考配置：
+默认配置先按类型分组（`api` 为基于 env 的 API profile，`accounts` 为官方登录帐号），再按 provider 分组。以下是可以直接修改的参考配置：
 
 ```json
 {
   "profiles": {
-    "claude": {
-      "cc-glm": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "glm-5.1"
-        }
-      },
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
-        }
-      }
-    },
-    "codex": {
-      "cx-openai": {
-        "env": {
-          "OPENAI_BASE_URL": "https://api.openai.com",
-          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-        }
-      }
-    },
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_NAME": "Zhipu GLM",
-          "OPENCODE_MODEL": {
-            "glm-5.1": "GLM-5.1",
-            "glm-5.2": "GLM-5.2"
+    "api": {
+      "claude": {
+        "cc-glm": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "glm-5.1"
+          }
+        },
+        "cc-xiaomi": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "mimo-v2.5-pro"
           }
         }
       },
-      "oc-mimo": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
-          "OPENCODE_API_KEY": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_MODEL": ["mimo-v2.5-pro", "mimo-v2.5"]
+      "codex": {
+        "cx-openai": {
+          "env": {
+            "OPENAI_BASE_URL": "https://api.openai.com",
+            "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+          }
+        }
+      },
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "OPENCODE_NAME": "Zhipu GLM",
+            "OPENCODE_MODEL": {
+              "glm-5.1": "GLM-5.1",
+              "glm-5.2": "GLM-5.2"
+            }
+          }
         }
       }
-    }
+    },
+    "accounts": {}
   }
 }
 ```
+
+v0.4 之前的配置（profile 直接按 provider 分组）在首次加载时会自动迁移，并在配置文件旁生成 `config.json.bak` 备份。
 
 配置 profile 引用的 token 环境变量：
 
@@ -202,6 +200,7 @@ aweswitch cc-glm                      # 启动 Claude Code profile
 aweswitch cx-openai                   # 启动 Codex profile
 aweswitch oc-glm                      # 启动 OpenCode profile（默认第一个模型）
 aweswitch oc-glm glm-5.2              # 指定模型
+aweswitch cxo-work                    # 启动 Codex 官方帐号（见下文）
 aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
 aweswitch oc-glm glm-5.1 --mini       # OpenCode 传递额外参数
 aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
@@ -236,12 +235,31 @@ aweswitch restore                      # 从备份恢复 settings
 
 ```bash
 aweswitch add                         # 交互式添加 profile
-aweswitch list                        # 列出所有 profile
+aweswitch list                        # 列出所有 profile（含 api/account 类型）
 aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
 aweswitch config path                 # 查看配置文件路径
 aweswitch config show                 # 查看完整配置（密钥已脱敏）
 aweswitch config edit                 # 编辑配置文件
 ```
+
+#### 官方帐号 — 多个 Claude Code / Codex 登录并行
+
+官方帐号登录（OAuth）以 account 形式保存，启动时走独立的 per-account 配置目录，多个官方帐号可以并行使用，完全不碰全局的 `~/.claude` 或 `~/.codex`：
+
+```bash
+aweswitch account login codex work    # 运行 codex login 并捕获为帐号 work
+aweswitch account add claude team-a   # 导入当前已登录的 claude 帐号
+aweswitch cxo-work                    # 用 work 帐号启动 codex
+aweswitch account sync codex work     # 把刷新过的 token 回写到配置
+aweswitch account remove codex work --purge
+```
+
+工作方式：
+
+- 启动帐号时，aweswitch 将 `CODEX_HOME`（codex）或 `CLAUDE_CONFIG_DIR` + `CLAUDE_CODE_DONT_USE_KEYCHAIN=1`（claude）指向 `~/.config/aweswitch/accounts/<provider>/<name>/` 下的私有目录。凭据以不透明 blob 形式存在 `config.json` 中，`show` / `config show` 整段脱敏；配置文件包含帐号后权限收紧为 600。
+- 帐号目录一旦存在就是事实来源 — CLI 会在里面刷新 OAuth token，已存在的凭据文件永远不会被配置里的旧 blob 覆盖。需要备份/迁移时运行 `aweswitch account sync` 把刷新过的 token 回写到配置。
+- macOS 上 Claude Code 默认把登录存在 Keychain；`account login` 和帐号启动都会强制凭据走帐号目录内的文件，保证帐号隔离。`account add` 读取的是 `~/.claude/.credentials.json`，该文件不存在时会失败 — macOS 上建议直接用 `account login`。
+- 帐号只支持启动模式，不参与 `apply`。
 
 
 
@@ -321,7 +339,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 - **只在运行时注入配置**：通过 provider 对应的运行参数
 - **不修改全局 agent 配置**：已经打开的 agent 会话继续使用启动时的配置
 - **token 引用**：来自 shell 环境变量或 `~/.claude/settings.json`
-- **可读 JSON**：profile 按 `profiles.claude`、`profiles.codex` 和 `profiles.opencode` 分组
+- **可读 JSON**：`profiles.api`（基于 env 的 profile）和 `profiles.accounts`（官方登录）分组
 
 ### aweswitch 把 profile 存在哪里？
 
@@ -349,6 +367,10 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。
 
+### aweswitch 支持官方（OAuth）登录吗？
+
+支持 — Claude Code 和 Codex 的官方帐号通过 `aweswitch account login` 保存（或用 `account add` 导入当前登录），之后像 profile 一样启动：`aweswitch <帐号名>`。每个帐号运行在自己的配置目录（`CODEX_HOME` / `CLAUDE_CONFIG_DIR`）中，多个官方帐号可以并行。详见[官方帐号](#官方帐号--多个-claude-code--codex-登录并行)。
+
 ### aweswitch 支持 Hermes 吗？
 
 暂时不支持。配置格式已经按 provider 分组，后续可以自然扩展。
@@ -365,12 +387,12 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 
 ## Profile 规则
 
-- Profile 放在 `profiles.<provider>.<profileName>` 下。
-- 支持的 provider：`claude`、`codex`、`opencode`。
-- 所有 provider 分组下的 profile 名必须全局唯一。
+- Profile 放在 `profiles.api.<provider>.<profileName>` 下；官方帐号放在 `profiles.accounts.<provider>.<accountName>` 下。
+- 支持的 provider：`claude`、`codex`、`opencode`（帐号：`claude`、`codex`）。
+- profile 名和帐号名在整个 `profiles` 树内全局唯一。
 - `env` 只作用于本次启动的子进程。
 - `${VAR_NAME}` 会从当前 shell 环境变量中展开。
-- `show` 和 `config show` 会隐藏 token、key、secret、password、auth 这类敏感字段。
+- `show` 和 `config show` 会隐藏 token、key、secret、password、auth 这类敏感字段；帐号凭据 blob 整段脱敏。
 
 ### Claude Profile
 
@@ -383,13 +405,15 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 ```json
 {
   "profiles": {
-    "claude": {
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro",
-          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mimo-v2.5"
+    "api": {
+      "claude": {
+        "cc-xiaomi": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "mimo-v2.5-pro",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mimo-v2.5"
+          }
         }
       }
     }
@@ -411,11 +435,13 @@ Codex profile 只切换 API 源（base URL + API key），不切换模型。实�
 ```json
 {
   "profiles": {
-    "codex": {
-      "cx-aihubmix": {
-        "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+    "api": {
+      "codex": {
+        "cx-aihubmix": {
+          "env": {
+            "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+            "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+          }
         }
       }
     }
@@ -448,15 +474,17 @@ aweswitch add
 ```json
 {
   "profiles": {
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_NAME": "Zhipu GLM",
-          "OPENCODE_MODEL": {
-            "glm-5.1": "GLM-5.1",
-            "glm-5.2": "GLM-5.2"
+    "api": {
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "OPENCODE_NAME": "Zhipu GLM",
+            "OPENCODE_MODEL": {
+              "glm-5.1": "GLM-5.1",
+              "glm-5.2": "GLM-5.2"
+            }
           }
         }
       }

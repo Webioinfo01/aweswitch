@@ -1,67 +1,70 @@
 {
   "profiles": {
-    "claude": {
-      "cc-glm": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://glm-provider.example.com/api/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "glm-5.1"
+    "api": {
+      "claude": {
+        "cc-glm": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://glm-provider.example.com/api/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "glm-5.1"
+          }
+        },
+        "cc-gemini": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://gemini-provider.example.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
+          }
+        },
+        "cc-xiaomi": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://xiaomi-provider.example.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "mimo-v2.5-pro"
+          }
         }
       },
-      "cc-gemini": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://gemini-provider.example.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${GEMINI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "gemini-3.1-pro-preview"
+      "codex": {
+        "cx-openai": {
+          "env": {
+            "OPENAI_BASE_URL": "https://api.openai.com",
+            "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+          }
+        },
+        "cx-aihubmix": {
+          "env": {
+            "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+            "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}",
+            "OPENAI_MODEL": {
+              "gpt-5.2-codex": "GPT-5.2 Codex",
+              "kimi-k2.7": "Kimi K2.7"
+            }
+          }
         }
       },
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://xiaomi-provider.example.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
-        }
-      }
-    },
-    "codex": {
-      "cx-openai": {
-        "env": {
-          "OPENAI_BASE_URL": "https://api.openai.com",
-          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-        }
-      },
-      "cx-aihubmix": {
-        "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}",
-          "OPENAI_MODEL": {
-            "gpt-5.2-codex": "GPT-5.2 Codex",
-            "kimi-k2.7": "Kimi K2.7"
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_API_KEY}",
+            "OPENCODE_MODEL": {
+              "glm-5.1": "GLM-5.1",
+              "glm-5.2": "GLM-5.2"
+            }
+          }
+        },
+        "oc-mimo": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
+            "OPENCODE_API_KEY": "${MIMO_API_KEY}",
+            "OPENCODE_MODEL": {
+              "mimo-v2.5-pro": "MiMo-v2.5-Pro",
+              "mimo-v2.5": "MiMo-v2.5"
+            }
           }
         }
       }
     },
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_API_KEY}",
-          "OPENCODE_MODEL": {
-            "glm-5.1": "GLM-5.1",
-            "glm-5.2": "GLM-5.2"
-          }
-        }
-      },
-      "oc-mimo": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
-          "OPENCODE_API_KEY": "${MIMO_API_KEY}",
-          "OPENCODE_MODEL": {
-            "mimo-v2.5-pro": "MiMo-v2.5-Pro",
-            "mimo-v2.5": "MiMo-v2.5"
-          }
-        }
-      }
-    }
+    "accounts": {}
   }
 }

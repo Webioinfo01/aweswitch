@@ -34,7 +34,7 @@
 - **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Different terminals can run different profiles simultaneously. Env is frozen at launch time.
 - **Write mode** (`aweswitch apply <profile>`) — writes profile env into `~/.claude/settings.json`. Start Claude first, then run `aweswitch apply <profile>` in a new terminal (or let the aweswitch skill do it for you). Restart the session or use `/model` to pick the new model. Only one profile can be active at a time.
 
-It is intentionally small. Today it supports Claude Code, Codex, and OpenCode profiles.
+It is intentionally small. Today it supports Claude Code, Codex, and OpenCode profiles, plus official-login accounts (Claude Code / Codex OAuth).
 
 ## Support Tools
 
@@ -114,58 +114,56 @@ aweswitch add
 
 This prompts for provider (claude, codex, or opencode), profile name, and provider-specific fields.
 
-The default config shape groups profiles under their provider. This is a reference config you can adapt:
+The default config shape splits profiles by kind (`api` for env-based API profiles, `accounts` for official logins) and then by provider. This is a reference config you can adapt:
 
 ```json
 {
   "profiles": {
-    "claude": {
-      "cc-glm": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "glm-5.1"
-        }
-      },
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro"
-        }
-      }
-    },
-    "codex": {
-      "cx-openai": {
-        "env": {
-          "OPENAI_BASE_URL": "https://api.openai.com",
-          "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-        }
-      }
-    },
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_NAME": "Zhipu GLM",
-          "OPENCODE_MODEL": {
-            "glm-5.1": "GLM-5.1",
-            "glm-5.2": "GLM-5.2"
+    "api": {
+      "claude": {
+        "cc-glm": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "glm-5.1"
+          }
+        },
+        "cc-xiaomi": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "mimo-v2.5-pro"
           }
         }
       },
-      "oc-mimo": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/v1",
-          "OPENCODE_API_KEY": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_MODEL": ["mimo-v2.5-pro", "mimo-v2.5"]
+      "codex": {
+        "cx-openai": {
+          "env": {
+            "OPENAI_BASE_URL": "https://api.openai.com",
+            "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+          }
+        }
+      },
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "OPENCODE_NAME": "Zhipu GLM",
+            "OPENCODE_MODEL": {
+              "glm-5.1": "GLM-5.1",
+              "glm-5.2": "GLM-5.2"
+            }
+          }
         }
       }
-    }
+    },
+    "accounts": {}
   }
 }
 ```
+
+Configs from before v0.4 (profiles grouped directly by provider) are migrated automatically on first load, with a `config.json.bak` backup written next to the config.
 
 Configure the token variables referenced by your profiles:
 
@@ -194,6 +192,7 @@ aweswitch cc-glm                      # Claude Code
 aweswitch cx-openai                   # Codex
 aweswitch oc-glm                      # OpenCode (default: first model)
 aweswitch oc-glm glm-5.2              # OpenCode (specific model)
+aweswitch cxo-work                    # Codex official account (see below)
 ```
 
 Pass extra arguments through to the agent:
@@ -270,11 +269,30 @@ Restart the session or use `/model` to pick the new model.
 
 ```bash
 aweswitch add                         # add a profile interactively
-aweswitch list                        # list all profiles
+aweswitch list                        # list all profiles (api + account kinds)
 aweswitch show cc-glm                 # inspect one profile (secrets redacted)
 aweswitch config show                 # full config (secrets redacted)
 aweswitch config edit                 # open config in editor
 ```
+
+#### Official accounts — multiple Claude Code / Codex logins
+
+Official-login accounts (OAuth) are saved as accounts and launched through a private per-account config dir, so several official accounts can run side by side without touching your global `~/.claude` or `~/.codex`:
+
+```bash
+aweswitch account login codex work    # run codex login and capture it as account "work"
+aweswitch account add claude team-a   # import the currently logged-in claude account
+aweswitch cxo-work                    # launch codex with the "work" account
+aweswitch account sync codex work     # copy refreshed tokens back into the config
+aweswitch account remove codex work --purge
+```
+
+How it works:
+
+- Launching an account sets `CODEX_HOME` (codex) or `CLAUDE_CONFIG_DIR` + `CLAUDE_CODE_DONT_USE_KEYCHAIN=1` (claude) to a private dir under `~/.config/aweswitch/accounts/<provider>/<name>/`. Credentials are opaque blobs stored in `config.json` and masked in `show` / `config show`; the config file is chmod 600 once it contains an account.
+- The account dir is the source of truth once it exists — the CLI refreshes OAuth tokens there, and an existing credentials file is never overwritten by the stored blob. Run `aweswitch account sync` to refresh the config copy for backup/portability.
+- On macOS, Claude Code keeps its login in the Keychain by default; `account login` / launches force file-based credentials inside the account dir so accounts stay isolated. `account add` reads `~/.claude/.credentials.json` and only works when that file exists — prefer `account login` on macOS.
+- Accounts are launch-only: they don't participate in `apply` mode.
 
 ## Self-Update
 
@@ -352,7 +370,7 @@ See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full docu
 - **Runtime-only injection** through provider-specific arguments
 - **No mutation of global agent config**, so already-open agent sessions keep working with the settings they started with
 - **Token references** through shell variables or `~/.claude/settings.json`
-- **Readable JSON** with provider grouping under `profiles.claude`, `profiles.codex`, and `profiles.opencode`
+- **Readable JSON** with `profiles.api` (env-based profiles) and `profiles.accounts` (official logins) grouping
 
 ### Where does aweswitch store profiles?
 
@@ -380,6 +398,10 @@ Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCOD
 
 The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used.
 
+### Does aweswitch support official (OAuth) logins?
+
+Yes — Claude Code and Codex official accounts are saved via `aweswitch account login` (or `account add` to import the current login) and launched like profiles: `aweswitch <account-name>`. Each account runs in its own config dir (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`), so multiple official accounts work side by side. See [Official accounts](#official-accounts--multiple-claude-code--codex-logins).
+
 ### Does aweswitch support Hermes?
 
 Not yet. The config format groups profiles by provider so future support can fit naturally.
@@ -396,12 +418,12 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 
 ## Profile Rules
 
-- Profiles are grouped under `profiles.<provider>.<profileName>`.
-- Supported providers: `claude`, `codex`, `opencode`.
-- Profile names must be unique across all provider groups.
+- Profiles live under `profiles.api.<provider>.<profileName>`; official accounts under `profiles.accounts.<provider>.<accountName>`.
+- Supported providers: `claude`, `codex`, `opencode` (accounts: `claude`, `codex`).
+- Profile and account names must be unique across the whole `profiles` tree.
 - `env` values only apply to the launched process.
 - `${VAR_NAME}` values are expanded from the current shell environment.
-- `show` and `config show` redact keys matching token, key, secret, password, or auth.
+- `show` and `config show` redact keys matching token, key, secret, password, or auth; account credential blobs are masked entirely.
 
 ### Claude Profiles
 
@@ -414,13 +436,15 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 ```json
 {
   "profiles": {
-    "claude": {
-      "cc-xiaomi": {
-        "env": {
-          "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
-          "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
-          "ANTHROPIC_MODEL": "mimo-v2.5-pro",
-          "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mimo-v2.5"
+    "api": {
+      "claude": {
+        "cc-xiaomi": {
+          "env": {
+            "ANTHROPIC_BASE_URL": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "${XIAOMI_ANTHROPIC_AUTH_TOKEN}",
+            "ANTHROPIC_MODEL": "mimo-v2.5-pro",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mimo-v2.5"
+          }
         }
       }
     }
@@ -443,11 +467,13 @@ Note that Codex has no model-tier system like Claude's OPUS/SONNET/HAIKU slots �
 ```json
 {
   "profiles": {
-    "codex": {
-      "cx-aihubmix": {
-        "env": {
-          "OPENAI_BASE_URL": "https://aihubmix.com/v1",
-          "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+    "api": {
+      "codex": {
+        "cx-aihubmix": {
+          "env": {
+            "OPENAI_BASE_URL": "https://aihubmix.com/v1",
+            "OPENAI_API_KEY": "${AIHUBMIX_OPENAI_KEY}"
+          }
         }
       }
     }
@@ -480,15 +506,17 @@ aweswitch add
 ```json
 {
   "profiles": {
-    "opencode": {
-      "oc-glm": {
-        "env": {
-          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-          "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
-          "OPENCODE_NAME": "Zhipu GLM",
-          "OPENCODE_MODEL": {
-            "glm-5.1": "GLM-5.1",
-            "glm-5.2": "GLM-5.2"
+    "api": {
+      "opencode": {
+        "oc-glm": {
+          "env": {
+            "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "OPENCODE_NAME": "Zhipu GLM",
+            "OPENCODE_MODEL": {
+              "glm-5.1": "GLM-5.1",
+              "glm-5.2": "GLM-5.2"
+            }
           }
         }
       }

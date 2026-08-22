@@ -1,5 +1,29 @@
 # change log
 
+## v0.4.0
+
+`v0.4.0` adds official-login accounts: multiple Claude Code and Codex OAuth logins can now be saved as accounts and launched side by side, each through a private config dir. The config schema gains an `api`/`accounts` split under `profiles`; old configs are migrated automatically on first load.
+
+### Official accounts (Claude Code / Codex OAuth)
+
+`aweswitch account login codex work` runs `codex login` inside a per-account runtime dir and captures the resulting credentials; `aweswitch account add codex work` imports the currently logged-in account from the live `~/.codex/auth.json` / `~/.claude/.credentials.json`. Launching works like any profile: `aweswitch cxo-work` starts the CLI with `CODEX_HOME` (codex) or `CLAUDE_CONFIG_DIR` plus `CLAUDE_CODE_DONT_USE_KEYCHAIN=1` (claude) pointed at the account dir, so several official accounts can run simultaneously without touching the global `~/.codex` or `~/.claude`.
+
+Credentials are stored as opaque blobs in `config.json` (`profiles.accounts.<provider>.<name>`), treated as unreadable by aweswitch, and masked entirely in `show` / `config show`. Once an account dir exists it is the source of truth (the CLI refreshes OAuth tokens there); `aweswitch account sync` copies refreshed tokens back into the config, and an existing credentials file is never overwritten by a stale blob. The config file is chmod 600 when the first account is added.
+
+### Config schema v2
+
+Profiles now live under `profiles.api.<provider>` and accounts under `profiles.accounts.<provider>`, with names unique across both trees. Loading a pre-0.4 config transparently moves it to the new layout (a `.json.bak` backup is written first); configs that mix both layouts are rejected with a clear error. `aweswitch list` prints a kind column (`api` / `account`).
+
+### Highlights
+
+- Official-login accounts for Claude Code and Codex with per-account private config dirs
+- `aweswitch account add / login / sync / remove [--purge]` command group
+- Side-by-side official accounts: launch isolation via `CODEX_HOME` / `CLAUDE_CONFIG_DIR`
+- Config schema v2 (`profiles.api` + `profiles.accounts`) with automatic migration and backup
+- Account credential blobs masked entirely in `show` / `config show`; config chmod 600 on first account
+- `list` output gains an api/account kind column
+- `apply` restricted to claude **api** profiles (accounts are launch-only)
+
 ## v0.3.9
 
 `v0.3.9` hardens the runtime against corrupt configs and fixes the auto-bookmark worker so it survives agent launches on POSIX. Editable installs now report the correct version after bumps.

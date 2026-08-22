@@ -36,6 +36,18 @@ CLAUDE_TIER_VARS = (
     "ANTHROPIC_DEFAULT_FABLE_MODEL",
 )
 
+# Profile kinds stored under `profiles`: "api" (env-based API profiles) and
+# "account" (official OAuth logins). Profile names are unique across both.
+PROFILE_KINDS = ("api", "account")
+
+# Official-login accounts. Each account stores an opaque copy of the CLI's own
+# credentials file and launches through a private config dir (CODEX_HOME /
+# CLAUDE_CONFIG_DIR), so different accounts run side by side without touching
+# the user's global ~/.codex or ~/.claude.
+ACCOUNT_PROVIDERS = ("claude", "codex")
+ACCOUNT_BLOB_KEY = {"codex": "auth", "claude": "credentials"}
+ACCOUNT_CRED_FILENAME = {"codex": "auth.json", "claude": ".credentials.json"}
+
 
 def config_path():
     return Path(os.environ.get("AWESWITCH_CONFIG", "~/.config/aweswitch/config.json")).expanduser()
@@ -51,6 +63,24 @@ def codex_config_path():
 
 def opencode_config_path():
     return Path(os.environ.get("OPENCODE_CONFIG", "~/.config/opencode/opencode.json")).expanduser()
+
+
+def accounts_root():
+    """Runtime dirs for official accounts live next to the config file."""
+    return config_path().parent / "accounts"
+
+
+def account_dir(provider, name):
+    if provider not in ACCOUNT_PROVIDERS:
+        die(f"official accounts support {', '.join(ACCOUNT_PROVIDERS)}, got: {provider}")
+    return accounts_root() / provider / name
+
+
+def live_credentials_path(provider):
+    """Where the CLI itself stores an official login (for account import)."""
+    if provider == "codex":
+        return codex_config_path().with_name("auth.json")
+    return claude_settings_path().with_name(".credentials.json")
 
 
 def load_opencode_config():
@@ -189,7 +219,46 @@ def load_config(path):
         die(f"invalid config JSON at {path}: {exc}")
     if not isinstance(data.get("profiles"), dict):
         die("config must contain a profiles object")
+    if migrate_profiles(data):
+        backup = path.with_suffix(".json.bak")
+        try:
+            shutil.copy2(path, backup)
+        except OSError as exc:
+            die(f"failed to back up config before migration: {exc}")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return data
+
+
+def migrate_profiles(data):
+    """Fold the pre-0.4 provider-first layout into profiles.api, in place.
+
+    v1: {"profiles": {"claude": {...}, "codex": {...}}}
+    v2: {"profiles": {"api": {...}, "accounts": {...}}}
+
+    Returns True when the config was rewritten (caller persists it). A file
+    that mixes both layouts is rejected instead of guessed at.
+    """
+    profiles = data["profiles"]
+    if not any(key in profiles for key in ("api", "accounts")):
+        data["profiles"] = {"api": profiles}
+        return True
+    stale = [key for key in profiles if key not in ("api", "accounts")]
+    if stale:
+        die(
+            "config mixes old and new profile layouts under 'profiles': "
+            + ", ".join(sorted(stale))
+            + "\n  Expected only 'api' and 'accounts'. Fix or remove the file, then retry."
+        )
+    return False
+
+
+def kind_group(config, kind):
+    """Return the provider->entries mapping for a profile kind."""
+    key = "accounts" if kind == "account" else kind
+    group = config.get("profiles", {}).get(key, {})
+    if not isinstance(group, dict):
+        die(f"profiles.{key} must be an object")
+    return group
 
 
 def load_claude_settings_env(path=None):
@@ -223,23 +292,29 @@ def expand_value(value, env):
 
 
 def profile_for(config, name):
+    """Resolve a profile name to (provider, kind, entry).
+
+    kind is "api" or "account". Names must be unique across both kinds and
+    all providers; a name found twice is ambiguous.
+    """
     matches = []
-    for provider, provider_profiles in config.get("profiles", {}).items():
-        if not isinstance(provider_profiles, dict):
-            die(f"provider profiles must be an object: {provider}")
-        profile = provider_profiles.get(name)
-        if profile is not None:
-            matches.append((provider, profile))
+    for kind in PROFILE_KINDS:
+        for provider, provider_entries in kind_group(config, kind).items():
+            if not isinstance(provider_entries, dict):
+                die(f"provider entries must be an object: {kind}.{provider}")
+            entry = provider_entries.get(name)
+            if entry is not None:
+                matches.append((provider, kind, entry))
 
     if not matches:
         die(f"unknown profile: {name}\nrun: aweswitch list  # view available profiles")
     if len(matches) > 1:
         die(f"ambiguous profile: {name}")
 
-    provider, profile = matches[0]
-    if not isinstance(profile, dict):
+    provider, kind, entry = matches[0]
+    if not isinstance(entry, dict):
         die(f"profile must be an object: {provider}.{name}")
-    return provider, profile
+    return provider, kind, entry
 
 
 def write_settings_file(data):
@@ -261,6 +336,82 @@ def write_settings_file(data):
     return Path(path)
 
 
+def read_json_object(path, what):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        die(f"invalid JSON in {path} ({what}): {exc}")
+    if not isinstance(data, dict):
+        die(f"unexpected JSON in {path} ({what}): expected an object")
+    return data
+
+
+def write_secret_json(path, data):
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+
+
+def ensure_account_dir(provider, name, blob, force=False):
+    """Materialize an official account's runtime dir and return its path.
+
+    Once the dir exists it is the source of truth: the CLI refreshes OAuth
+    tokens in place, so an existing credentials file is never overwritten by
+    the (possibly stale) config blob unless force=True. Companion config
+    files (codex config.toml / claude settings.json) are seeded once from the
+    user's live files so model and MCP settings carry over.
+    """
+    d = account_dir(provider, name)
+    d.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        os.chmod(d, 0o700)
+    cred_path = d / ACCOUNT_CRED_FILENAME[provider]
+    if (force or not cred_path.exists()) and isinstance(blob, dict) and blob:
+        write_secret_json(cred_path, blob)
+    if provider == "codex":
+        seed, src = d / "config.toml", codex_config_path()
+    else:
+        seed, src = d / "settings.json", claude_settings_path()
+    if not seed.exists() and src.exists():
+        shutil.copy2(src, seed)
+    return d
+
+
+def profile_name_taken(config, name, ignore=None):
+    """True when NAME is used by any profile other than `ignore` (kind, provider)."""
+    for kind in PROFILE_KINDS:
+        for provider, entries in kind_group(config, kind).items():
+            if (kind, provider) == ignore:
+                continue
+            if isinstance(entries, dict) and name in entries:
+                return True
+    return False
+
+
+def secure_config_file(path):
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+
+
+def save_account(path, provider, name, blob):
+    """Store an account's credential blob under profiles.accounts.<provider>.<name>."""
+    path = Path(path).expanduser()
+    data = load_config(path)
+    if profile_name_taken(data, name, ignore=("account", provider)):
+        die(f"name already used: {name}")
+    first_account = not kind_group(data, "account")
+    accounts = data["profiles"].setdefault("accounts", {})
+    accounts.setdefault(provider, {})[name] = {ACCOUNT_BLOB_KEY[provider]: blob}
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    secure_config_file(path)
+    if first_account:
+        click.echo(
+            f"Note: {path} now contains login credentials — keep it private "
+            f"(permissions set to 600; do not commit or sync it publicly).",
+            err=True,
+        )
+
+
 def build_claude_env(config, profile_name, base_env=None, claude_settings_env=None):
     """Build expanded env dict for a Claude profile, including _NAME variants.
 
@@ -272,9 +423,9 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     erroring with "selected model (mimo-v2.5)").
     """
     base_env = dict(os.environ if base_env is None else base_env)
-    provider, profile = profile_for(config, profile_name)
-    if provider != "claude":
-        die(f"only claude profiles are supported, got: {provider}")
+    provider, kind, profile = profile_for(config, profile_name)
+    if provider != "claude" or kind != "api":
+        die(f"only claude api profiles are supported, got: {provider} {kind}")
     profile_env = profile.get("env", {})
     if not profile_env.get("ANTHROPIC_BASE_URL"):
         die("ANTHROPIC_BASE_URL is required for claude profile")
@@ -333,12 +484,31 @@ def select_model(models_dict, user_args, profile_name):
 
 def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None, oc_providers=None):
     base_env = dict(os.environ if base_env is None else base_env)
-    provider, profile = profile_for(config, profile_name)
+    provider, kind, profile = profile_for(config, profile_name)
     profile_env = profile.get("env", {})
     env = dict(base_env)
     expansion_env = dict(base_env)
     oc_write_info = None
-    if provider == "claude":
+    account_info = None
+    if kind == "account":
+        if provider == "codex":
+            env["CODEX_HOME"] = str(account_dir("codex", profile_name))
+            argv = ["codex"]
+        elif provider == "claude":
+            env["CLAUDE_CONFIG_DIR"] = str(account_dir("claude", profile_name))
+            # Claude Code defaults to the macOS Keychain on macOS; force file
+            # credentials inside the account dir so the snapshot round-trips.
+            env["CLAUDE_CODE_DONT_USE_KEYCHAIN"] = "1"
+            argv = ["claude"]
+        else:
+            die(f"official accounts are not supported for {profile_name}: {provider}")
+        argv += user_args
+        account_info = {
+            "provider": provider,
+            "name": profile_name,
+            "blob": profile.get(ACCOUNT_BLOB_KEY[provider]),
+        }
+    elif provider == "claude":
         argv = ["claude"]
         settings_env = build_claude_env(config, profile_name, base_env, claude_settings_env)
         if settings_env:
@@ -398,11 +568,23 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
-    return argv, env, oc_write_info
+    return argv, env, oc_write_info, account_info
 
 
 def redact(data):
     redacted = copy.deepcopy(data)
+
+    # Account blobs are live OAuth tokens: mask them whole rather than hoping
+    # every nested key matches the secret-name heuristic below.
+    accounts = redacted.get("profiles", {}).get("accounts")
+    if isinstance(accounts, dict):
+        for provider_accounts in accounts.values():
+            if isinstance(provider_accounts, dict):
+                for entry in provider_accounts.values():
+                    if isinstance(entry, dict):
+                        for key in ACCOUNT_BLOB_KEY.values():
+                            if key in entry:
+                                entry[key] = "<redacted>"
 
     def walk(value, key=""):
         if isinstance(value, dict):
@@ -420,14 +602,21 @@ def redact(data):
 
 
 def command_list(config):
-    for provider in sorted(config["profiles"]):
-        provider_profiles = config["profiles"][provider]
-        if not isinstance(provider_profiles, dict):
-            die(f"provider profiles must be an object: {provider}")
-        for name in sorted(provider_profiles):
-            profile = provider_profiles[name]
-            model = profile_model_label(provider, profile)
-            print(f"{name}\t{provider}\t{model}")
+    providers = set()
+    for kind in PROFILE_KINDS:
+        for provider, provider_entries in kind_group(config, kind).items():
+            if not isinstance(provider_entries, dict):
+                die(f"provider entries must be an object: {kind}.{provider}")
+            providers.add(provider)
+    for provider in sorted(providers):
+        for kind in PROFILE_KINDS:
+            entries = kind_group(config, kind).get(provider, {})
+            for name in sorted(entries):
+                if kind == "api":
+                    label = profile_model_label(provider, entries[name])
+                else:
+                    label = "official login"
+                print(f"{name}\t{provider}\t{kind}\t{label}")
 
 
 def profile_model_label(provider, profile):
@@ -457,7 +646,11 @@ def profile_model_label(provider, profile):
 
 
 def command_show(config, name):
-    _, profile = profile_for(config, name)
+    _, kind, profile = profile_for(config, name)
+    if kind == "account":
+        # The whole entry is an OAuth credential blob; mask it entirely.
+        print(json.dumps({key: "<redacted>" for key in profile}, indent=2))
+        return
     print(json.dumps(redact(profile), indent=2))
 
 
@@ -568,12 +761,11 @@ def exec_agent(argv, env):
 def save_profile(path, name, env_vars, provider="claude"):
     path = Path(path).expanduser()
     data = load_config(path)
-    provider_profiles = data["profiles"].setdefault(provider, {})
-    if name in provider_profiles:
+    if profile_name_taken(data, name):
         die(f"profile already exists: {name}")
     profile = {"env": {k: v for k, v in env_vars.items() if v}}
-    provider_profiles[name] = profile
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    data["profiles"].setdefault("api", {}).setdefault(provider, {})[name] = profile
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def command_config(argv):
@@ -624,7 +816,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -786,9 +978,9 @@ def apply_command(profile, force):
     apply; use --force to overwrite an existing backup.
     """
     config = load_config(config_path())
-    provider, _ = profile_for(config, profile)
-    if provider != "claude":
-        die(f"apply only supports claude profiles, got: {provider}")
+    provider, kind, _ = profile_for(config, profile)
+    if provider != "claude" or kind != "api":
+        die(f"apply only supports claude api profiles, got: {provider} {kind}")
 
     settings_path = claude_settings_path()
     if settings_path.exists():
@@ -843,6 +1035,124 @@ def restore_command():
     click.echo("Restart your session for changes to take effect.")
 
 
+@cli.group(context_settings={"help_option_names": ["-h", "--help"]})
+def account():
+    """Manage official-login accounts (Claude Code / Codex OAuth).
+
+    Accounts launch like profiles (aweswitch <name>) but run through a
+    private config dir, so several official accounts can be used side by
+    side. See `aweswitch account login` to add one.
+    """
+
+
+@account.command("add")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+def account_add_command(provider, name):
+    """Save the currently logged-in official account as NAME.
+
+    Imports the CLI's live credentials (~/.codex/auth.json or
+    ~/.claude/.credentials.json). Claude Code on macOS usually keeps login
+    in the Keychain instead; use `aweswitch account login` there.
+    """
+    path = config_path()
+    load_config(path)
+    live = live_credentials_path(provider)
+    if not live.exists():
+        die(
+            f"no live credentials found at {live}\n"
+            f"  Log in with the CLI first, or use: aweswitch account login {provider} {name}"
+        )
+    save_account(path, provider, name, read_json_object(live, "live credentials"))
+    click.echo(f"Account '{name}' added ({provider}). Launch it with: aweswitch {name}")
+
+
+@account.command("login")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+def account_login_command(provider, name):
+    """Log in to an official account NAME and capture its credentials.
+
+    Runs the CLI's own login flow inside the account's private config dir,
+    then stores the resulting credentials in the aweswitch config.
+    """
+    path = config_path()
+    data = load_config(path)
+    existing = kind_group(data, "account").get(provider, {}).get(name)
+    if existing is None and profile_name_taken(data, name):
+        die(f"name already used: {name}")
+    blob = existing.get(ACCOUNT_BLOB_KEY[provider]) if isinstance(existing, dict) else None
+    d = ensure_account_dir(provider, name, blob)
+    env = dict(os.environ)
+    if provider == "codex":
+        env["CODEX_HOME"] = str(d)
+        argv = ["codex", "login"]
+        click.echo(f"Starting codex login for account '{name}' ...")
+    else:
+        env["CLAUDE_CONFIG_DIR"] = str(d)
+        env["CLAUDE_CODE_DONT_USE_KEYCHAIN"] = "1"
+        argv = ["claude"]
+        click.echo(f"Starting claude for account '{name}' — run /login inside, then exit.")
+    try:
+        result = subprocess.run(argv, env=env)
+    except FileNotFoundError:
+        die(f"command not found: {argv[0]}")
+    cred_path = d / ACCOUNT_CRED_FILENAME[provider]
+    if not cred_path.exists():
+        die(f"no credentials captured at {cred_path} (login exited with code {result.returncode})")
+    save_account(path, provider, name, read_json_object(cred_path, "captured credentials"))
+    click.echo(f"Account '{name}' saved. Launch it with: aweswitch {name}")
+
+
+@account.command("sync")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+def account_sync_command(provider, name):
+    """Refresh NAME's stored credentials from its runtime dir.
+
+    The CLI refreshes OAuth tokens inside the account dir at launch; sync
+    copies the refreshed credentials back into the config file.
+    """
+    path = config_path()
+    data = load_config(path)
+    entry = kind_group(data, "account").get(provider, {}).get(name)
+    if not isinstance(entry, dict):
+        die(f"unknown account: {name}\nrun: aweswitch list  # view available profiles")
+    cred_path = account_dir(provider, name) / ACCOUNT_CRED_FILENAME[provider]
+    if not cred_path.exists():
+        die(
+            f"no runtime credentials at {cred_path}\n"
+            f"  Launch or log in to the account first: aweswitch account login {provider} {name}"
+        )
+    save_account(path, provider, name, read_json_object(cred_path, "runtime credentials"))
+    click.echo(f"Account '{name}' synced from {cred_path}")
+
+
+@account.command("remove")
+@click.argument("provider", type=click.Choice(ACCOUNT_PROVIDERS))
+@click.argument("name")
+@click.option("--purge", is_flag=True, help="Also delete the account's runtime directory.")
+def account_remove_command(provider, name, purge):
+    """Remove account NAME from the config."""
+    path = config_path()
+    data = load_config(path)
+    provider_accounts = kind_group(data, "account").get(provider, {})
+    if name not in provider_accounts:
+        die(f"unknown account: {name}\nrun: aweswitch list  # view available profiles")
+    del provider_accounts[name]
+    if not provider_accounts:
+        kind_group(data, "account").pop(provider, None)
+        if not kind_group(data, "account"):
+            data["profiles"].pop("accounts", None)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    d = account_dir(provider, name)
+    if purge and d.exists():
+        shutil.rmtree(d)
+        click.echo(f"Removed account '{name}' and deleted {d}")
+    else:
+        click.echo(f"Removed account '{name}' (runtime dir kept: {d}; use --purge to delete)")
+
+
 @click.command(
     "__profile__",
     hidden=True,
@@ -860,7 +1170,7 @@ def run_profile(ctx, category, title):
             click.echo("warning: aweshelf not found; -c/-t ignored. Install: pip3 install aweshelf (https://github.com/Webioinfo01/aweshelf)", err=True)
         else:
             _auto_bookmark(category, profile_name, title=title)
-    run_argv, run_env, oc_write_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
+    run_argv, run_env, oc_write_info, account_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
     if oc_write_info is not None:
         ensure_opencode_provider(
             oc_write_info["base_url"],
@@ -870,6 +1180,8 @@ def run_profile(ctx, category, title):
             display_name=oc_write_info["display_name"],
             model_display_name=oc_write_info["model_display_name"],
         )
+    if account_info is not None:
+        ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])
     exec_agent(run_argv, run_env)
 
 
