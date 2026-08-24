@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -179,6 +180,80 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, model,
         entry["models"] = {model: {"name": model_name}}
         providers[provider_name] = entry
         write_opencode_config(oc_config)
+
+
+def opencode_data_path():
+    return Path(os.environ.get("OPENCODE_DATA", "~/.local/share/opencode")).expanduser()
+
+
+def opencode_session_last_model(session_id):
+    """Return "provider/model" from a session's last user message in opencode's DB.
+
+    The opencode TUI restores this model when resuming with -s, overriding the
+    -m flag aweswitch passes. Best-effort: returns None when the DB, session,
+    or model stamp is missing, so the launch path never blocks on it.
+    """
+    db = opencode_data_path() / "opencode.db"
+    if not db.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=0.5)
+        try:
+            # opencode accepts partial session ids; mirror that with a prefix
+            # lookup that must resolve to exactly one session.
+            rows = conn.execute("SELECT id FROM session WHERE id = ?", (session_id,)).fetchall()
+            if not rows:
+                rows = conn.execute(
+                    "SELECT id FROM session WHERE substr(id, 1, ?) = ?",
+                    (len(session_id), session_id),
+                ).fetchall()
+            if len(rows) != 1:
+                return None
+            for (data,) in conn.execute(
+                "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC",
+                (rows[0][0],),
+            ):
+                try:
+                    message = json.loads(data)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(message, dict) or message.get("role") != "user":
+                    continue
+                model = message.get("model")
+                if isinstance(model, dict) and model.get("providerID") and model.get("modelID"):
+                    return f"{model['providerID']}/{model['modelID']}"
+                return None
+            return None
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def warn_opencode_session_model(user_args, provider_name, model):
+    """Warn when -s resumes a session whose stored model differs from the launch model.
+
+    Resuming restores the session's previous model and overrides -m, so the
+    requested model only takes effect after switching it inside the TUI.
+    """
+    session_id = None
+    for index, arg in enumerate(user_args):
+        if arg in ("-s", "--session") and index + 1 < len(user_args):
+            session_id = user_args[index + 1]
+            break
+        if arg.startswith("--session="):
+            session_id = arg.partition("=")[2]
+            break
+    if not session_id:
+        return
+    last_model = opencode_session_last_model(session_id)
+    if not last_model or last_model == f"{provider_name}/{model}":
+        return
+    click.echo(
+        f"warning: opencode resumes {session_id} with its previous model ({last_model}) and ignores -m.\n"
+        f"  To use {provider_name}/{model}, switch models inside the TUI (Tab) after it opens.",
+        err=True,
+    )
 
 
 def generate_codex_config(provider_name, base_url):
@@ -596,6 +671,7 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         models_dict = normalize_models(models_raw, profile_name, "OPENCODE_MODEL")
         # First positional arg is the model name; default to first in dict
         model, user_args = select_model(models_dict, user_args, profile_name)
+        warn_opencode_session_model(user_args, profile_name, model)
         base_url = expand_value(base_url_raw, expansion_env)
         # Keep an env reference in opencode.json so the actual key is never written to disk.
         api_key_ref = _opencode_api_key_ref(api_key_raw)

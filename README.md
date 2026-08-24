@@ -402,6 +402,8 @@ Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCOD
 
 The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used.
 
+Resuming a session (`-s <session-id>`) restores the model that session last used, and opencode ignores `-m` in that case — aweswitch warns when the two differ so you know to switch models inside the TUI (Tab) after it opens.
+
 ### Does aweswitch support official (OAuth) logins?
 
 Yes — Claude Code and Codex official accounts are saved via `aweswitch account login` (or `account add` to import the current login) and launched like profiles: `aweswitch <account-name>`. Each account runs in its own config dir (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`), so multiple official accounts work side by side. See [Official accounts](#official-accounts--multiple-claude-code--codex-logins).

@@ -373,6 +373,8 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。
 
+恢复会话（`-s <session-id>`）时，opencode 会还原该会话上次使用的模型并忽略 `-m`——两者不一致时 aweswitch 会给出警告，提示进入 TUI 后手动切换模型（Tab）。
+
 ### aweswitch 支持官方（OAuth）登录吗？
 
 支持 — Claude Code 和 Codex 的官方帐号通过 `aweswitch account login` 保存（或用 `account add` 导入当前登录），之后像 profile 一样启动：`aweswitch <帐号名>`。每个帐号运行在自己的配置目录（`CODEX_HOME` / `CLAUDE_CONFIG_DIR`）中，多个官方帐号可以并行。详见[官方帐号](#官方帐号--多个-claude-code--codex-登录并行)。

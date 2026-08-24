@@ -882,6 +882,108 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(oc_info["api_key_ref"], "sk-test")
             self.assertIn("tip: OPENCODE_API_KEY is a plain value", mock_stderr.getvalue())
 
+    def _make_oc_db(self, tmp, session_id, user_models):
+        """Create a minimal opencode.db: one session plus user messages.
+
+        user_models entries are "provider/model" stamps, or None for a user
+        message without one (pre-model-stamp history).
+        """
+        import sqlite3
+        db = Path(tmp) / "opencode.db"
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE session (id TEXT PRIMARY KEY)")
+        conn.execute("CREATE TABLE message (session_id TEXT, time_created INTEGER, data TEXT)")
+        conn.execute("INSERT INTO session VALUES (?)", (session_id,))
+        for i, model in enumerate(user_models):
+            data = {"role": "user"}
+            if model:
+                provider, _, model_id = model.partition("/")
+                data["model"] = {"providerID": provider, "modelID": model_id}
+            conn.execute(
+                "INSERT INTO message VALUES (?, ?, ?)",
+                (session_id, 1000 + i, json.dumps(data)),
+            )
+        conn.commit()
+        conn.close()
+
+    def _prepare_oc_resume(self, config, tmp, args):
+        with unittest.mock.patch.dict(os.environ, {"OPENCODE_DATA": tmp}):
+            with unittest.mock.patch("sys.stderr", new=io.StringIO()) as mock_stderr:
+                argv, _, _, _ = aweswitch.prepare_run(
+                    config, "oc-test", args, {"OC_KEY": "sk-test"}
+                )
+        return mock_stderr.getvalue()
+
+    def test_prepare_opencode_warns_when_resume_keeps_previous_model(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_oc_db(tmp, "ses_abc", ["opencode/x-preview-f-free"])
+
+            stderr = self._prepare_oc_resume(
+                config, tmp, ["glm-5.1", "-s", "ses_abc"]
+            )
+
+            self.assertIn(
+                "warning: opencode resumes ses_abc with its previous model "
+                "(opencode/x-preview-f-free) and ignores -m",
+                stderr,
+            )
+            self.assertIn("To use oc-test/glm-5.1", stderr)
+
+    def test_prepare_opencode_silent_when_resume_model_matches(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_oc_db(tmp, "ses_abc", ["oc-test/glm-5.1"])
+
+            stderr = self._prepare_oc_resume(
+                config, tmp, ["glm-5.1", "-s", "ses_abc"]
+            )
+
+            self.assertEqual(stderr, "")
+
+    def test_prepare_opencode_resolves_partial_session_id(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_oc_db(tmp, "ses_abcI", ["opencode/x-preview-f-free"])
+
+            stderr = self._prepare_oc_resume(
+                config, tmp, ["glm-5.1", "-s", "ses_abc"]
+            )
+
+            self.assertIn("resumes ses_abc with its previous model", stderr)
+
+    def test_prepare_opencode_accepts_long_session_flag(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_oc_db(tmp, "ses_abc", ["opencode/x-preview-f-free"])
+
+            stderr = self._prepare_oc_resume(
+                config, tmp, ["glm-5.1", "--session=ses_abc"]
+            )
+
+            self.assertIn("resumes ses_abc with its previous model", stderr)
+
+    def test_prepare_opencode_silent_when_last_user_message_lacks_model(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_oc_db(tmp, "ses_abc", [None])
+
+            stderr = self._prepare_oc_resume(
+                config, tmp, ["glm-5.1", "-s", "ses_abc"]
+            )
+
+            self.assertEqual(stderr, "")
+
+    def test_prepare_opencode_silent_without_session_or_db(self):
+        config = self._make_oc_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            # no -s flag
+            self.assertEqual(self._prepare_oc_resume(config, tmp, ["glm-5.1"]), "")
+            # -s flag but no opencode.db in the data dir
+            self.assertEqual(
+                self._prepare_oc_resume(config, tmp, ["glm-5.1", "-s", "ses_missing"]), ""
+            )
+
     def test_parse_version_accepts_prerelease_suffix(self):
         self.assertEqual(update_check._parse_version("0.3.0a1"), (0, 3, 0))
         self.assertTrue(update_check._version_gte("0.3.0a1", "0.3.0"))
