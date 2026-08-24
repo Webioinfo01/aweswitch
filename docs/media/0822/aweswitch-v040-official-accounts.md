@@ -6,11 +6,11 @@
 
 更别提"两个终端，两个账号，并排跑"了。以前那叫异想天开。
 
-我合上笔记本，去倒了杯咖啡，然后跟我的 agent 说：
+我合上笔记本前跟我的 agent 说：
 
 > "把我的官方账号都收进 aweswitch。我要能一条命令启动任何一个账号，而且能同时跑。"
 
-等我回来时，`aweswitch list` 里多了几行 kind 列标着 `account` 的条目。公司号和个人号都在里面，谁也不挤占谁的登录态。
+说完就下楼取快递去了，顺手把门口的垃圾也捎了下去。等我拎着箱子爬回楼上，`aweswitch list` 里已经多了几行 kind 列标着 `account` 的条目。公司号和个人号都在里面，谁也不挤占谁的登录态。
 
 GitHub：[github.com/Webioinfo01/aweswitch](https://github.com/Webioinfo01/aweswitch)
 

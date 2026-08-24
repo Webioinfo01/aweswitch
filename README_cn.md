@@ -64,7 +64,7 @@ Agent 会安装 aweswitch、初始化配置、添加 profile，并帮你写入 s
 > "添加一个 AiHubMix 的 codex profile。"
 > "把 cc-glm 的 model 改成 glm-5.2。"
 
-Agent 可以直接运行 `aweswitch apply` 和 `aweswitch restore`。
+Agent 可以直接运行 `aweswitch apply`、`aweswitch config backup` 和 `aweswitch config restore`。
 
 <details>
 <summary>示例：查看已配置的 profile</summary>
@@ -188,7 +188,7 @@ aweswitch show cc-glm
 通过 [aweskill](https://aweskill.webioinfo.top/) 安装 [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md)，可以让 AI agent 用自然语言帮你管理 profile：
 
 - 列出、查看、添加、编辑、删除 profile
-- 将 profile 写入 settings（`aweswitch apply`）或恢复备份（`aweswitch restore`）
+- 将 profile 写入 settings（`aweswitch apply`）或恢复备份（`aweswitch config restore`）
 - 引导配置环境变量（如 `~/.zshrc`、`~/.bashrc` 或 PowerShell 的 `$PROFILE` 中的 token）
 
 安装后你可以直接告诉 agent："添加一个 AiHubMix 的 codex profile"、"把 cc-glm 的 model 改成 glm-5.2"、"列出所有 profile"，agent 会读取配置文件、做修改、验证结果。
@@ -215,7 +215,9 @@ aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookm
 ```bash
 aweswitch apply cc-glm                # 写入 settings.json
 aweswitch apply cc-glm --force        # 覆盖已有备份
-aweswitch restore                      # 从备份恢复 settings
+aweswitch config backup               # 手动备份 settings，输出备份路径
+aweswitch config restore              # 从默认备份恢复 settings
+aweswitch config restore <file>       # 从指定备份文件恢复 settings
 ```
 
 重启会话或用 `/model` 选择新模型。
@@ -359,7 +361,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 **启动模式**不会 — 它只读取 aweswitch 自己的配置，并为当前启动的 Claude Code 进程传入运行时 settings。已经运行的会话不受影响。
 
-**写入模式**会 — `aweswitch apply <profile>` 将 profile env 写入 `~/.claude/settings.json`。首次写入时会自动备份。用 `aweswitch restore` 可以撤销。
+**写入模式**会 — `aweswitch apply <profile>` 将 profile env 写入 `~/.claude/settings.json`。首次写入时会自动备份。用 `aweswitch config restore` 可以撤销。
 
 ### aweswitch 支持 Codex 吗？
 

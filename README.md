@@ -65,7 +65,7 @@ The agent will install the `aweswitch` CLI, set up config, and help you add prof
 > "Add an AiHubMix codex profile."
 > "Change the model in cc-glm to glm-5.2."
 
-The agent can run `aweswitch apply` and `aweswitch restore` directly, but will not run `aweswitch <profile>` (launch mode) — that would nest agents. To launch a profile, run it in your own terminal:
+The agent can run `aweswitch apply`, `aweswitch config backup`, and `aweswitch config restore` directly, but will not run `aweswitch <profile>` (launch mode) — that would nest agents. To launch a profile, run it in your own terminal:
 
 ```bash
 aweswitch cc-glm

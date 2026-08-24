@@ -1,5 +1,19 @@
 # change log
 
+## v0.4.1
+
+`v0.4.1` reorganizes settings backup handling under `config`: a new `aweswitch config backup` command creates a settings backup and prints its path, and `restore` moves under `config` while gaining the ability to restore from an explicit backup file.
+
+### Backup and restore under `config`
+
+`aweswitch config backup` copies `~/.claude/settings.json` to `settings.json.bak` and prints the backup path. Like `apply`, an existing backup is not overwritten unless `--force` is given. The top-level `aweswitch restore` command is replaced by `aweswitch config restore [FILE]`: without arguments it restores from the default `settings.json.bak`; with a file argument it restores from that snapshot, so older timestamped backups can be rolled back to explicitly.
+
+### Highlights
+
+- New `aweswitch config backup`: back up settings on demand and print the backup path (`--force` to overwrite)
+- `restore` moved to `config restore [FILE]`: restore from the default backup or any explicit snapshot file
+- Internal: `die()` typed as NoReturn, clearing type-checker false positives
+
 ## v0.4.0
 
 `v0.4.0` adds official-login accounts: multiple Claude Code and Codex OAuth logins can now be saved as accounts and launched side by side, each through a private config dir. The config schema gains an `api`/`accounts` split under `profiles`; old configs are migrated automatically on first load.

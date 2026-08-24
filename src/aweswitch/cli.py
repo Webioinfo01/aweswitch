@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import NoReturn
 
 import click
 
@@ -195,7 +196,7 @@ def generate_codex_config(provider_name, base_url):
     )
 
 
-def die(message):
+def die(message) -> NoReturn:
     raise SystemExit(f"aweswitch: {message}")
 
 
@@ -909,6 +910,40 @@ def config_init_command():
     click.echo(config_path())
 
 
+@config.command("backup")
+@click.option("--force", "-f", is_flag=True, help="Overwrite an existing backup.")
+def config_backup_command(force):
+    """Back up ~/.claude/settings.json and print the backup path.
+
+    The printed path can be passed to `aweswitch config restore` later.
+    """
+    settings_path = claude_settings_path()
+    backup_path = settings_path.with_suffix(".json.bak")
+    if not settings_path.exists():
+        die(f"no settings file found: {settings_path}")
+    if backup_path.exists() and not force:
+        click.echo("Note: backup already exists, not overwritten. Use --force to overwrite.")
+    else:
+        try:
+            shutil.copy2(settings_path, backup_path)
+        except OSError as exc:
+            die(f"failed to create backup {backup_path}: {exc}")
+    click.echo(backup_path)
+
+
+@config.command("restore")
+@click.argument("backup_file", required=False)
+def config_restore_command(backup_file):
+    """Restore ~/.claude/settings.json from BACKUP_FILE (default: settings.json.bak)."""
+    settings_path = claude_settings_path()
+    backup_path = Path(backup_file) if backup_file else settings_path.with_suffix(".json.bak")
+    if not backup_path.exists():
+        die(f"no such backup file: {backup_path}")
+    shutil.copy2(backup_path, settings_path)
+    click.echo(f"Restored {settings_path} from {backup_path}.")
+    click.echo("Restart your session for changes to take effect.")
+
+
 @cli.command("init")
 def init_command():
     """Create the default config."""
@@ -1079,18 +1114,6 @@ def apply_command(profile, force):
     elif backup_path.exists():
         click.echo(f"Note: backup already exists, not overwritten. Use --force to overwrite.")
     click.echo("Restart your session or use /model to pick the new model.")
-
-
-@cli.command("restore")
-def restore_command():
-    """Restore ~/.claude/settings.json from backup."""
-    settings_path = claude_settings_path()
-    backup_path = settings_path.with_suffix(".json.bak")
-    if not backup_path.exists():
-        die(f"no backup found: {backup_path}")
-    shutil.copy2(backup_path, settings_path)
-    click.echo(f"Restored {settings_path} from backup.")
-    click.echo("Restart your session for changes to take effect.")
 
 
 @cli.group(context_settings={"help_option_names": ["-h", "--help"]})
