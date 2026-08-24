@@ -224,7 +224,7 @@ aweswitch config edit
 Install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) via [aweskill](https://aweskill.webioinfo.top/) to let AI agents manage profiles with natural language:
 
 - List, inspect, add, edit, and delete profiles
-- Apply profiles to settings (`aweswitch apply`) or restore from backup (`aweswitch restore`)
+- Apply profiles to settings (`aweswitch apply`) or restore from backup (`aweswitch config restore`)
 - Guide environment variable setup (e.g. adding tokens to `~/.zshrc` on macOS, `~/.bashrc` on bash, or `$PROFILE` on PowerShell)
 
 After install, you can tell the agent things like "Add an AiHubMix codex profile", "Change the model in cc-glm to glm-5.2", or "List all profiles". The agent reads the config, makes changes, and verifies the result.
@@ -247,7 +247,9 @@ Writes profile env into `~/.claude/settings.json`. Start Claude first, then in a
 ```bash
 aweswitch apply cc-glm                # write to settings.json
 aweswitch apply cc-glm --force        # overwrite existing backup
-aweswitch restore                      # restore settings from backup
+aweswitch config backup               # back up settings on demand and print the backup path
+aweswitch config restore              # restore settings from default backup
+aweswitch config restore <file>       # restore settings from an explicit backup file
 ```
 
 Restart the session or use `/model` to pick the new model.
@@ -388,7 +390,7 @@ You can override that path with `AWESWITCH_CONFIG`.
 
 **Launch mode** does not — it only reads the aweswitch config and passes runtime settings to the Claude Code process being launched. Already-running sessions are not affected.
 
-**Write mode** does — `aweswitch apply <profile>` writes profile env into `~/.claude/settings.json`. An automatic backup is created on first write. Use `aweswitch restore` to undo.
+**Write mode** does — `aweswitch apply <profile>` writes profile env into `~/.claude/settings.json`. An automatic backup is created on first write. Use `aweswitch config restore` to undo.
 
 ### Does aweswitch support Codex?
 

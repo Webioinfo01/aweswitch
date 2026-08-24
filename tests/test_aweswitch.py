@@ -1449,6 +1449,85 @@ class AweSwitchTests(unittest.TestCase):
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("only supports claude api profiles", result.output)
 
+    def test_config_backup_creates_backup_and_prints_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text('{"env": {"OLD": "1"}}\n')
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                result = CliRunner().invoke(aweswitch.cli, ["config", "backup"])
+
+            backup_path = settings_path.with_suffix(".json.bak")
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn(str(backup_path), result.output)
+            self.assertEqual(json.loads(backup_path.read_text()), {"env": {"OLD": "1"}})
+
+    def test_config_backup_does_not_overwrite_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text('{"env": {"NEW": "2"}}\n')
+            backup_path = settings_path.with_suffix(".json.bak")
+            backup_path.write_text('{"env": {"OLD": "1"}}\n')
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                no_force = CliRunner().invoke(aweswitch.cli, ["config", "backup"])
+
+            self.assertEqual(no_force.exit_code, 0)
+            self.assertIn("not overwritten", no_force.output)
+            self.assertEqual(json.loads(backup_path.read_text()), {"env": {"OLD": "1"}})
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                forced = CliRunner().invoke(aweswitch.cli, ["config", "backup", "--force"])
+
+            self.assertEqual(forced.exit_code, 0)
+            self.assertEqual(json.loads(backup_path.read_text()), {"env": {"NEW": "2"}})
+
+    def test_config_backup_fails_without_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                result = CliRunner().invoke(aweswitch.cli, ["config", "backup"])
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no settings file found", result.output)
+
+    def test_config_restore_default_uses_bak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text('{"env": {"NEW": "2"}}\n')
+            backup_path = settings_path.with_suffix(".json.bak")
+            backup_path.write_text('{"env": {"OLD": "1"}}\n')
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                result = CliRunner().invoke(aweswitch.cli, ["config", "restore"])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(json.loads(settings_path.read_text()), {"env": {"OLD": "1"}})
+
+    def test_config_restore_from_explicit_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text('{"env": {"NEW": "2"}}\n')
+            snapshot = Path(tmp) / "settings.json.backup.2026-01-01T00-00-00Z"
+            snapshot.write_text('{"env": {"ANCIENT": "0"}}\n')
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                result = CliRunner().invoke(aweswitch.cli, ["config", "restore", str(snapshot)])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(json.loads(settings_path.read_text()), {"env": {"ANCIENT": "0"}})
+
+    def test_config_restore_missing_backup_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+
+            with unittest.mock.patch("aweswitch.cli.claude_settings_path", return_value=settings_path):
+                result = CliRunner().invoke(aweswitch.cli, ["config", "restore", str(Path(tmp) / "missing.json")])
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no such backup file", result.output)
+
     def test_redact_masks_account_blobs_whole(self):
         data = {"profiles": {"accounts": {"codex": {
             "cxo-work": {"auth": {"account_id": "acc", "tokens": {"access_token": "t"}}},
