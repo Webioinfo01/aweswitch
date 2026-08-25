@@ -1,5 +1,18 @@
 # change log
 
+## v0.4.2
+
+`v0.4.2` lets launch arguments use a configured model's display value while preserving the full model ID passed to the agent.
+
+### Model selection by display value
+
+When a profile defines model IDs and display values as a mapping, the launch argument may use either form. The full model ID remains the value passed to the underlying agent, and duplicate display values fail with an actionable error.
+
+### Highlights
+
+- OpenCode and Codex launch commands can select a model by its configured display value, such as `step-router-v1` for `peng1/step-router-v1`
+- Ambiguous display values are rejected with the matching model IDs instead of selecting one silently
+
 ## v0.4.1
 
 `v0.4.1` reorganizes settings backup handling under `config`: a new `aweswitch config backup` command creates a settings backup and prints its path, and `restore` moves under `config` while gaining the ability to restore from an explicit backup file.

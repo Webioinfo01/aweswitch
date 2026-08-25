@@ -589,15 +589,24 @@ def normalize_models(raw, profile_name, key):
 
 
 def select_model(models_dict, user_args, profile_name):
-    """Treat the first positional arg as the model name; default to the first entry."""
+    """Select a model ID from the first positional arg or the first configured entry."""
     if user_args:
         model = user_args[0]
         user_args = user_args[1:]
     else:
         model = next(iter(models_dict))
-    if model not in models_dict:
-        available = ", ".join(sorted(models_dict))
-        die(f"unknown model '{model}' for {profile_name}\n  Available: {available}")
+    if model in models_dict:
+        return model, user_args
+
+    matching_ids = [model_id for model_id, display_name in models_dict.items() if display_name == model]
+    if len(matching_ids) == 1:
+        return matching_ids[0], user_args
+    if matching_ids:
+        available = ", ".join(sorted(matching_ids))
+        die(f"ambiguous model '{model}' for {profile_name}\n  Matching IDs: {available}")
+
+    available = ", ".join(sorted(models_dict))
+    die(f"unknown model '{model}' for {profile_name}\n  Available: {available}")
     return model, user_args
 
 

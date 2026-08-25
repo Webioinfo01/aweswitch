@@ -817,6 +817,25 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(oc_info["base_url"], "https://example.com/v1")
         self.assertEqual(oc_info["api_key_ref"], "{env:OC_KEY}")
 
+    def test_prepare_opencode_uses_model_display_name_from_args(self):
+        config = self._make_oc_config(models={"peng1/step-router-v1": "step-router-v1"})
+
+        argv, _, oc_info, _ = aweswitch.prepare_run(
+            config, "oc-test", ["step-router-v1"], {"OC_KEY": "sk-test"}
+        )
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/peng1/step-router-v1"])
+        self.assertEqual(oc_info["model"], "peng1/step-router-v1")
+
+    def test_prepare_opencode_rejects_ambiguous_model_display_name(self):
+        config = self._make_oc_config(models={
+            "peng1/step-router-v1": "step-router-v1",
+            "peng2/step-router-v1": "step-router-v1",
+        })
+
+        with self.assertRaisesRegex(SystemExit, "ambiguous model 'step-router-v1'"):
+            aweswitch.prepare_run(config, "oc-test", ["step-router-v1"], {"OC_KEY": "sk-test"})
+
     def test_prepare_opencode_passes_extra_args(self):
         config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})
 
