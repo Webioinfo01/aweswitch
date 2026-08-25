@@ -108,20 +108,25 @@ aweswitch cco-personal
 
 不用再登出登出登出。不用再数这是第几个浏览器授权跳转。工作号和个人号，一人一个终端，各回各家。
 
+
+
 ## aweswitch 系列文章
 
 - [aweswitch: 让多provider操作agent像点菜一样简单](https://mp.weixin.qq.com/s/oi-c9goNBS5ps1cfO_iQwA)
 - [aweswitch更新：启动即记录，升级不操心](https://mp.weixin.qq.com/s/o3tEmFJuW7k3GFN0SqbuWg)
 - [aweswitch更新：支持opencode了，可以轻松@agent了](https://mp.weixin.qq.com/s/2uir5z84-fecKy_xL4S3jg)
 - [aweswitch：用ai 来管理ai是种怎么样的体验？](https://mp.weixin.qq.com/s/CjqS1fdQ9Df1uOfiVy8VZg)
+- [aweswitch更新：谁说windows不能有同样丝滑体验](https://mp.weixin.qq.com/s/6PipJIV7aw95cUOtyg5Vmw)
 
 
 
-## Webioinfo 的更多内容
+## More from mugpeng
 
-aweswitch 是 [Webioinfo](https://www.webioinfo.top/) 生态的一部分：
+awewarm 是 aweteam 生态的一部分：
 
-- **[aweskill](https://aweskill.webioinfo.top/)** —— 为 47+ AI 编程 agent 打造的 CLI 优先 Skill 包管理器
-- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** —— AI 编程会话管理器，支持按 profile 恢复
-- **[awerouter](https://github.com/mugpeng/awerouter)** —— 智能 LLM 路由器：基于请求的结构化信号，在 Flash（低成本）与 Pro（高能力）提供商之间自动分流
-- **[awescholar](https://github.com/Webioinfo01/awescholar)** —— 自动化的科研文献发现
+- **[aweskill](https://aweskill.webioinfo.top/)** — CLI 优先的技能包管理器，支持 47+ AI 编程 agent
+- **[aweswitch](https://github.com/Webioinfo01/aweswitch)** — Claude Code、Codex、OpenCode 的 agent 配置切换器
+- **[awerouter](https://github.com/mugpeng/awerouter)** — 智能路由器，用结构信号把请求分给 Flash 或 Pro 模型
+- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI 编程会话管理器，按 profile 恢复现场
+- **[aweshare](https://github.com/wehuman01/aweshare)** — 本地优先的 AI 能力中继：共享你的 GPU 和 API key，但 key 不出门
+- **[awewarm](https://github.com/mugpeng/awewarm)** — 订阅窗口保温器，让 AI 编程套餐的窗口 predictable 地开着
