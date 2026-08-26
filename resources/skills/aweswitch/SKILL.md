@@ -25,7 +25,7 @@ Writes profiles into each agent's own config as the persistent default:
 
 - Claude → env in `~/.claude/settings.json` (undo with `aweswitch config restore`)
 - Codex → provider + model in `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
-- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); no args = every OpenCode profile
+- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); no args = every OpenCode profile. After renaming/deleting an opencode profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs); `aweswitch apply --prune-orphans` removes it. Hand-written provider entries are never touched.
 
 At most one Claude and one Codex profile per call (each holds a single active default); OpenCode profiles coexist and accept bulk.
 
@@ -85,6 +85,7 @@ You may also run these commands (they modify files but are non-interactive):
 | "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <cc-profile>` (Claude). |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (per-provider: claude→settings.json, codex→config.toml, opencode→opencode.json). |
 | "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (no args = all). |
+| "Old session errors after profile rename", "改名的旧session报错" | Prune Orphan | Run `aweswitch apply --prune-orphans` to drop the leftover provider; tell user to switch models inside old sessions (Tab). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch config restore [file]` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
 | "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session (Claude only). |

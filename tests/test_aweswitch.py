@@ -1968,6 +1968,61 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("oc-test: created (2 models)", result.output)
             self.assertIn("Synced to", result.output)
 
+    def _write_oc_with_orphans(self, oc_path):
+        orphan = aweswitch.build_opencode_provider_entry("https://old.com/v1", "{env:OLD_KEY}")
+        orphan["models"] = {"peng1/x": {"name": "x"}, "peng1/y": {"name": "y"}}
+        hand_written = {
+            "name": "mine",
+            "npm": "@ai-sdk/openai-compatible",
+            "options": {"apiKey": "sk", "baseURL": "https://mine/v1"},
+        }
+        oc_path.write_text(json.dumps({"provider": {"oc-old": orphan, "mine": hand_written}}))
+
+    def test_apply_warns_about_orphaned_aweswitch_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_with_orphans(oc_path)
+
+            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("orphaned", result.output)
+            self.assertIn("oc-old", result.output)
+            self.assertIn("--prune-orphans", result.output)
+            providers = json.loads(oc_path.read_text())["provider"]
+            self.assertIn("oc-old", providers)  # warn-only: kept
+            self.assertIn("mine", providers)  # hand-written: never reported
+
+    def test_apply_prune_orphans_removes_only_aweswitch_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_with_orphans(oc_path)
+
+            result, oc_path = self._apply(["apply", "--prune-orphans"], self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned orphaned provider 'oc-old'", result.output)
+            providers = json.loads(oc_path.read_text())["provider"]
+            self.assertNotIn("oc-old", providers)
+            self.assertIn("oc-test", providers)
+            self.assertIn("mine", providers)
+
+    def test_ensure_opencode_provider_displays_namespaced_ids_in_full(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch.dict(os.environ, {"OPENCODE_CONFIG": str(oc_path)}):
+                aweswitch.ensure_opencode_provider(
+                    "https://hub.example/v1", "{env:HUB_KEY}", "oc-hub",
+                    {"hub/x": "x", "hub/y": "Custom Y", "plain": "Plain"})
+
+            models = json.loads(oc_path.read_text())["provider"]["oc-hub"]["models"]
+            self.assertEqual(
+                {mid: m["name"] for mid, m in models.items()},
+                {"hub/x": "hub/x", "hub/y": "Custom Y", "plain": "Plain"},
+            )
+
     def test_apply_mixed_providers_in_one_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             settings_path = Path(tmp) / "settings.json"

@@ -148,6 +148,19 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
+def opencode_model_display_name(model_id, model_name):
+    """Namespaced model IDs (producer/model, e.g. hub/x) display as the full ID.
+
+    When the configured display name is just the ID's last segment, the model
+    picker can show identical rows for different producers (hub/x and peng1/x
+    both displaying "x"); keeping the full ID keeps them distinguishable.
+    Custom display names pass through unchanged.
+    """
+    if "/" in model_id and model_name == model_id.rsplit("/", 1)[1]:
+        return model_id
+    return model_name
+
+
 def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
                              display_name=None, prune=False):
     """Ensure provider+models exist in opencode.json, synced to the aweswitch config.
@@ -183,13 +196,14 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             models_dict = {}
             existing["models"] = models_dict
         for model_id, model_name in models.items():
+            display = opencode_model_display_name(model_id, model_name)
             entry_model = models_dict.setdefault(model_id, {})
             if not isinstance(entry_model, dict):
                 # hand-edited entries may use a plain string; repair in place
                 entry_model = {}
                 models_dict[model_id] = entry_model
-            if entry_model.get("name") != model_name:
-                entry_model["name"] = model_name
+            if entry_model.get("name") != display:
+                entry_model["name"] = display
                 status = "updated"
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
@@ -199,7 +213,10 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             write_opencode_config(oc_config)
     else:
         entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
-        entry["models"] = {model_id: {"name": model_name} for model_id, model_name in models.items()}
+        entry["models"] = {
+            model_id: {"name": opencode_model_display_name(model_id, model_name)}
+            for model_id, model_name in models.items()
+        }
         providers[provider_name] = entry
         write_opencode_config(oc_config)
         status = "created"
@@ -248,6 +265,55 @@ def sync_opencode_profiles(config, names=None):
         )
         for name, base_url, api_key_ref, models, display_name in specs
     ]
+
+
+def find_orphan_opencode_providers(config):
+    """Return {name: entry} for aweswitch-written providers left in opencode.json.
+
+    An orphan is a provider no opencode profile in the aweswitch config backs
+    anymore — typically a renamed or deleted profile. Only entries shaped like
+    build_opencode_provider_entry output (openai-compatible + setCacheKey)
+    count, so hand-written providers are never reported or pruned. Old
+    sessions pinned to an orphan's models keep sending those model IDs
+    upstream, which breaks when the upstream renames them.
+    """
+    managed = kind_group(config, "api").get("opencode") or {}
+    providers = load_opencode_config()["provider"]
+    orphans = {}
+    for name, entry in providers.items():
+        if name in managed or not isinstance(entry, dict):
+            continue
+        opts = entry.get("options")
+        if (entry.get("npm") == "@ai-sdk/openai-compatible"
+                and isinstance(opts, dict) and opts.get("setCacheKey") is True):
+            orphans[name] = entry
+    return orphans
+
+
+def prune_or_warn_opencode_orphans(config, prune):
+    """Report (or delete with prune) orphaned aweswitch providers after a sync."""
+    orphans = find_orphan_opencode_providers(config)
+    if not orphans:
+        return
+    if not prune:
+        for name, entry in sorted(orphans.items()):
+            models = ", ".join(sorted(entry.get("models") or {})) or "no models"
+            click.echo(
+                f"warning: orphaned aweswitch provider '{name}' in opencode.json ({models})",
+                err=True,
+            )
+        click.echo(
+            "  No aweswitch profile backs it (renamed or deleted?); old sessions pinned to its\n"
+            "  models keep using them. Prune with: aweswitch apply --prune-orphans",
+            err=True,
+        )
+        return
+    oc_config = load_opencode_config()
+    providers = oc_config["provider"]
+    for name in sorted(orphans):
+        del providers[name]
+        click.echo(f"Pruned orphaned provider '{name}' from {opencode_config_path()}")
+    write_opencode_config(oc_config)
 
 
 def opencode_data_path():
@@ -1424,7 +1490,9 @@ def apply_codex_profile(config, profile_name, force):
 @cli.command("apply")
 @click.argument("profiles", nargs=-1)
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
-def apply_command(profiles, force):
+@click.option("--prune-orphans", is_flag=True,
+              help="Also remove opencode.json providers no aweswitch profile backs.")
+def apply_command(profiles, force, prune_orphans):
     """Apply profiles as persistent defaults in each agent's config.
 
     Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
@@ -1445,6 +1513,7 @@ def apply_command(profiles, force):
         for name, status, model_count in results:
             click.echo(f"{name}: {status} ({model_count} models)")
         click.echo(f"Synced to {opencode_config_path()}")
+        prune_or_warn_opencode_orphans(config, prune_orphans)
         return
 
     resolved = [(name, *profile_for(config, name)) for name in names]
@@ -1452,6 +1521,7 @@ def apply_command(profiles, force):
         die("apply one claude profile at a time (settings.json holds a single active profile)")
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("codex", "api")) > 1:
         die("apply one codex profile at a time (config.toml holds a single active provider)")
+    applied_opencode = False
     for name, provider, kind, _ in resolved:
         if kind == "account":
             die(f"accounts are launch-only: {name}")
@@ -1462,8 +1532,11 @@ def apply_command(profiles, force):
         elif provider == "opencode":
             _, status, model_count = sync_opencode_profiles(config, [name])[0]
             click.echo(f"{name}: {status} ({model_count} models) -> {opencode_config_path()}")
+            applied_opencode = True
         else:
             die(f"unsupported provider for {name}: {provider}")
+    if applied_opencode:
+        prune_or_warn_opencode_orphans(config, prune_orphans)
 
 
 @cli.group(context_settings={"help_option_names": ["-h", "--help"]})

@@ -249,6 +249,7 @@ aweswitch apply cc-glm                # Claude: env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex: provider+model -> ~/.codex/config.toml
 aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
 aweswitch apply                       # all OpenCode profiles at once (bulk only makes sense there)
+aweswitch apply --prune-orphans       # ...and remove opencode.json providers no profile backs
 aweswitch apply cc-glm cx-glm oc-glm  # mixed: one per agent in a single call
 aweswitch apply cc-glm --force        # overwrite existing backup
 aweswitch config backup               # back up Claude settings on demand and print the backup path
@@ -260,7 +261,7 @@ Per-agent semantics:
 
 - **Claude** — env is merged into `~/.claude/settings.json`; restart the session or use `/model` to pick the new model.
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
-- **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything.
+- **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. Renaming or deleting a profile leaves its old provider entry behind; apply then warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --prune-orphans` removes it — so a rename is: edit the config, then apply with `--prune-orphans`. Hand-written provider entries are never touched. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
 
 Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode profiles coexist side by side, so several can be applied at once (or none, meaning all of them).
 
