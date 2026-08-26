@@ -155,7 +155,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     The provider entry is owned by aweswitch (its name is the profile name), so
     stale credentials and display names are updated to match the config instead
     of rejected. Launch passes only the selected model (additive); `aweswitch
-    sync` passes the full list with prune=True so the entry matches the config
+    apply` passes the full list with prune=True so the entry matches the config
     exactly. Returns "created", "updated", or "unchanged".
     """
     name = display_name or provider_name
@@ -166,6 +166,9 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
 
     if existing:
         opts = existing.setdefault("options", {})
+        if not isinstance(opts, dict):
+            opts = {}
+            existing["options"] = opts
         if opts.get("baseURL") != base_url:
             opts["baseURL"] = base_url
             status = "updated"
@@ -176,8 +179,15 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             existing["name"] = name
             status = "updated"
         models_dict = existing.setdefault("models", {})
+        if not isinstance(models_dict, dict):
+            models_dict = {}
+            existing["models"] = models_dict
         for model_id, model_name in models.items():
             entry_model = models_dict.setdefault(model_id, {})
+            if not isinstance(entry_model, dict):
+                # hand-edited entries may use a plain string; repair in place
+                entry_model = {}
+                models_dict[model_id] = entry_model
             if entry_model.get("name") != model_name:
                 entry_model["name"] = model_name
                 status = "updated"
@@ -210,7 +220,7 @@ def sync_opencode_profiles(config, names=None):
     if not isinstance(profiles, dict):
         die("provider entries must be an object: api.opencode")
     specs = []
-    for name in dict.fromkeys(names if names else profiles):
+    for name in dict.fromkeys(names if names is not None else profiles):
         provider, kind, _ = profile_for(config, name)
         if provider != "opencode" or kind != "api":
             die(f"sync only supports opencode api profiles, got: {name} (provider={provider}, kind={kind})")
@@ -334,8 +344,44 @@ def generate_codex_config(provider_name, base_url):
 # two paths interchangeable.
 CODEX_PROVIDER_KEY = "custom"
 
-CODEX_TABLE_HEADER_RE = re.compile(r"^\s*\[")
 CODEX_CUSTOM_TABLE_RE = re.compile(rf"^\s*\[\s*model_providers\.{CODEX_PROVIDER_KEY}(\.|\s*\])")
+
+
+def _codex_header_mask(lines):
+    """Per-line True when the line opens a TOML table.
+
+    Lines inside multi-line strings (\"\"\" / ''') never count, so a string
+    body that starts with '[' (e.g. config snippets inside
+    developer_instructions) can't be mistaken for a table header. Quotes in
+    comments and single-line strings are ignored.
+    """
+    mask, multiline = [], ""
+    for line in lines:
+        if multiline:
+            mask.append(False)
+            if multiline in line:
+                multiline = ""
+            continue
+        mask.append(line.lstrip().startswith("["))
+        quote, i, n = "", 0, len(line)
+        while i < n:
+            ch = line[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = ""
+            elif ch in "\"'":
+                if line.startswith(ch * 3, i):
+                    if line.count(ch * 3) % 2 == 1:
+                        multiline = ch * 3
+                    break
+                quote = ch
+            elif ch == "#":
+                break  # comment: the rest of the line is not code
+            i += 1
+    return mask
 
 
 def write_codex_config(path, base_url, env_key, model=None):
@@ -367,23 +413,25 @@ def write_codex_config(path, base_url, env_key, model=None):
         return
 
     lines = path.read_text().splitlines(keepends=True)
+    headers = _codex_header_mask(lines)
 
     # Drop the previous [model_providers.custom] block (header through any
     # subtables, stopping at the next unrelated table header).
     kept, skipping_custom = [], False
-    for line in lines:
-        if CODEX_TABLE_HEADER_RE.match(line):
+    for line, is_header in zip(lines, headers):
+        if is_header:
             skipping_custom = bool(CODEX_CUSTOM_TABLE_RE.match(line))
             if skipping_custom:
                 continue
         if not skipping_custom:
             kept.append(line)
+    headers = _codex_header_mask(kept)
 
     # Update the top-level assignments inside the header zone; collect the
     # missing ones so they can be inserted before the first table.
     result, updated, header_zone, insert_at = [], set(), True, None
-    for line in kept:
-        if header_zone and CODEX_TABLE_HEADER_RE.match(line):
+    for line, is_header in zip(kept, headers):
+        if header_zone and is_header:
             header_zone = False
             insert_at = len(result)
         matched = False

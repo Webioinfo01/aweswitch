@@ -1191,6 +1191,28 @@ class AweSwitchTests(unittest.TestCase):
             models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
             self.assertEqual(list(models), ["glm-5.1"])
 
+    def test_ensure_opencode_provider_repairs_hand_edited_shapes(self):
+        """Hand-edited entries (plain-string model, non-object options/models) must
+        not crash; they get repaired to the aweswitch shape in place."""
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "options": "oops",
+                    "models": {"glm-5.1": "plain string", "keep": {"name": "Keep"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm", {"glm-5.1": "GLM-5.1"})
+
+            self.assertEqual(status, "updated")
+            prov = json.loads(oc_path.read_text())["provider"]["oc-glm"]
+            self.assertEqual(prov["options"]["baseURL"], "https://zhipu.com/v1")
+            self.assertEqual(prov["models"]["glm-5.1"], {"name": "GLM-5.1"})
+            self.assertEqual(prov["models"]["keep"], {"name": "Keep"})
+
     def test_ensure_opencode_provider_refuses_to_clobber_invalid_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
@@ -1798,6 +1820,43 @@ class AweSwitchTests(unittest.TestCase):
             # top-level assignments must precede the first table header
             self.assertLess(lines.index('model_provider = "custom"'),
                             lines.index("[mcp_servers]"))
+
+    def test_write_codex_config_ignores_brackets_inside_multiline_strings(self):
+        """Lines inside multi-line strings must not count as table headers, or
+        top-level keys get inserted at the wrong place (silently joining a
+        table) and custom-block detection goes wrong."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(
+                'model = "gpt-5.6-luna"\n'
+                'developer_instructions = """\n'
+                "Use rtk skills.\n"
+                "[model_providers.custom]\n"     # looks like a header, is string body
+                'name = "fake"\n'
+                '"""\n'
+                '\n'
+                '[mcp_servers.fetch]\n'
+                'command = "uvx"\n'
+            )
+
+            aweswitch.write_codex_config(path, "https://zhipu.com/v1", "GLM_KEY", "glm-5.3")
+
+            text = path.read_text()
+            self.assertIn('model = "glm-5.3"', text)
+            self.assertIn('name = "fake"', text)      # string body untouched
+            self.assertIn("[mcp_servers.fetch]", text)
+            # the appended real table (fake one inside the string stays fake)
+            self.assertIn('[model_providers.custom]\nname = "custom"\n', text)
+            lines = text.splitlines()
+            # model key must still be before the FIRST real table
+            first_table = min(i for i, l in enumerate(lines) if l.startswith("["))
+            self.assertLess(lines.index('model = "glm-5.3"'), first_table)
+            if hasattr(__import__("tomllib"), "TomlDecodeError"):  # py3.11+: parse check
+                import tomllib
+                data = tomllib.loads(text)
+                self.assertEqual(data["developer_instructions"].count("[model_providers.custom]"), 1)
+                self.assertEqual(data["model"], "glm-5.3")
+                self.assertEqual(data["model_providers"]["custom"]["base_url"], "https://zhipu.com/v1")
 
     def _make_apply_config(self):
         return {
