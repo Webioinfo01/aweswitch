@@ -1920,8 +1920,11 @@ class AweSwitchTests(unittest.TestCase):
             # model key must still be before the FIRST real table
             first_table = min(i for i, l in enumerate(lines) if l.startswith("["))
             self.assertLess(lines.index('model = "glm-5.3"'), first_table)
-            if hasattr(__import__("tomllib"), "TomlDecodeError"):  # py3.11+: parse check
-                import tomllib
+            try:
+                import tomllib  # py3.11+: parse check
+            except ModuleNotFoundError:
+                tomllib = None
+            if tomllib is not None:
                 data = tomllib.loads(text)
                 self.assertEqual(data["developer_instructions"].count("[model_providers.custom]"), 1)
                 self.assertEqual(data["model"], "glm-5.3")
