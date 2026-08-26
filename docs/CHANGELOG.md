@@ -1,5 +1,19 @@
 # change log
 
+## v0.4.6
+
+`v0.4.6` makes bulk OpenCode apply explicit: bare `aweswitch apply` no longer implicitly writes every OpenCode profile — use `aweswitch apply --opencode` instead, so the default behavior is always intentional.
+
+### Explicit bulk OpenCode apply
+
+The old behavior of `aweswitch apply` with no arguments was to silently apply every OpenCode profile, which surprised users who forgot they had multiple OpenCode profiles. The new `--opencode` flag makes bulk write opt-in. Calling `aweswitch apply` with no arguments now prints a clear error showing both options.
+
+### Highlights
+
+- New `--opencode` flag: `aweswitch apply --opencode` writes every OpenCode profile
+- `aweswitch apply` with no arguments now errors with a helpful usage hint instead of silently bulk-applying
+- Passing both `--opencode` and explicit profile names is rejected with an actionable error
+
 ## v0.4.5
 
 `v0.4.5` extends `apply` to all three agents — Claude, Codex, and OpenCode — so a profile's provider settings can be written directly into each agent's live config, and hardens the apply paths against hand-edited configs.
