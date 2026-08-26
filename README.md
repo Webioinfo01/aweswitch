@@ -32,7 +32,7 @@
 `aweswitch` reads profiles from `~/.config/aweswitch/config.json` and offers two modes:
 
 - **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Different terminals can run different profiles simultaneously. Env is frozen at launch time.
-- **Write mode** (`aweswitch apply <profile>`) — makes a profile the agent's persistent default: Claude env into `~/.claude/settings.json`, Codex provider+model into `~/.codex/config.toml`, OpenCode provider+models into `~/.config/opencode/opencode.json`. `aweswitch apply` with no argument applies every OpenCode profile. Claude and Codex keep one active default at a time.
+- **Write mode** (`aweswitch apply <profile>`) — makes a profile the agent's persistent default: Claude env into `~/.claude/settings.json`, Codex provider+model into `~/.codex/config.toml`, OpenCode provider+models into `~/.config/opencode/opencode.json`. `aweswitch apply --opencode` applies every OpenCode profile. Claude and Codex keep one active default at a time.
 
 It is intentionally small. Today it supports Claude Code, Codex, and OpenCode profiles, plus official-login accounts (Claude Code / Codex OAuth).
 
@@ -248,7 +248,7 @@ aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
 aweswitch apply cc-glm                # Claude: env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex: provider+model -> ~/.codex/config.toml
 aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
-aweswitch apply                       # all OpenCode profiles at once (bulk only makes sense there)
+aweswitch apply --opencode            # all OpenCode profiles at once (bulk only makes sense there)
 aweswitch apply --prune-orphans       # ...and remove opencode.json providers no profile backs
 aweswitch apply cc-glm cx-glm oc-glm  # mixed: one per agent in a single call
 aweswitch apply cc-glm --force        # overwrite existing backup
@@ -263,7 +263,7 @@ Per-agent semantics:
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
 - **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. Renaming or deleting a profile leaves its old provider entry behind; apply then warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --prune-orphans` removes it — so a rename is: edit the config, then apply with `--prune-orphans`. Hand-written provider entries are never touched. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
 
-Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode profiles coexist side by side, so several can be applied at once (or none, meaning all of them).
+Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode profiles coexist side by side, so several can be applied at once — or all of them with `--opencode`.
 
 #### When to use which mode
 
@@ -410,7 +410,7 @@ Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` bl
 
 Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in their `env` block. On launch, aweswitch writes the provider entry to `~/.config/opencode/opencode.json` (using `{env:VAR}` syntax so the actual key is never stored on disk), then runs `opencode -m <provider>/<model>`.
 
-The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used. Launching only adds the launched model to `opencode.json`; after editing the config, `aweswitch apply oc-glm` upserts the provider with its full model list (bare `aweswitch apply` does every OpenCode profile).
+The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used. Launching only adds the launched model to `opencode.json`; after editing the config, `aweswitch apply oc-glm` upserts the provider with its full model list (`aweswitch apply --opencode` does every OpenCode profile).
 
 Resuming a session (`-s <session-id>`) restores the model that session last used, and opencode ignores `-m` in that case — aweswitch warns when the two differ so you know to switch models inside the TUI (Tab) after it opens.
 

@@ -304,7 +304,7 @@ Write the profile into the agent's own config so it becomes the persistent defau
 
 ```bash
 aweswitch apply <profile-name>      # one profile (any provider)
-aweswitch apply                     # every OpenCode profile at once
+aweswitch apply --opencode          # every OpenCode profile at once
 ```
 
 Claude and Codex keep a single active default (one profile of each per call); OpenCode profiles coexist and accept bulk.
@@ -355,7 +355,7 @@ aweswitch <profile> [extra args]  # pass extra args through to the agent
 Apply commands (safe to run in agent):
 
 ```bash
-aweswitch apply [profiles...]      # write into the agent's own config (all providers)
+aweswitch apply [profiles...]      # write into the agent's own config (all providers; --opencode = all opencode profiles)
 aweswitch config backup            # back up Claude settings.json on demand
 aweswitch config restore [file]    # restore settings.json from default or explicit backup
 ```

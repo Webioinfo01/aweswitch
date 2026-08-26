@@ -25,7 +25,7 @@ Writes profiles into each agent's own config as the persistent default:
 
 - Claude → env in `~/.claude/settings.json` (undo with `aweswitch config restore`)
 - Codex → provider + model in `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
-- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); no args = every OpenCode profile. After renaming/deleting an opencode profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs); `aweswitch apply --prune-orphans` removes it. Hand-written provider entries are never touched.
+- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); `aweswitch apply --opencode` does every OpenCode profile. After renaming/deleting an opencode profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs); `aweswitch apply --opencode --prune-orphans` removes it. Hand-written provider entries are never touched.
 
 At most one Claude and one Codex profile per call (each holds a single active default); OpenCode profiles coexist and accept bulk.
 
@@ -56,7 +56,7 @@ You may run these read-only commands:
 - `aweswitch config show`
 
 You may also run these commands (they modify files but are non-interactive):
-- `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json; no args = all opencode profiles)
+- `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json; `--opencode` = all opencode profiles)
 - `aweswitch config restore [file]` — restore Claude settings from the default or an explicit backup
 - `setx VAR_NAME "value"` (Windows only) — persist a user environment variable so both cmd and PowerShell see it
 
@@ -84,8 +84,8 @@ You may also run these commands (they modify files but are non-interactive):
 | "Launch codex profile" | Launch | Tell user to run `aweswitch cx-<name> [model]` in their terminal. |
 | "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <cc-profile>` (Claude). |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (per-provider: claude→settings.json, codex→config.toml, opencode→opencode.json). |
-| "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (no args = all). |
-| "Old session errors after profile rename", "改名的旧session报错" | Prune Orphan | Run `aweswitch apply --prune-orphans` to drop the leftover provider; tell user to switch models inside old sessions (Tab). |
+| "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (`--opencode` = all). |
+| "Old session errors after profile rename", "改名的旧session报错" | Prune Orphan | Run `aweswitch apply --opencode --prune-orphans` to drop the leftover provider; tell user to switch models inside old sessions (Tab). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch config restore [file]` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
 | "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session (Claude only). |
@@ -361,7 +361,7 @@ Codex profiles support optional `OPENAI_MODEL` (list/dict/string) to pick a mode
 
 ### OpenCode
 
-OpenCode profiles require the model to be specified as a positional argument: `aweswitch <profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used. The first launch writes the provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse and extend it. Launching only adds the launched model — `aweswitch apply [oc-profiles...]` upserts the full model list (no args = all opencode profiles).
+OpenCode profiles require the model to be specified as a positional argument: `aweswitch <profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used. The first launch writes the provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse and extend it. Launching only adds the launched model — `aweswitch apply [oc-profiles...]` upserts the full model list (`--opencode` = all opencode profiles).
 
 ## Core Rules
 

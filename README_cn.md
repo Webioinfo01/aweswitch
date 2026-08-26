@@ -32,7 +32,7 @@
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
-- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`。不带参数的 `aweswitch apply` 一次应用全部 OpenCode profile。Claude 和 Codex 同一时间只有一个活跃默认。
+- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`。`aweswitch apply --opencode` 一次应用全部 OpenCode profile。Claude 和 Codex 同一时间只有一个活跃默认。
 
 它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
@@ -216,7 +216,7 @@ aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookm
 aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
 aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
-aweswitch apply                       # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
+aweswitch apply --opencode            # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
 aweswitch apply --prune-orphans       # 同时清理 opencode.json 里没有 profile 对应的 provider
 aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
 aweswitch apply cc-glm --force        # 覆盖已有备份
@@ -231,7 +231,7 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
 - **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。改名或删除 profile 后，旧的 provider 条目会残留；apply 会对此发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --prune-orphans` 可将其删除 — 因此改名的完整流程是：改配置，然后带 `--prune-orphans` apply。手写的 provider 条目永不会被碰。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
 
-Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 的 provider 天然并存，可以一次应用多个（或不带参数 = 全部）。
+Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 的 provider 天然并存，可以一次应用多个（或用 `--opencode` 一次应用全部）。
 
 #### 什么时候用哪种模式
 
@@ -381,7 +381,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
 
-Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动只会把当次模型增量写入 `opencode.json`；修改配置后用 `aweswitch apply oc-glm` 全量 upsert 该 provider（不带参数则全部应用）。
+Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动只会把当次模型增量写入 `opencode.json`；修改配置后用 `aweswitch apply oc-glm` 全量 upsert 该 provider（`aweswitch apply --opencode` 则全部应用）。
 
 恢复会话（`-s <session-id>`）时，opencode 会还原该会话上次使用的模型并忽略 `-m`——两者不一致时 aweswitch 会给出警告，提示进入 TUI 后手动切换模型（Tab）。
 

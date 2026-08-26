@@ -1960,13 +1960,29 @@ class AweSwitchTests(unittest.TestCase):
                 ["m1", "m2"],
             )
 
-    def test_apply_no_arguments_applies_all_opencode_profiles(self):
+    def test_apply_opencode_flag_applies_all_opencode_profiles(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+            result, oc_path = self._apply(["apply", "--opencode"], self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("oc-test: created (2 models)", result.output)
             self.assertIn("Synced to", result.output)
+
+    def test_apply_without_arguments_or_flag_errors_with_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("--opencode", result.output)
+            # nothing was written
+            self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})
+
+    def test_apply_opencode_flag_rejects_profile_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = self._apply(["apply", "--opencode", "oc-test"], self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("pick one", result.output)
 
     def _write_oc_with_orphans(self, oc_path):
         orphan = aweswitch.build_opencode_provider_entry("https://old.com/v1", "{env:OLD_KEY}")
@@ -1983,7 +1999,7 @@ class AweSwitchTests(unittest.TestCase):
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_with_orphans(oc_path)
 
-            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+            result, oc_path = self._apply(["apply", "--opencode"], self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("orphaned", result.output)
@@ -1998,7 +2014,8 @@ class AweSwitchTests(unittest.TestCase):
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_with_orphans(oc_path)
 
-            result, oc_path = self._apply(["apply", "--prune-orphans"], self._make_apply_config(), tmp)
+            result, oc_path = self._apply(["apply", "--opencode", "--prune-orphans"],
+                                          self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned orphaned provider 'oc-old'", result.output)

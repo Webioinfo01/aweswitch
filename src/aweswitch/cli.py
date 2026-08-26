@@ -1194,7 +1194,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json); no arguments applies every opencode profile.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json); aweswitch apply --opencode applies every opencode profile.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -1490,9 +1490,11 @@ def apply_codex_profile(config, profile_name, force):
 @cli.command("apply")
 @click.argument("profiles", nargs=-1)
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
+@click.option("--opencode", is_flag=True,
+              help="Apply every OpenCode profile (bulk only makes sense there).")
 @click.option("--prune-orphans", is_flag=True,
               help="Also remove opencode.json providers no aweswitch profile backs.")
-def apply_command(profiles, force, prune_orphans):
+def apply_command(profiles, force, opencode, prune_orphans):
     """Apply profiles as persistent defaults in each agent's config.
 
     Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
@@ -1501,12 +1503,14 @@ def apply_command(profiles, force, prune_orphans):
     added if missing).
 
     Claude and Codex keep a single active default, so at most one profile of
-    each may be applied per call; OpenCode profiles coexist, so several (or
-    none, meaning all of them) may be applied at once.
+    each may be applied per call; OpenCode profiles coexist, so several may
+    be applied at once — or all of them via --opencode.
     """
     config = load_config(config_path())
     names = list(profiles)
-    if not names:
+    if opencode and names:
+        die("pick one: --opencode (every opencode profile) or explicit profile names")
+    if opencode:
         results = sync_opencode_profiles(config)
         if not results:
             die("no opencode profiles found\nrun: aweswitch apply <profile>")
@@ -1515,6 +1519,11 @@ def apply_command(profiles, force, prune_orphans):
         click.echo(f"Synced to {opencode_config_path()}")
         prune_or_warn_opencode_orphans(config, prune_orphans)
         return
+    if not names:
+        die(
+            "nothing to apply\n"
+            "run: aweswitch apply <profile> ... or aweswitch apply --opencode"
+        )
 
     resolved = [(name, *profile_for(config, name)) for name in names]
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("claude", "api")) > 1:
