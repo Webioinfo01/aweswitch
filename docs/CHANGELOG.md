@@ -1,5 +1,31 @@
 # change log
 
+## v0.4.5
+
+`v0.4.5` extends `apply` to all three agents — Claude, Codex, and OpenCode — so a profile's provider settings can be written directly into each agent's live config, and hardens the apply paths against hand-edited configs.
+
+### Apply for all three agents
+
+`aweswitch apply` now covers Claude (`settings.json`), Codex (`config.toml` via a surgical TOML edit with a `.toml.bak` backup, `env_key` resolved from `${VAR}` references), and OpenCode (provider upsert carrying the full model list; an existing provider is overwritten, a missing one is added). Bare `aweswitch apply` applies every OpenCode profile in bulk, while at most one Claude and one Codex profile per call. Launching an OpenCode profile with `-s` warns when the session's stored model differs from the requested one, since OpenCode restores the session model and ignores `-m`.
+
+OpenCode profiles that were renamed or deleted could leave stale provider entries behind: apply now warns about these orphans and supports `--prune-orphans` to remove them safely. Namespaced model IDs (for example `hub/x`) are shown in full to avoid ambiguous picker rows from different producers.
+
+### Hardening
+
+- Hand-edited OpenCode entries (plain-string model values, non-object options/models) are repaired instead of crashing with `AttributeError`
+- Codex table-header detection skips lines inside multi-line strings, so a `developer_instructions` body starting with `[` can no longer misplace top-level keys
+- `sync_opencode_profiles --names ""` no longer falls back to applying all profiles
+- SQLite read-only open uses `Path.as_uri` so Windows drive-letter paths form a valid URI
+- Internal: removed an unreachable return after `die()` in `select_model`
+
+### Highlights
+
+- `apply` writes provider settings for all three agents: Claude, Codex, and OpenCode
+- Bare `aweswitch apply` bulk-applies every OpenCode profile
+- `apply --prune-orphans` removes stale OpenCode provider entries left by renames or deletes
+- Warn when resuming an OpenCode session whose stored model differs from the requested one
+- Apply paths tolerate hand-edited configs instead of crashing
+
 ## v0.4.2
 
 `v0.4.2` lets launch arguments use a configured model's display value while preserving the full model ID passed to the agent.
