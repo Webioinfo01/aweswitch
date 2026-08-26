@@ -57,7 +57,7 @@ You may run these read-only commands:
 
 You may also run these commands (they modify files but are non-interactive):
 - `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json; no args = all opencode profiles)
-- `aweswitch restore` — restore settings from backup
+- `aweswitch config restore [file]` — restore Claude settings from the default or an explicit backup
 - `setx VAR_NAME "value"` (Windows only) — persist a user environment variable so both cmd and PowerShell see it
 
 **Note:** accounts are launch-only; `aweswitch apply` rejects them.
@@ -85,7 +85,7 @@ You may also run these commands (they modify files but are non-interactive):
 | "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <cc-profile>` (Claude). |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (per-provider: claude→settings.json, codex→config.toml, opencode→opencode.json). |
 | "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (no args = all). |
-| "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
+| "Restore settings from backup", "恢复settings" | Restore | `aweswitch config restore [file]` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
 | "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session (Claude only). |
 
@@ -320,7 +320,7 @@ Then tell the user to restart their session or use `/model` to pick the new mode
 To undo:
 
 ```bash
-aweswitch restore
+aweswitch config restore
 ```
 
 If the user wants to run multiple profiles in separate terminals instead, tell them to run `aweswitch <profile-name>` in their own terminal. Do not run it yourself.
