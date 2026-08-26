@@ -13,37 +13,40 @@ This skill covers **configuring** aweswitch profiles and applying them to settin
 
 ## Two Modes
 
-aweswitch has two ways to switch profiles. This agent can only help with **Apply mode** for Claude profiles.
+aweswitch has two ways to switch profiles. This agent can only help with **Apply mode**; launches must be run by the user.
 
 ### Launch mode — `aweswitch <profile>` (user only, not for this agent)
 
 Launches a new session with isolated env. Each session is independent. User runs this themselves in a terminal. **Do not run or suggest running this inside the agent.**
 
-This is the only mode available for **Codex** and **OpenCode** profiles.
+### Apply mode — `aweswitch apply [profiles...]` (this agent can do this)
 
-### Apply mode — `aweswitch apply <profile>` (this agent can do this)
+Writes profiles into each agent's own config as the persistent default:
 
-Writes profile env to `~/.claude/settings.json`. User restarts the session or uses `/model` to pick the new model. Only one profile can be active at a time. Use `aweswitch restore` to undo.
+- Claude → env in `~/.claude/settings.json` (undo with `aweswitch config restore`)
+- Codex → provider + model in `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
+- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); no args = every OpenCode profile
 
-**Apply mode only works for Claude profiles.** For Codex and OpenCode profiles, tell the user to use Launch mode in their own terminal.
+At most one Claude and one Codex profile per call (each holds a single active default); OpenCode profiles coexist and accept bulk.
 
 ### When to recommend which
 
 | User wants... | Recommend | Agent role |
 |---|---|---|
-| Switch models within a session via `/model` | Apply (Claude only) | Run `aweswitch apply` directly |
-| A persistent default profile | Apply (Claude only) | Run `aweswitch apply` directly |
+| Switch models within a session via `/model` | Apply | Run `aweswitch apply <cc-profile>` directly |
+| A persistent default profile | Apply | Run `aweswitch apply <profile>` directly |
+| Push edited opencode profiles into opencode.json | Apply | Run `aweswitch apply [oc-profiles...]` directly |
 | Run multiple profiles side by side | Launch | Tell user to run in their terminal |
 | Try a different API quickly | Launch | Tell user to run in their terminal |
-| Use OpenCode with a profile | Launch | Tell user to run in their terminal |
+| Use OpenCode with a profile in a fresh session | Launch | Tell user to run in their terminal |
 
 ### Mode availability by provider
 
 | Provider | Apply mode (`aweswitch apply`) | Launch mode (`aweswitch <profile>`) |
 |----------|-------------------------------|-------------------------------------|
 | Claude | supported | supported |
-| Codex | not supported | supported |
-| OpenCode | not supported | supported |
+| Codex | supported | supported |
+| OpenCode | supported (coexist; bulk supported) | supported |
 | Official accounts (claude/codex) | not supported | supported |
 
 You may run these read-only commands:
@@ -53,11 +56,11 @@ You may run these read-only commands:
 - `aweswitch config show`
 
 You may also run these commands (they modify files but are non-interactive):
-- `aweswitch apply <profile>` — write Claude profile env to `~/.claude/settings.json`
+- `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json; no args = all opencode profiles)
 - `aweswitch restore` — restore settings from backup
 - `setx VAR_NAME "value"` (Windows only) — persist a user environment variable so both cmd and PowerShell see it
 
-**Note:** `aweswitch apply` only works for Claude profiles. Do not attempt to run `aweswitch apply` for Codex or OpenCode profiles.
+**Note:** accounts are launch-only; `aweswitch apply` rejects them.
 
 ## Intent Router
 
@@ -79,8 +82,9 @@ You may also run these commands (they modify files but are non-interactive):
 | "Switch to profile X", "launch profile X" | Launch | Tell user to run `aweswitch <profile>` in their terminal. |
 | "Launch opencode profile" | Launch | Tell user to run `aweswitch oc-<name> [model]` in their terminal. |
 | "Launch codex profile" | Launch | Tell user to run `aweswitch cx-<name> [model]` in their terminal. |
-| "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <profile>` (Claude only). |
-| "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (Claude only). |
+| "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <cc-profile>` (Claude). |
+| "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (per-provider: claude→settings.json, codex→config.toml, opencode→opencode.json). |
+| "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (no args = all). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch restore` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |
 | "Switch without restarting" | Apply | Explain: use Apply mode, then `/model` in session (Claude only). |
@@ -352,16 +356,16 @@ Rules:
 
 ### Codex
 
-Codex profiles support optional `OPENAI_MODEL` (list/dict/string) to pick a model at launch: `aweswitch cx-<name> [model]`. Without it, the profile only switches the API source (base URL + API key) and the positional argument passes through to the `codex` CLI as-is. The model and base URL are injected via `-c` flags; the API key is injected via `OPENAI_API_KEY` env var. Apply mode is not available for Codex; use Launch mode only.
+Codex profiles support optional `OPENAI_MODEL` (list/dict/string) to pick a model at launch: `aweswitch cx-<name> [model]`. Without it, the profile only switches the API source (base URL + API key) and the positional argument passes through to the `codex` CLI as-is. The model and base URL are injected via `-c` flags; the API key is injected via `OPENAI_API_KEY` env var. `aweswitch apply cx-<name>` persists the provider and first model into `~/.codex/config.toml` instead (apply uses the first model in `OPENAI_MODEL`).
 
 ### OpenCode
 
-OpenCode profiles require the model to be specified as a positional argument: `aweswitch <profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used. Apply mode is not available for OpenCode; use Launch mode only. The first launch writes the provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse and extend it.
+OpenCode profiles require the model to be specified as a positional argument: `aweswitch <profile> <model>`. If no model is given, the first model in `OPENCODE_MODEL` is used. The first launch writes the provider entry to `~/.config/opencode/opencode.json`; subsequent launches reuse and extend it. Launching only adds the launched model — `aweswitch apply [oc-profiles...]` upserts the full model list (no args = all opencode profiles).
 
 ## Core Rules
 
 1. **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
-2. **Default to apply mode for Claude profiles.** Run `aweswitch apply <profile>` for the user. For Codex and OpenCode profiles, tell the user to use Launch mode in their own terminal.
+2. **Run `aweswitch apply <profile>` for the user when they want persistent defaults** — works for all three providers (one claude/codex profile per call; opencode accepts bulk). For isolated launch sessions, tell the user to run `aweswitch <profile>` in their own terminal.
 3. Always read the config file before editing. Never overwrite existing profiles without checking.
 4. Never hardcode API keys or tokens. Use `${VAR_NAME}` references.
 5. Profile and account names must be unique across the whole `profiles` tree. Check before adding.

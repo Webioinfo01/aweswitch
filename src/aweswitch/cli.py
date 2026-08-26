@@ -148,38 +148,96 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
-def ensure_opencode_provider(base_url, api_key_ref, provider_name, model,
-                             display_name=None, model_display_name=None):
-    """Ensure provider+model exist in opencode.json, synced to the aweswitch config.
+def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
+                             display_name=None, prune=False):
+    """Ensure provider+models exist in opencode.json, synced to the aweswitch config.
 
     The provider entry is owned by aweswitch (its name is the profile name), so
-    stale credentials are updated to match the config instead of rejected.
+    stale credentials and display names are updated to match the config instead
+    of rejected. Launch passes only the selected model (additive); `aweswitch
+    sync` passes the full list with prune=True so the entry matches the config
+    exactly. Returns "created", "updated", or "unchanged".
     """
+    name = display_name or provider_name
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
     existing = providers.get(provider_name)
-    model_name = model_display_name or model
+    status = "unchanged"
 
     if existing:
         opts = existing.setdefault("options", {})
-        changed = False
         if opts.get("baseURL") != base_url:
             opts["baseURL"] = base_url
-            changed = True
+            status = "updated"
         if opts.get("apiKey") != api_key_ref:
             opts["apiKey"] = api_key_ref
-            changed = True
-        models = existing.setdefault("models", {})
-        if model not in models:
-            models[model] = {"name": model_name}
-            changed = True
-        if changed:
+            status = "updated"
+        if existing.get("name") != name:
+            existing["name"] = name
+            status = "updated"
+        models_dict = existing.setdefault("models", {})
+        for model_id, model_name in models.items():
+            entry_model = models_dict.setdefault(model_id, {})
+            if entry_model.get("name") != model_name:
+                entry_model["name"] = model_name
+                status = "updated"
+        if prune:
+            for model_id in [m for m in models_dict if m not in models]:
+                del models_dict[model_id]
+                status = "updated"
+        if status != "unchanged":
             write_opencode_config(oc_config)
     else:
-        entry = build_opencode_provider_entry(base_url, api_key_ref, name=display_name or provider_name)
-        entry["models"] = {model: {"name": model_name}}
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
+        entry["models"] = {model_id: {"name": model_name} for model_id, model_name in models.items()}
         providers[provider_name] = entry
         write_opencode_config(oc_config)
+        status = "created"
+    return status
+
+
+def sync_opencode_profiles(config, names=None):
+    """Write every (or the named) opencode profile into opencode.json.
+
+    Unlike a launch, which only adds the selected model, sync replaces each
+    provider entry (base URL, API key ref, display name) and its full model
+    list so the file matches the aweswitch config — models removed from the
+    config disappear from opencode too. Providers the config doesn't know
+    about are left alone. All profiles are validated before anything is
+    written. Returns a list of (profile, status, model_count) tuples.
+    """
+    profiles = kind_group(config, "api").get("opencode", {})
+    if not isinstance(profiles, dict):
+        die("provider entries must be an object: api.opencode")
+    specs = []
+    for name in dict.fromkeys(names if names else profiles):
+        provider, kind, _ = profile_for(config, name)
+        if provider != "opencode" or kind != "api":
+            die(f"sync only supports opencode api profiles, got: {name} (provider={provider}, kind={kind})")
+        profile_env = profiles.get(name, {}).get("env", {})
+        base_url_raw = profile_env.get("OPENCODE_BASE_URL")
+        api_key_raw = profile_env.get("OPENCODE_API_KEY")
+        if not base_url_raw:
+            die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
+        if not api_key_raw:
+            die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
+        models_dict = normalize_models(profile_env.get("OPENCODE_MODEL"), name, "OPENCODE_MODEL")
+        specs.append((
+            name,
+            expand_value(base_url_raw, dict(os.environ)),
+            _opencode_api_key_ref(api_key_raw),
+            models_dict,
+            profile_env.get("OPENCODE_NAME") or name,
+        ))
+    return [
+        (
+            name,
+            ensure_opencode_provider(base_url, api_key_ref, name, models,
+                                     display_name=display_name, prune=True),
+            len(models),
+        )
+        for name, base_url, api_key_ref, models, display_name in specs
+    ]
 
 
 def opencode_data_path():
@@ -269,6 +327,84 @@ def generate_codex_config(provider_name, base_url):
         f'wire_api = "responses"\n'
         f'requires_openai_auth = true\n'
     )
+
+
+# The provider key codex's config uses for aweswitch-injected endpoints. Launch
+# injects the same key via `-c model_providers.custom.*`, so apply keeps the
+# two paths interchangeable.
+CODEX_PROVIDER_KEY = "custom"
+
+CODEX_TABLE_HEADER_RE = re.compile(r"^\s*\[")
+CODEX_CUSTOM_TABLE_RE = re.compile(rf"^\s*\[\s*model_providers\.{CODEX_PROVIDER_KEY}(\.|\s*\])")
+
+
+def write_codex_config(path, base_url, env_key, model=None):
+    """Persist the third-party provider as codex's default in config.toml.
+
+    Line-based TOML edit — the project targets py3.9 with no writer deps: the
+    top-level model / model_provider / disable_response_storage assignments
+    are updated in the header zone and the [model_providers.custom] table
+    (including subtables) is removed and re-appended; everything else
+    (mcp_servers, projects, ...) is preserved verbatim.
+    """
+    path = Path(path)
+    top_keys = {
+        "model_provider": f'"{CODEX_PROVIDER_KEY}"',
+        "disable_response_storage": "true",
+    }
+    if model:
+        top_keys["model"] = f'"{model}"'
+    table = (
+        f"[model_providers.{CODEX_PROVIDER_KEY}]\n"
+        f'name = "{CODEX_PROVIDER_KEY}"\n'
+        f'base_url = "{base_url}"\n'
+        f'wire_api = "responses"\n'
+        f'env_key = "{env_key}"\n'
+    )
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(f"{k} = {v}\n" for k, v in top_keys.items()) + "\n" + table)
+        return
+
+    lines = path.read_text().splitlines(keepends=True)
+
+    # Drop the previous [model_providers.custom] block (header through any
+    # subtables, stopping at the next unrelated table header).
+    kept, skipping_custom = [], False
+    for line in lines:
+        if CODEX_TABLE_HEADER_RE.match(line):
+            skipping_custom = bool(CODEX_CUSTOM_TABLE_RE.match(line))
+            if skipping_custom:
+                continue
+        if not skipping_custom:
+            kept.append(line)
+
+    # Update the top-level assignments inside the header zone; collect the
+    # missing ones so they can be inserted before the first table.
+    result, updated, header_zone, insert_at = [], set(), True, None
+    for line in kept:
+        if header_zone and CODEX_TABLE_HEADER_RE.match(line):
+            header_zone = False
+            insert_at = len(result)
+        matched = False
+        if header_zone:
+            for key, value in top_keys.items():
+                if re.match(rf"^\s*{re.escape(key)}\s*=", line):
+                    result.append(f"{key} = {value}\n")
+                    updated.add(key)
+                    matched = True
+                    break
+        if not matched:
+            result.append(line)
+    if header_zone:
+        insert_at = len(result)
+    missing = [f"{k} = {top_keys[k]}\n" for k in top_keys if k not in updated]
+    if missing:
+        result[insert_at:insert_at] = missing
+    text = "".join(result)
+    if not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text + "\n" + table)
 
 
 def die(message) -> NoReturn:
@@ -1145,21 +1281,8 @@ def _mask_value(key, value):
     return value
 
 
-@cli.command("apply")
-@click.argument("profile")
-@click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
-def apply_command(profile, force):
-    """Write a Claude profile's env into ~/.claude/settings.json.
-
-    This overwrites the env section in your Claude settings so the profile
-    takes effect in new sessions or via /model. A backup is saved on first
-    apply; use --force to overwrite an existing backup.
-    """
-    config = load_config(config_path())
-    provider, kind, _ = profile_for(config, profile)
-    if provider != "claude" or kind != "api":
-        die(f"apply only supports claude api profiles, got: provider={provider}, kind={kind}")
-
+def apply_claude_profile(config, profile, force):
+    """Write a claude profile's env into ~/.claude/settings.json (one active at a time)."""
     settings_path = claude_settings_path()
     if settings_path.exists():
         try:
@@ -1175,13 +1298,7 @@ def apply_command(profile, force):
     backup_path = settings_path.with_suffix(".json.bak")
     backed_up = False
     if settings_path.exists():
-        if not backup_path.exists():
-            try:
-                shutil.copy2(settings_path, backup_path)
-            except OSError as exc:
-                die(f"failed to create backup {backup_path}: {exc}")
-            backed_up = True
-        elif force:
+        if not backup_path.exists() or force:
             try:
                 shutil.copy2(settings_path, backup_path)
             except OSError as exc:
@@ -1199,6 +1316,107 @@ def apply_command(profile, force):
     elif backup_path.exists():
         click.echo(f"Note: backup already exists, not overwritten. Use --force to overwrite.")
     click.echo("Restart your session or use /model to pick the new model.")
+
+
+def apply_codex_profile(config, profile_name, force):
+    """Write a codex profile's provider and model into ~/.codex/config.toml."""
+    _, _, entry = profile_for(config, profile_name)
+    profile_env = entry.get("env", {})
+    base_url_raw = profile_env.get("OPENAI_BASE_URL")
+    api_key_raw = profile_env.get("OPENAI_API_KEY")
+    if not base_url_raw:
+        die(f"OPENAI_BASE_URL is required for codex profile: {profile_name}")
+    if not api_key_raw:
+        die(f"OPENAI_API_KEY is required for codex profile: {profile_name}")
+    base_url = expand_value(base_url_raw, dict(os.environ))
+    # Point env_key at the referenced shell variable when the profile uses a
+    # ${VAR} ref, so codex reads the key the user already exports. Plain keys
+    # can't be persisted safely — fall back to OPENAI_API_KEY and warn.
+    ref = ENV_REF_RE.fullmatch(api_key_raw) if isinstance(api_key_raw, str) else None
+    if ref:
+        env_key = ref.group(1)
+    else:
+        env_key = "OPENAI_API_KEY"
+        click.echo(
+            "  tip: OPENAI_API_KEY is a plain value — export $OPENAI_API_KEY for codex, or use a\n"
+            "  ${VAR_NAME} reference in the profile so codex reads the key from that variable.",
+            err=True,
+        )
+    model = None
+    if profile_env.get("OPENAI_MODEL"):
+        models_dict = normalize_models(profile_env["OPENAI_MODEL"], profile_name, "OPENAI_MODEL")
+        model = next(iter(models_dict))
+
+    settings_path = codex_config_path()
+    backup_path = settings_path.with_suffix(".toml.bak")
+    backed_up = False
+    if settings_path.exists():
+        if not backup_path.exists() or force:
+            try:
+                shutil.copy2(settings_path, backup_path)
+            except OSError as exc:
+                die(f"failed to create backup {backup_path}: {exc}")
+            backed_up = True
+
+    write_codex_config(settings_path, base_url, env_key, model)
+
+    click.echo(f"Applied {profile_name} to {settings_path}")
+    click.echo(f"  model_provider = {CODEX_PROVIDER_KEY} ({base_url})")
+    if model:
+        click.echo(f"  model = {model}")
+    else:
+        click.echo("  model = (unchanged — profile has no OPENAI_MODEL)")
+    click.echo(f"  env_key = {env_key} (codex reads this env var at runtime)")
+    if backed_up:
+        click.echo(f"Backup: {backup_path}")
+    elif backup_path.exists():
+        click.echo("Note: backup already exists, not overwritten. Use --force to overwrite.")
+    click.echo("Restart codex for changes to take effect.")
+
+
+@cli.command("apply")
+@click.argument("profiles", nargs=-1)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
+def apply_command(profiles, force):
+    """Apply profiles as persistent defaults in each agent's config.
+
+    Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
+    ~/.codex/config.toml. OpenCode -> provider entry with its full model list
+    in ~/.config/opencode/opencode.json (overwritten if the provider exists,
+    added if missing).
+
+    Claude and Codex keep a single active default, so at most one profile of
+    each may be applied per call; OpenCode profiles coexist, so several (or
+    none, meaning all of them) may be applied at once.
+    """
+    config = load_config(config_path())
+    names = list(profiles)
+    if not names:
+        results = sync_opencode_profiles(config)
+        if not results:
+            die("no opencode profiles found\nrun: aweswitch apply <profile>")
+        for name, status, model_count in results:
+            click.echo(f"{name}: {status} ({model_count} models)")
+        click.echo(f"Synced to {opencode_config_path()}")
+        return
+
+    resolved = [(name, *profile_for(config, name)) for name in names]
+    if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("claude", "api")) > 1:
+        die("apply one claude profile at a time (settings.json holds a single active profile)")
+    if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("codex", "api")) > 1:
+        die("apply one codex profile at a time (config.toml holds a single active provider)")
+    for name, provider, kind, _ in resolved:
+        if kind == "account":
+            die(f"accounts are launch-only: {name}")
+        if provider == "claude":
+            apply_claude_profile(config, name, force)
+        elif provider == "codex":
+            apply_codex_profile(config, name, force)
+        elif provider == "opencode":
+            _, status, model_count = sync_opencode_profiles(config, [name])[0]
+            click.echo(f"{name}: {status} ({model_count} models) -> {opencode_config_path()}")
+        else:
+            die(f"unsupported provider for {name}: {provider}")
 
 
 @cli.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -1371,9 +1589,8 @@ def run_profile(ctx, category, title):
             oc_write_info["base_url"],
             oc_write_info["api_key_ref"],
             oc_write_info["provider_name"],
-            oc_write_info["model"],
+            {oc_write_info["model"]: oc_write_info["model_display_name"]},
             display_name=oc_write_info["display_name"],
-            model_display_name=oc_write_info["model_display_name"],
         )
     if account_info is not None:
         ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])

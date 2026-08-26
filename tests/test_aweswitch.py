@@ -1100,20 +1100,22 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.write_text(json.dumps({"provider": {}}))
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://new.com/v1",
-                                                   "{env:MY_KEY}", "oc-doubao", "doubao-1")
+                status = aweswitch.ensure_opencode_provider("https://new.com/v1",
+                                                   "{env:MY_KEY}", "oc-doubao", {"doubao-1": "Doubao 1"})
 
+            self.assertEqual(status, "created")
             data = json.loads(oc_path.read_text())
             prov = data["provider"]["oc-doubao"]
             self.assertEqual(prov["options"]["baseURL"], "https://new.com/v1")
             self.assertEqual(prov["options"]["apiKey"], "{env:MY_KEY}")
-            self.assertIn("doubao-1", prov["models"])
+            self.assertEqual(prov["models"]["doubao-1"]["name"], "Doubao 1")
 
     def test_ensure_opencode_provider_adds_model_to_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             oc_path.write_text(json.dumps({"provider": {
                 "oc-glm": {
+                    "name": "oc-glm",
                     "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
                     "models": {"glm-5.1": {"name": "glm-5.1"}},
                 }
@@ -1121,7 +1123,7 @@ class AweSwitchTests(unittest.TestCase):
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
                 aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
-                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.2")
+                                                   "{env:GLM_KEY}", "oc-glm", {"glm-5.2": "glm-5.2"})
 
             data = json.loads(oc_path.read_text())
             self.assertIn("glm-5.2", data["provider"]["oc-glm"]["models"])
@@ -1132,6 +1134,7 @@ class AweSwitchTests(unittest.TestCase):
             oc_path = Path(tmp) / "opencode.json"
             original = {"provider": {
                 "oc-glm": {
+                    "name": "oc-glm",
                     "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
                     "models": {"glm-5.1": {"name": "glm-5.1"}},
                 }
@@ -1141,9 +1144,10 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.write_text(original_text)
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
-                                                   "{env:GLM_KEY}", "oc-glm", "glm-5.1")
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm", {"glm-5.1": "glm-5.1"})
 
+            self.assertEqual(status, "unchanged")
             self.assertEqual(oc_path.read_text(), original_text)
 
     def test_ensure_opencode_provider_updates_stale_credentials(self):
@@ -1151,20 +1155,41 @@ class AweSwitchTests(unittest.TestCase):
             oc_path = Path(tmp) / "opencode.json"
             oc_path.write_text(json.dumps({"provider": {
                 "oc-glm": {
+                    "name": "oc-glm",
                     "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
                     "models": {"glm-5.1": {"name": "glm-5.1"}},
                 }
             }}))
 
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
-                aweswitch.ensure_opencode_provider("https://new.com/v1",
-                                                   "{env:NEW_KEY}", "oc-glm", "glm-5.1")
+                status = aweswitch.ensure_opencode_provider("https://new.com/v1",
+                                                   "{env:NEW_KEY}", "oc-glm", {"glm-5.1": "glm-5.1"})
 
+            self.assertEqual(status, "updated")
             data = json.loads(oc_path.read_text())
             prov = data["provider"]["oc-glm"]
             self.assertEqual(prov["options"]["baseURL"], "https://new.com/v1")
             self.assertEqual(prov["options"]["apiKey"], "{env:NEW_KEY}")
             self.assertIn("glm-5.1", prov["models"])
+
+    def test_ensure_opencode_provider_prunes_models_not_in_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "oc-glm",
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {"glm-5.1": {"name": "glm-5.1"}, "glm-stale": {"name": "glm-stale"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.1": "glm-5.1"}, prune=True)
+
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertEqual(list(models), ["glm-5.1"])
 
     def test_ensure_opencode_provider_refuses_to_clobber_invalid_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1175,9 +1200,133 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
                 with self.assertRaisesRegex(SystemExit, "invalid JSON"):
                     aweswitch.ensure_opencode_provider("https://new.com/v1",
-                                                       "{env:KEY}", "oc-x", "m-1")
+                                                       "{env:KEY}", "oc-x", {"m-1": "m-1"})
 
             self.assertEqual(oc_path.read_text(), original)
+
+    # --- sync (opencode profiles -> opencode.json) ---
+
+    def _make_sync_config(self):
+        return {
+            "profiles": {
+                "api": {
+                    "claude": {
+                        "cc-glm": {"env": {"ANTHROPIC_BASE_URL": "https://x", "ANTHROPIC_AUTH_TOKEN": "t"}},
+                    },
+                    "opencode": {
+                        "oc-glm": {"env": {
+                            "OPENCODE_BASE_URL": "https://zhipu.com/v1",
+                            "OPENCODE_API_KEY": "${GLM_KEY}",
+                            "OPENCODE_NAME": "Zhipu GLM",
+                            "OPENCODE_MODEL": {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"},
+                        }},
+                        "oc-xiaomi": {"env": {
+                            "OPENCODE_BASE_URL": "https://xiaomi.com/v1",
+                            "OPENCODE_API_KEY": "${MIMO_KEY}",
+                            "OPENCODE_MODEL": ["mimo-v2.5", "mimo-v2.5-pro"],
+                        }},
+                    },
+                }
+            }
+        }
+
+    def _sync(self, config, names=None, oc_path=None):
+        oc_path = oc_path or (Path(tempfile.mkdtemp()) / "opencode.json")
+        if not oc_path.exists():
+            oc_path.write_text(json.dumps({"provider": {}}))
+        with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+            results = aweswitch.sync_opencode_profiles(config, names)
+        return results, json.loads(oc_path.read_text())
+
+    def test_sync_writes_all_opencode_profiles_with_full_model_lists(self):
+        results, data = self._sync(self._make_sync_config())
+
+        self.assertEqual(results, [
+            ("oc-glm", "created", 2),
+            ("oc-xiaomi", "created", 2),
+        ])
+        glm = data["provider"]["oc-glm"]
+        self.assertEqual(glm["name"], "Zhipu GLM")
+        self.assertEqual(glm["options"]["baseURL"], "https://zhipu.com/v1")
+        self.assertEqual(glm["options"]["apiKey"], "{env:GLM_KEY}")
+        self.assertEqual(
+            {m: v["name"] for m, v in glm["models"].items()},
+            {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"},
+        )
+        mimo = data["provider"]["oc-xiaomi"]
+        self.assertEqual(mimo["name"], "oc-xiaomi")  # no OPENCODE_NAME -> profile name
+        self.assertEqual(
+            {m: v["name"] for m, v in mimo["models"].items()},
+            {"mimo-v2.5": "mimo-v2.5", "mimo-v2.5-pro": "mimo-v2.5-pro"},
+        )
+
+    def test_sync_prunes_stale_models_and_updates_credentials(self):
+        config = self._make_sync_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "Old Name",
+                    "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
+                    "models": {"glm-5.1": {"name": "glm-5.1"}, "glm-stale": {"name": "glm-stale"}},
+                },
+                "opencode": {"options": {}, "models": {}},  # foreign provider stays untouched
+            }}))
+
+            results, data = self._sync(config, oc_path=oc_path)
+
+            self.assertEqual(results[0], ("oc-glm", "updated", 2))
+            glm = data["provider"]["oc-glm"]
+            self.assertEqual(glm["name"], "Zhipu GLM")
+            self.assertEqual(glm["options"]["baseURL"], "https://zhipu.com/v1")
+            self.assertEqual(list(glm["models"]), ["glm-5.1", "glm-5.2"])
+            self.assertIn("opencode", data["provider"])  # not an aweswitch profile
+
+    def test_sync_named_profiles_only(self):
+        results, data = self._sync(self._make_sync_config(), names=["oc-glm"])
+
+        self.assertEqual(results, [("oc-glm", "created", 2)])
+        self.assertIn("oc-glm", data["provider"])
+        self.assertNotIn("oc-xiaomi", data["provider"])
+
+    def test_sync_second_run_is_unchanged(self):
+        config = self._make_sync_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            first_results, _ = self._sync(config, oc_path=oc_path)
+            text_after_first = oc_path.read_text()
+
+            second_results, _ = self._sync(config, oc_path=oc_path)
+
+            self.assertEqual([r[1] for r in first_results], ["created", "created"])
+            self.assertEqual([r[1] for r in second_results], ["unchanged", "unchanged"])
+            self.assertEqual(oc_path.read_text(), text_after_first)
+
+    def test_sync_rejects_non_opencode_profile(self):
+        with self.assertRaisesRegex(SystemExit, "sync only supports opencode api profiles"):
+            self._sync(self._make_sync_config(), names=["cc-glm"])
+
+    def test_sync_rejects_unknown_profile(self):
+        with self.assertRaisesRegex(SystemExit, "unknown profile"):
+            self._sync(self._make_sync_config(), names=["oc-nope"])
+
+    def test_sync_validates_all_profiles_before_writing_any(self):
+        config = self._make_sync_config()
+        config["profiles"]["api"]["opencode"]["oc-broken"] = {"env": {
+            "OPENCODE_BASE_URL": "${OC_URL_MISSING}",
+            "OPENCODE_API_KEY": "${K}",
+            "OPENCODE_MODEL": ["m"],
+        }}
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                with self.assertRaisesRegex(SystemExit, "OC_URL_MISSING"):
+                    aweswitch.sync_opencode_profiles(config)
+
+            # nothing was written even though oc-glm sorted before oc-broken
+            self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})
 
     def test_auto_bookmark_runs_worker_in_detached_child(self):
         """On POSIX the bookmark worker must run in a forked child, because
@@ -1568,7 +1717,232 @@ class AweSwitchTests(unittest.TestCase):
                                         env={"AWESWITCH_CONFIG": str(config_file)})
 
             self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("only supports claude api profiles", result.output)
+            self.assertIn("accounts are launch-only", result.output)
+
+    # --- apply: codex (config.toml) ---
+
+    def test_write_codex_config_creates_fresh_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+
+            aweswitch.write_codex_config(path, "https://zhipu.com/v1", "GLM_KEY", "glm-5.3")
+
+            text = path.read_text()
+            self.assertIn('model = "glm-5.3"', text)
+            self.assertIn('model_provider = "custom"', text)
+            self.assertIn("disable_response_storage = true", text)
+            self.assertIn("[model_providers.custom]", text)
+            self.assertIn('base_url = "https://zhipu.com/v1"', text)
+            self.assertIn('env_key = "GLM_KEY"', text)
+
+    def test_write_codex_config_updates_existing_and_preserves_unrelated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(
+                'model_context_window = 1000000\n'
+                'model = "gpt-5.6-luna"\n'
+                'model_reasoning_effort = "medium"\n'
+                'model_provider = "other"\n'
+                '\n'
+                '[mcp_servers.fetch]\n'
+                'command = "uvx"\n'
+                '\n'
+                '[model_providers.custom]\n'
+                'base_url = "https://old.com/v1"\n'
+                '\n'
+                '[model_providers.custom.sub]\n'
+                'x = 1\n'
+                '\n'
+                '[projects."/tmp"]\n'
+                'trust_level = "trusted"\n'
+            )
+
+            aweswitch.write_codex_config(path, "https://zhipu.com/v1", "GLM_KEY", "glm-5.3")
+
+            text = path.read_text()
+            self.assertIn('model = "glm-5.3"', text)
+            self.assertNotIn('model = "gpt-5.6-luna"', text)
+            self.assertIn('model_provider = "custom"', text)
+            self.assertNotIn('model_provider = "other"', text)
+            # unrelated top-level keys and tables survive untouched
+            self.assertIn('model_context_window = 1000000', text)
+            self.assertIn('model_reasoning_effort = "medium"', text)
+            self.assertIn('[mcp_servers.fetch]', text)
+            self.assertIn('[projects."/tmp"]', text)
+            # old custom table (and its subtable) replaced with the fresh one
+            self.assertNotIn("old.com", text)
+            self.assertNotIn("[model_providers.custom.sub]", text)
+            self.assertIn('base_url = "https://zhipu.com/v1"', text)
+            # exactly one custom table
+            self.assertEqual(text.count("[model_providers.custom]"), 1)
+
+    def test_write_codex_config_without_model_leaves_existing_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text('model = "gpt-5.6-luna"\n\n[mcp_servers]\n')
+
+            aweswitch.write_codex_config(path, "https://zhipu.com/v1", "GLM_KEY", None)
+
+            text = path.read_text()
+            self.assertIn('model = "gpt-5.6-luna"', text)  # profile has no model -> untouched
+            self.assertIn('model_provider = "custom"', text)  # inserted before first table
+
+    def test_write_codex_config_inserts_keys_before_first_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text('[mcp_servers]\ncommand = "uvx"\n')
+
+            aweswitch.write_codex_config(path, "https://x/v1", "K", "m1")
+
+            lines = path.read_text().splitlines()
+            # top-level assignments must precede the first table header
+            self.assertLess(lines.index('model_provider = "custom"'),
+                            lines.index("[mcp_servers]"))
+
+    def _make_apply_config(self):
+        return {
+            "profiles": {
+                "api": {
+                    "claude": {
+                        "cc-test": {"env": {
+                            "ANTHROPIC_BASE_URL": "https://example.test",
+                            "ANTHROPIC_AUTH_TOKEN": "${TOKEN}",
+                            "ANTHROPIC_MODEL": "model",
+                        }},
+                    },
+                    "codex": {
+                        "cx-glm": {"env": {
+                            "OPENAI_BASE_URL": "https://zhipu.com/v1",
+                            "OPENAI_API_KEY": "${GLM_KEY}",
+                            "OPENAI_MODEL": {"glm-5.3": "GLM-5.3", "glm-5.1": "GLM-5.1"},
+                        }},
+                        "cx-plain": {"env": {
+                            "OPENAI_BASE_URL": "https://x/v1",
+                            "OPENAI_API_KEY": "sk-plain",
+                            "OPENAI_MODEL": ["m-1"],
+                        }},
+                    },
+                    "opencode": {
+                        "oc-test": {"env": {
+                            "OPENCODE_BASE_URL": "https://example.com/v1",
+                            "OPENCODE_API_KEY": "${OC_KEY}",
+                            "OPENCODE_MODEL": {"m1": "M1", "m2": "M2"},
+                        }},
+                    },
+                }
+            }
+        }
+
+    def _apply(self, args, config, tmp, extra_env=None):
+        oc_path = Path(tmp) / "opencode.json"
+        if not oc_path.exists():
+            oc_path.write_text(json.dumps({"provider": {}}))
+        env = {
+            "AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+            "OPENCODE_CONFIG": str(oc_path),
+            "TOKEN": "secret",
+            "GLM_KEY": "sk-glm",
+            **(extra_env or {}),
+        }
+        (Path(tmp) / "config.json").write_text(json.dumps(config) + "\n")
+        result = CliRunner().invoke(aweswitch.cli, args, env=env)
+        return result, oc_path
+
+    def test_apply_codex_profile_writes_config_and_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "config.toml"
+            codex_path.write_text('model = "gpt-5.6-luna"\n\n[mcp_servers]\n')
+
+            result, _ = self._apply(
+                ["apply", "cx-glm"], self._make_apply_config(), tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Applied cx-glm", result.output)
+            self.assertIn("env_key = GLM_KEY", result.output)
+            self.assertIn("Backup:", result.output)
+            text = codex_path.read_text()
+            self.assertIn('model = "glm-5.3"', text)  # first model from the dict
+            self.assertIn('base_url = "https://zhipu.com/v1"', text)
+            self.assertIn('env_key = "GLM_KEY"', text)
+            self.assertIn("[mcp_servers]", text)
+            self.assertIn('model = "gpt-5.6-luna"', codex_path.with_suffix(".toml.bak").read_text())
+
+    def test_apply_codex_plain_key_warns_and_uses_openai_env_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "config.toml"
+
+            result, _ = self._apply(
+                ["apply", "cx-plain"], self._make_apply_config(), tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("OPENAI_API_KEY is a plain value", result.output)
+            self.assertIn('env_key = "OPENAI_API_KEY"', codex_path.read_text())
+
+    def test_apply_opencode_profile_upserts_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # provider missing -> created
+            result, oc_path = self._apply(["apply", "oc-test"], self._make_apply_config(), tmp)
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("oc-test: created (2 models)", result.output)
+            prov = json.loads(oc_path.read_text())["provider"]["oc-test"]
+            self.assertEqual(sorted(prov["models"]), ["m1", "m2"])
+
+            # provider exists with a stale model -> overwritten to match config
+            prov["models"]["stale"] = {"name": "stale"}
+            oc_path.write_text(json.dumps({"provider": {"oc-test": prov}}))
+            result, oc_path = self._apply(["apply", "oc-test"], self._make_apply_config(), tmp)
+            self.assertIn("oc-test: updated (2 models)", result.output)
+            self.assertEqual(
+                sorted(json.loads(oc_path.read_text())["provider"]["oc-test"]["models"]),
+                ["m1", "m2"],
+            )
+
+    def test_apply_no_arguments_applies_all_opencode_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("oc-test: created (2 models)", result.output)
+            self.assertIn("Synced to", result.output)
+
+    def test_apply_mixed_providers_in_one_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            codex_path = Path(tmp) / "config.toml"
+            result, oc_path = self._apply(
+                ["apply", "cc-test", "cx-glm", "oc-test"], self._make_apply_config(), tmp,
+                extra_env={"CLAUDE_SETTINGS": str(settings_path), "CODEX_CONFIG": str(codex_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Applied cc-test", result.output)
+            self.assertIn("Applied cx-glm", result.output)
+            self.assertIn("oc-test: created", result.output)
+            self.assertTrue(settings_path.exists())
+            self.assertIn("[model_providers.custom]", codex_path.read_text())
+            self.assertIn("oc-test", json.loads(oc_path.read_text())["provider"])
+
+    def test_apply_rejects_two_codex_profiles(self):
+        config = self._make_apply_config()
+        config["profiles"]["api"]["codex"]["cx-two"] = dict(config["profiles"]["api"]["codex"]["cx-glm"])
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = self._apply(["apply", "cx-glm", "cx-two"], config, tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("apply one codex profile at a time", result.output)
+
+    def test_apply_rejects_two_claude_profiles(self):
+        config = self._make_apply_config()
+        config["profiles"]["api"]["claude"]["cc-two"] = dict(config["profiles"]["api"]["claude"]["cc-test"])
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = self._apply(["apply", "cc-test", "cc-two"], config, tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("apply one claude profile at a time", result.output)
 
     def test_config_backup_creates_backup_and_prints_path(self):
         with tempfile.TemporaryDirectory() as tmp:

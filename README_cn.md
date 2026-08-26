@@ -32,7 +32,7 @@
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
-- **写入模式**（`aweswitch apply <profile>`）— 将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端运行 `aweswitch apply <profile>`（或通过 aweswitch skill 让 agent 操作）。重启会话或用 `/model` 选择新模型。同一时间只能有一个 profile 生效。
+- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`。不带参数的 `aweswitch apply` 一次应用全部 OpenCode profile。Claude 和 Codex 同一时间只有一个活跃默认。
 
 它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
@@ -208,19 +208,29 @@ aweswitch oc-glm glm-5.1 --mini       # OpenCode 传递额外参数
 aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
 ```
 
-#### 写入模式 — 持久默认配置（仅 Claude）
+#### 写入模式 — 持久默认配置
 
-将 profile env 写入 `~/.claude/settings.json`。先启动 claude，然后在新终端：
+`aweswitch apply` 把 profile 写入 agent 自己的配置文件，成为持久默认：
 
 ```bash
-aweswitch apply cc-glm                # 写入 settings.json
+aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
+aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
+aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
+aweswitch apply                       # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
+aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
 aweswitch apply cc-glm --force        # 覆盖已有备份
-aweswitch config backup               # 手动备份 settings，输出备份路径
+aweswitch config backup               # 手动备份 Claude settings，输出备份路径
 aweswitch config restore              # 从默认备份恢复 settings
 aweswitch config restore <file>       # 从指定备份文件恢复 settings
 ```
 
-重启会话或用 `/model` 选择新模型。
+各 agent 的语义：
+
+- **Claude** — env 合并进 `~/.claude/settings.json`；重启会话或用 `/model` 选择新模型。
+- **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
+- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。
+
+Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 的 provider 天然并存，可以一次应用多个（或不带参数 = 全部）。
 
 #### 什么时候用哪种模式
 
@@ -230,10 +240,9 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 | 在会话内用 `/model` 切换模型 | 写入 |
 | 快速试用不同 API | 启动 |
 | 设置持久默认 profile | 写入 |
+| 把改过的 OpenCode profile 推送到 opencode.json | 写入（`aweswitch apply`） |
 
 > **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
->
-> `apply` 仅支持 Claude profile。OpenCode 和 Codex profile 在通过 `aweswitch <profile>` 启动时自动配置。
 
 #### 配置管理
 
@@ -361,7 +370,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 **启动模式**不会 — 它只读取 aweswitch 自己的配置，并为当前启动的 Claude Code 进程传入运行时 settings。已经运行的会话不受影响。
 
-**写入模式**会 — `aweswitch apply <profile>` 将 profile env 写入 `~/.claude/settings.json`。首次写入时会自动备份。用 `aweswitch config restore` 可以撤销。
+**写入模式**会 — `aweswitch apply <profile>` 把 profile 写入 agent 自己的配置（Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`）。Claude 和 Codex 首次写入时会自动备份；Claude 可用 `aweswitch config restore` 撤销。
 
 ### aweswitch 支持 Codex 吗？
 
@@ -371,7 +380,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
 
-Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。
+Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动只会把当次模型增量写入 `opencode.json`；修改配置后用 `aweswitch apply oc-glm` 全量 upsert 该 provider（不带参数则全部应用）。
 
 恢复会话（`-s <session-id>`）时，opencode 会还原该会话上次使用的模型并忽略 `-m`——两者不一致时 aweswitch 会给出警告，提示进入 TUI 后手动切换模型（Tab）。
 
