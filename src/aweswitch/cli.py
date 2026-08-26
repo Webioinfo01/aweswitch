@@ -791,7 +791,6 @@ def select_model(models_dict, user_args, profile_name):
 
     available = ", ".join(sorted(models_dict))
     die(f"unknown model '{model}' for {profile_name}\n  Available: {available}")
-    return model, user_args
 
 
 def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_env=None, oc_providers=None):
