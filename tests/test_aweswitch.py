@@ -583,6 +583,19 @@ class AweSwitchTests(unittest.TestCase):
 
         self.assertIn('model="gpt-5.2-codex"', self._c_args(argv))
 
+    def test_prepare_codex_matches_model_substring_case_insensitively(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "kimi-k2.7": "Kimi"})
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cx-test", ["GPT"], {"CX_KEY": "sk-test"})
+
+        self.assertIn('model="gpt-5.2-codex"', self._c_args(argv))
+
+    def test_prepare_codex_rejects_ambiguous_substring_match(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "gpt-5.1": "GPT-5.1"})
+
+        with self.assertRaisesRegex(SystemExit, "ambiguous model 'gpt'"):
+            aweswitch.prepare_run(config, "cx-test", ["gpt"], {"CX_KEY": "sk-test"})
+
     def test_prepare_codex_without_models_keeps_legacy_behavior(self):
         config = self._make_cx_config(models=None)
 
@@ -875,6 +888,22 @@ class AweSwitchTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SystemExit, "ambiguous model 'SEED'"):
             aweswitch.prepare_run(config, "oc-test", ["SEED"], {"OC_KEY": "sk-test"})
+
+    def test_prepare_opencode_matches_model_substring_case_insensitively(self):
+        config = self._make_oc_config(models={"gpt-5.2-codex": "GPT-5.2 Codex"})
+
+        argv, _, oc_info, _ = aweswitch.prepare_run(
+            config, "oc-test", ["GPT"], {"OC_KEY": "sk-test"}
+        )
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/gpt-5.2-codex"])
+        self.assertEqual(oc_info["model"], "gpt-5.2-codex")
+
+    def test_prepare_opencode_rejects_ambiguous_substring_match(self):
+        config = self._make_oc_config(models={"gpt-5.2": "GPT-5.2", "gpt-5.1": "GPT-5.1"})
+
+        with self.assertRaisesRegex(SystemExit, "ambiguous model 'gpt'"):
+            aweswitch.prepare_run(config, "oc-test", ["gpt"], {"OC_KEY": "sk-test"})
 
     def test_prepare_opencode_passes_extra_args(self):
         config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})

@@ -841,8 +841,9 @@ def normalize_models(raw, profile_name, key):
 def select_model(models_dict, user_args, profile_name):
     """Select a model ID from the first positional arg or the first configured entry.
 
-    Matching is exact first (ID, then display name); if nothing matches exactly,
-    IDs and display names are compared case-insensitively.
+    Exact ID and exact display-name matches win first. If neither matches, IDs
+    and display names are compared case-insensitively, then as case-insensitive
+    substrings so short inputs like `GPT` can select `gpt-5.2-codex`.
     """
     if user_args:
         model = user_args[0]
@@ -854,11 +855,22 @@ def select_model(models_dict, user_args, profile_name):
 
     matching_ids = [model_id for model_id, display_name in models_dict.items() if display_name == model]
     if not matching_ids:
-        lowered = model.lower()
+        lowered = model.casefold()
+        exact_matches = [
+            model_id
+            for model_id, display_name in models_dict.items()
+            if model_id.casefold() == lowered or display_name.casefold() == lowered
+        ]
+        if len(exact_matches) == 1:
+            return exact_matches[0], user_args
+        if exact_matches:
+            available = ", ".join(sorted(exact_matches))
+            die(f"ambiguous model '{model}' for {profile_name}\n  Matching IDs: {available}")
+
         matching_ids = [
             model_id
             for model_id, display_name in models_dict.items()
-            if model_id.lower() == lowered or display_name.lower() == lowered
+            if lowered in model_id.casefold() or lowered in display_name.casefold()
         ]
     if len(matching_ids) == 1:
         return matching_ids[0], user_args

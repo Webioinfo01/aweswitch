@@ -1,5 +1,21 @@
 # change log
 
+## v0.4.8
+
+`v0.4.8` completes the v0.4.7 model-matching promise: typing `aweswitch cx-aihubmix GPT` now actually finds `gpt-5.2-codex`. Short inputs match as case-insensitive substrings of model IDs and display names, instead of demanding a full exact replica.
+
+### Case-insensitive substring matching
+
+v0.4.7 shipped case-insensitive comparison, but it only matched when the input equaled a full model ID or display name — so the changelog example (`GPT` → `gpt-5.2-codex`) still failed. `select_model` now adds a third pass: after exact and case-insensitive matches miss, the input is matched as a case-insensitive substring of both IDs and display names.
+
+Matching order: exact ID → exact display name → case-insensitive full match → case-insensitive substring. A unique match wins; multiple candidates fail with the same actionable error listing them.
+
+### Highlights
+
+- Launch args now resolve as case-insensitive substrings, so `GPT` selects `gpt-5.2-codex`
+- Exact-match-first behavior unchanged; substring is the last fallback
+- Ambiguous substring matches are rejected with the list of matching candidates
+
 ## v0.4.7
 
 `v0.4.7` adds case-insensitive model matching: typing `aweswitch cx-aihubmix GPT` now finds `gpt-5.2-codex` instead of demanding an exact replica of the ID or display name.
