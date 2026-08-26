@@ -569,6 +569,20 @@ class AweSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "unknown model 'gpt-9.9'"):
             aweswitch.prepare_run(config, "cx-test", ["gpt-9.9"], {"CX_KEY": "sk-test"})
 
+    def test_prepare_codex_matches_model_case_insensitively(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "kimi-k2.7": "Kimi"})
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cx-test", ["GPT-5.2-CODEX"], {"CX_KEY": "sk-test"})
+
+        self.assertIn('model="gpt-5.2-codex"', self._c_args(argv))
+
+    def test_prepare_codex_matches_display_name_case_insensitively(self):
+        config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2"})
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cx-test", ["gpt-5.2"], {"CX_KEY": "sk-test"})
+
+        self.assertIn('model="gpt-5.2-codex"', self._c_args(argv))
+
     def test_prepare_codex_without_models_keeps_legacy_behavior(self):
         config = self._make_cx_config(models=None)
 
@@ -835,6 +849,32 @@ class AweSwitchTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SystemExit, "ambiguous model 'step-router-v1'"):
             aweswitch.prepare_run(config, "oc-test", ["step-router-v1"], {"OC_KEY": "sk-test"})
+
+    def test_prepare_opencode_matches_model_case_insensitively(self):
+        config = self._make_oc_config(models={"Doubao-Seed-Evolving": "Doubao Seed"})
+
+        argv, _, oc_info, _ = aweswitch.prepare_run(
+            config, "oc-test", ["doubao-seed-evolving"], {"OC_KEY": "sk-test"}
+        )
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/Doubao-Seed-Evolving"])
+        self.assertEqual(oc_info["model"], "Doubao-Seed-Evolving")
+
+    def test_prepare_opencode_matches_display_name_case_insensitively(self):
+        config = self._make_oc_config(models={"hub/seed-evolving": "Seed-Evolving"})
+
+        argv, _, oc_info, _ = aweswitch.prepare_run(
+            config, "oc-test", ["seed-evolving"], {"OC_KEY": "sk-test"}
+        )
+
+        self.assertEqual(argv[1:3], ["-m", "oc-test/hub/seed-evolving"])
+        self.assertEqual(oc_info["model"], "hub/seed-evolving")
+
+    def test_prepare_opencode_rejects_ambiguous_case_insensitive_match(self):
+        config = self._make_oc_config(models={"hub/a": "Seed", "hub/b": "seed"})
+
+        with self.assertRaisesRegex(SystemExit, "ambiguous model 'SEED'"):
+            aweswitch.prepare_run(config, "oc-test", ["SEED"], {"OC_KEY": "sk-test"})
 
     def test_prepare_opencode_passes_extra_args(self):
         config = self._make_oc_config(models={"mimo-v2.5-pro": "MiMo"})

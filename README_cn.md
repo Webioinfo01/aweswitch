@@ -484,7 +484,7 @@ aweswitch add
 - 需要在 `env` 中配置 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。
 - Profile name（如 `oc-glm`）作为 `~/.config/opencode/opencode.json` 中的 provider key。
 - `OPENCODE_MODEL` 支持三种格式：dict、list 或逗号分隔字符串。
-- 模型作为第一个位置参数指定：`aweswitch oc-glm glm-5.1`。
+- 模型作为第一个位置参数指定：`aweswitch oc-glm glm-5.1`。匹配不区分大小写，可按模型 ID 或显示名书写（如 `doubao-seed-evolving` 可匹配 `Doubao-Seed-Evolving`）。
 - 不指定模型时，默认使用列表中的第一个。
 - 额外参数透传给 `opencode` CLI。
 - API key 以 `{env:VAR}` 格式写入 opencode.json — 实际 key 不落盘。

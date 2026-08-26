@@ -839,7 +839,11 @@ def normalize_models(raw, profile_name, key):
 
 
 def select_model(models_dict, user_args, profile_name):
-    """Select a model ID from the first positional arg or the first configured entry."""
+    """Select a model ID from the first positional arg or the first configured entry.
+
+    Matching is exact first (ID, then display name); if nothing matches exactly,
+    IDs and display names are compared case-insensitively.
+    """
     if user_args:
         model = user_args[0]
         user_args = user_args[1:]
@@ -849,6 +853,13 @@ def select_model(models_dict, user_args, profile_name):
         return model, user_args
 
     matching_ids = [model_id for model_id, display_name in models_dict.items() if display_name == model]
+    if not matching_ids:
+        lowered = model.lower()
+        matching_ids = [
+            model_id
+            for model_id, display_name in models_dict.items()
+            if model_id.lower() == lowered or display_name.lower() == lowered
+        ]
     if len(matching_ids) == 1:
         return matching_ids[0], user_args
     if matching_ids:

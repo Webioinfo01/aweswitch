@@ -473,7 +473,7 @@ This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `
 ### Codex Profiles
 
 - Requires `OPENAI_BASE_URL` and `OPENAI_API_KEY` in `env`.
-- Optionally set `OPENAI_MODEL` (dict, list, or comma-separated string) to pick a model at launch: `aweswitch <profile> [model]`. The first entry is the default; without the key, the profile only switches the API source and the first positional argument passes through to `codex` as usual.
+- Optionally set `OPENAI_MODEL` (dict, list, or comma-separated string) to pick a model at launch: `aweswitch <profile> [model]`. The first entry is the default; matching is case-insensitive. Without the key, the profile only switches the API source and the first positional argument passes through to `codex` as usual.
 - Base URL is injected via `-c model_providers.custom.base_url=...`, the model via `-c model=...` (no file writes).
 - API key is injected via environment variable (no writes to `~/.codex/auth.json`).
 - Extra arguments are passed through to the `codex` CLI.
@@ -514,7 +514,7 @@ aweswitch add
 - Requires `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in `env`.
 - The profile name (e.g. `oc-glm`) is used as the provider key in `~/.config/opencode/opencode.json`.
 - `OPENCODE_MODEL` supports three formats: dict, list, or comma-separated string.
-- Model is specified as the first positional argument: `aweswitch oc-glm glm-5.1`.
+- Model is specified as the first positional argument: `aweswitch oc-glm glm-5.1`. Matching is case-insensitive against both model IDs and display names (e.g. `doubao-seed-evolving` selects `Doubao-Seed-Evolving`).
 - If no model is given, the first model in the list is used as default.
 - Extra arguments are passed through to the `opencode` CLI.
 - API key is written to `opencode.json` as `{env:VAR}` — the actual key is never stored on disk.
