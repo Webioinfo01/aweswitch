@@ -1,5 +1,21 @@
 # change log
 
+## v0.4.7
+
+`v0.4.7` adds case-insensitive model matching: typing `aweswitch cx-aihubmix GPT` now finds `gpt-5.2-codex` instead of demanding an exact replica of the ID or display name.
+
+### Case-insensitive model matching
+
+When launching with a model argument, `select_model` first tries an exact match against model IDs and display names (unchanged). If nothing matches exactly, a case-insensitive comparison runs as a fallback across both model IDs and display names. This lets users type model names the way they'd naturally say them — `GPT-5.2-CODEX`, `doubao-seed-evolving`, `SEED` — without needing to match the exact casing configured in the profile.
+
+Ambiguous case-insensitive matches still fail with the same actionable error as before, listing the candidates that matched.
+
+### Highlights
+
+- Launch args match model IDs and display names case-insensitively as a fallback after exact match fails
+- No change to exact-match-first behavior; case-insensitive is a second pass
+- Ambiguous case-insensitive matches are rejected with the list of candidates
+
 ## v0.4.6
 
 `v0.4.6` makes bulk OpenCode apply explicit: bare `aweswitch apply` no longer implicitly writes every OpenCode profile — use `aweswitch apply --opencode` instead, so the default behavior is always intentional.
