@@ -255,7 +255,7 @@ def opencode_session_last_model(session_id):
     if not db.exists():
         return None
     try:
-        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=0.5)
+        conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=0.5)
         try:
             # opencode accepts partial session ids; mirror that with a prefix
             # lookup that must resolve to exactly one session.
@@ -1081,7 +1081,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json); no arguments applies every opencode profile.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():

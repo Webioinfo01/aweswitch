@@ -296,18 +296,25 @@ Do not run this command yourself — tell the user to run it in their terminal.
 
 ### Option B: Apply mode — persistent default
 
-Write the profile's env to `~/.claude/settings.json`. All new claude sessions use this profile. The user can switch models within a session via `/model`.
+Write the profile into the agent's own config so it becomes the persistent default:
+
+- Claude: env -> `~/.claude/settings.json`; switch models within a session via `/model`
+- Codex: provider + model -> `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
+- OpenCode: provider entry + full model list -> `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing)
 
 ```bash
-aweswitch apply <profile-name>
+aweswitch apply <profile-name>      # one profile (any provider)
+aweswitch apply                     # every OpenCode profile at once
 ```
 
-Then restart the session or use `/model` to pick the new model.
+Claude and Codex keep a single active default (one profile of each per call); OpenCode profiles coexist and accept bulk.
 
-To undo:
+Then restart the session (Claude: or use `/model`) to pick the new model.
+
+To undo Claude changes:
 
 ```bash
-aweswitch restore
+aweswitch config restore
 ```
 
 ### When to recommend which
@@ -348,8 +355,9 @@ aweswitch <profile> [extra args]  # pass extra args through to the agent
 Apply commands (safe to run in agent):
 
 ```bash
-aweswitch apply <profile>         # write profile env to settings.json (apply mode)
-aweswitch restore                 # restore settings.json from backup
+aweswitch apply [profiles...]      # write into the agent's own config (all providers)
+aweswitch config backup            # back up Claude settings.json on demand
+aweswitch config restore [file]    # restore settings.json from default or explicit backup
 ```
 
 ---
