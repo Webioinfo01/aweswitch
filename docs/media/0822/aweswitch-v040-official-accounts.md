@@ -129,4 +129,4 @@ awewarm 是 aweteam 生态的一部分：
 - **[awerouter](https://github.com/mugpeng/awerouter)** — 智能路由器，用结构信号把请求分给 Flash 或 Pro 模型
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — AI 编程会话管理器，按 profile 恢复现场
 - **[aweshare](https://github.com/wehuman01/aweshare)** — 本地优先的 AI 能力中继：共享你的 GPU 和 API key，但 key 不出门
-- **[awewarm](https://github.com/mugpeng/awewarm)** — 订阅窗口保温器，让 AI 编程套餐的窗口 predictable 地开着
+- **[awewarm](https://github.com/wehuman01/awewarm)** — 订阅窗口保温器，让 AI 编程套餐的窗口 predictable 地开着
