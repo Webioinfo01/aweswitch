@@ -1,5 +1,18 @@
 # change log
 
+## v0.5.0
+
+`v0.5.0` restores compatibility with codex 0.150+: launching any codex profile (`aweswitch cx-...`) failed with `model_providers.custom: provider name must not be empty` because the launch path injected the provider without a `name`.
+
+### Codex 0.150 compatibility
+
+codex 0.150 added a validation requiring every `model_providers` entry to carry a non-empty `name`. The apply path already wrote `name = "custom"` into `config.toml`, but the launch path's `-c` injection only carried `base_url` / `wire_api` / `env_key`, so every launch died at config load. Launches now inject `model_providers.custom.name="custom"` as well — the field is a long-standing provider key, so older codex versions accept it unchanged.
+
+### Highlights
+
+- Codex profile launches work again on codex 0.150+ (provider `name` injected via `-c`, matching what apply writes)
+- Test suite runs on Python 3.9 without `tomllib`
+
 ## v0.4.8
 
 `v0.4.8` completes the v0.4.7 model-matching promise: typing `aweswitch cx-aihubmix GPT` now actually finds `gpt-5.2-codex`. Short inputs match as case-insensitive substrings of model IDs and display names, instead of demanding a full exact replica.
