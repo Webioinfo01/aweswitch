@@ -1,5 +1,22 @@
 # change log
 
+## v0.5.1
+
+`v0.5.1` lets OpenCode profiles speak the OpenAI Responses API: some backends only accept `/responses`, and until now every aweswitch-managed provider was pinned to chat completions.
+
+### Responses API support for OpenCode profiles
+
+`OPENCODE_RESPONSES` switches the provider's npm package between the default `@ai-sdk/openai-compatible` (chat completions, `/chat/completions`) and `@ai-sdk/openai` (Responses API, `/responses`) when set to true. Backends whose models only speak the Responses protocol now work without hand-editing `opencode.json`. The flag is owned by aweswitch like the other provider fields: launch and `aweswitch apply` both rewrite it when it differs, so clearing it reverts the provider to the chat package, and hand-set vendor SDK npm values are never touched.
+
+`OPENCODE_RESPONSES_MODEL` is the mixed-protocol escape hatch: a comma-separated string or list of model IDs that get a per-model Responses override (`"provider": {"npm": "@ai-sdk/openai"}` on that model entry) while the rest of the provider stays on chat. Every ID must exist in `OPENCODE_MODEL` — a mismatch is rejected as a config typo. Clearing the list removes the stale overrides on the next sync. Orphan detection now recognizes both openai packages, so providers created in Responses mode are still reported and pruned correctly after a profile is renamed or deleted.
+
+### Highlights
+
+- New `OPENCODE_RESPONSES` env var: switch a whole OpenCode provider between chat completions and the Responses API
+- New `OPENCODE_RESPONSES_MODEL` env var: per-model Responses overrides for mixed-protocol backends
+- Both flags sync on launch and `aweswitch apply`; clearing them reverts cleanly
+- Hand-written provider/model entries with a vendor npm are never modified
+
 ## v0.5.0
 
 `v0.5.0` restores compatibility with codex 0.150+: launching any codex profile (`aweswitch cx-...`) failed with `model_providers.custom: provider name must not be empty` because the launch path injected the provider without a `name`.
