@@ -33,7 +33,7 @@ aweswitch cc-glm glm-5.2         # 该精确时就精确
 
 ## v0.5.1：OpenCode 也能讲 Responses 了
 
-背景一句话：同一个 OpenAI 生态其实有两种"方言"——主流的 Chat Completions（`/chat/completions`），和新一点的 Responses（`/responses`）。OpenCode 靠 npm 包决定讲哪种：`@ai-sdk/openai-compatible` 是 chat，`@ai-sdk/openai` 是 Responses。
+同一个 OpenAI 生态其实有两种"方言"——主流的 Chat Completions（`/chat/completions`），和新一点的 Responses（`/responses`）。OpenCode 靠 npm 包决定讲哪种：`@ai-sdk/openai-compatible` 是 chat，`@ai-sdk/openai` 是 Responses。
 
 aweswitch 以前写死的都是前者。v0.5.1 起加一个环境变量就能换：
 
