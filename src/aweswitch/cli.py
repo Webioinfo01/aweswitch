@@ -935,6 +935,8 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         if model:
             argv += ["-c", f'model="{model}"']
         argv += ["-c", f'model_provider="custom"']
+        # codex >= 0.150 rejects providers without a non-empty name.
+        argv += ["-c", f'model_providers.custom.name="{CODEX_PROVIDER_KEY}"']
         argv += ["-c", f'model_providers.custom.base_url="{base_url}"']
         argv += ["-c", f'model_providers.custom.wire_api="responses"']
         argv += ["-c", f'model_providers.custom.env_key="OPENAI_API_KEY"']

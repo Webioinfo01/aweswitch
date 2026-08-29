@@ -553,6 +553,7 @@ class AweSwitchTests(unittest.TestCase):
 
         self.assertEqual(argv[0], "codex")
         self.assertIn('model="kimi-k2.7"', self._c_args(argv))
+        self.assertIn('model_providers.custom.name="custom"', self._c_args(argv))
         self.assertIn('model_providers.custom.env_key="OPENAI_API_KEY"', self._c_args(argv))
         self.assertEqual(env["OPENAI_API_KEY"], "sk-test")
 
