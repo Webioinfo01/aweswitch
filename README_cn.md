@@ -379,7 +379,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 ### aweswitch 支持 OpenCode 吗？
 
-支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
+支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`（另有可选的 `OPENCODE_NAME` 和 `OPENCODE_RESPONSES`）。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
 
 Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动只会把当次模型增量写入 `opencode.json`；修改配置后用 `aweswitch apply oc-glm` 全量 upsert 该 provider（`aweswitch apply --opencode` 则全部应用）。
 
@@ -520,6 +520,10 @@ aweswitch add
 | String | `"glm-5.1,glm-5.2"` | 使用 key（`glm-5.1`） |
 
 `OPENCODE_NAME`（可选）设置 opencode.json 中 provider 的显示名称。默认使用 profile name。
+
+`OPENCODE_RESPONSES`（可选）切换 provider 使用的协议。默认使用 `@ai-sdk/openai-compatible`（OpenAI Chat Completions，`/chat/completions`）；设为 `true` 则改用 `@ai-sdk/openai`（OpenAI Responses API，`/responses`）——适用于只讲 Responses 协议的后端。对 profile 中所有模型生效。取值只能是字符串 `true`/`1`/`yes`/`on`、`false`/`0`/`no`/`off`、JSON 布尔值 `true`/`false`，或直接省略该字段——其他任何值都会被当作配置笔误拒绝。该标志在 launch 和 `aweswitch apply` 时都会同步，清除后会回退为 chat 包。
+
+`OPENCODE_RESPONSES_MODEL`（可选）是混合协议的逃生舱：逗号分隔的字符串或模型 ID 列表（必须都存在于 `OPENCODE_MODEL` 中），这些模型会带上单模型 Responses 覆盖（对应模型条目上写 `"provider": {"npm": "@ai-sdk/openai"}`），其余模型仍走 chat。仅在 `OPENCODE_RESPONSES` 为 false 时有意义——标志打开时整个 provider 已走 Responses，列表是多余的。清空列表后，下次同步会移除过期的覆盖；手动设置的 vendor npm 不会被改动。
 
 启动：
 

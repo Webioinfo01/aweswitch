@@ -111,10 +111,17 @@ def write_opencode_config(data):
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
+# The two AI SDK packages aweswitch may write for an opencode provider:
+# chat completions by default, or the OpenAI Responses API when a profile
+# sets OPENCODE_RESPONSES. Both shape-match as aweswitch-owned entries.
+OPENCODE_NPM_CHAT = "@ai-sdk/openai-compatible"
+OPENCODE_NPM_RESPONSES = "@ai-sdk/openai"
+
+
+def build_opencode_provider_entry(base_url, api_key, name="aweswitch", responses=False):
     return {
         "name": name,
-        "npm": "@ai-sdk/openai-compatible",
+        "npm": OPENCODE_NPM_RESPONSES if responses else OPENCODE_NPM_CHAT,
         "options": {
             "apiKey": api_key,
             "baseURL": base_url,
@@ -148,6 +155,79 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
+def _opencode_responses_flag(raw):
+    """Parse OPENCODE_RESPONSES: enable the Responses API for the whole provider.
+
+    A boolean or one of the common truthy spellings enables it; absent, empty,
+    or an explicit falsy value keeps the chat-completions default. Anything
+    else is a config typo, so die instead of guessing.
+    """
+    if raw is None or raw is False or raw == "":
+        return False
+    if raw is True:
+        return True
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+    die(f"OPENCODE_RESPONSES must be true or false (or omitted), got: {raw!r}")
+
+
+def _opencode_responses_models(raw, models_dict, profile_name):
+    """Parse OPENCODE_RESPONSES_MODEL: model IDs that get a per-model Responses
+    npm override (@ai-sdk/openai) while the rest of the provider stays on chat.
+
+    Accepts a comma-separated string or a list of IDs. Every ID must exist in
+    OPENCODE_MODEL — a mismatch is a config typo, not something to ignore.
+    """
+    if raw is None or raw == "" or raw == []:
+        return set()
+    if isinstance(raw, str):
+        ids = raw.split(",")
+    elif isinstance(raw, list) and all(isinstance(m, str) for m in raw):
+        ids = list(raw)
+    else:
+        die(f"OPENCODE_RESPONSES_MODEL must be a comma-separated string or a list of "
+            f"model IDs for profile: {profile_name}")
+    ids = {m.strip() for m in ids if m.strip()}
+    unknown = sorted(ids - set(models_dict))
+    if unknown:
+        die(f"OPENCODE_RESPONSES_MODEL lists models missing from OPENCODE_MODEL "
+            f"for {profile_name}: {', '.join(unknown)}")
+    return ids
+
+
+def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
+    """Add/remove the per-model Responses npm override on the named models.
+
+    Only iterates model_ids (the set this call manages), so an additive launch
+    never strips overrides from other models. Removal only deletes an npm value
+    aweswitch itself would have written — a hand-set vendor npm stays.
+    Returns True when anything changed.
+    """
+    changed = False
+    for model_id in model_ids:
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        prov = entry.get("provider")
+        if model_id in responses_models:
+            if not isinstance(prov, dict):
+                prov = {}
+                entry["provider"] = prov
+            if prov.get("npm") != OPENCODE_NPM_RESPONSES:
+                prov["npm"] = OPENCODE_NPM_RESPONSES
+                changed = True
+        elif isinstance(prov, dict) and prov.get("npm") == OPENCODE_NPM_RESPONSES:
+            del prov["npm"]
+            if not prov:
+                del entry["provider"]
+            changed = True
+    return changed
+
+
 def opencode_model_display_name(model_id, model_name):
     """Namespaced model IDs (producer/model, e.g. hub/x) display as the full ID.
 
@@ -162,16 +242,25 @@ def opencode_model_display_name(model_id, model_name):
 
 
 def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
-                             display_name=None, prune=False):
+                             display_name=None, prune=False, responses=False,
+                             responses_models=None):
     """Ensure provider+models exist in opencode.json, synced to the aweswitch config.
 
     The provider entry is owned by aweswitch (its name is the profile name), so
     stale credentials and display names are updated to match the config instead
     of rejected. Launch passes only the selected model (additive); `aweswitch
     apply` passes the full list with prune=True so the entry matches the config
-    exactly. Returns "created", "updated", or "unchanged".
+    exactly. `responses` selects the npm package (OPENCODE_RESPONSES); like the
+    other owned fields it is rewritten when it differs, but only between the
+    two openai packages — a hand-set vendor SDK npm is left alone.
+    `responses_models` (OPENCODE_RESPONSES_MODEL) stamps a per-model Responses
+    npm override on those models and removes stale ones; it only touches the
+    models passed in `models`.
+    Returns "created", "updated", or "unchanged".
     """
     name = display_name or provider_name
+    desired_npm = OPENCODE_NPM_RESPONSES if responses else OPENCODE_NPM_CHAT
+    responses_models = responses_models or set()
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
     existing = providers.get(provider_name)
@@ -191,6 +280,10 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         if existing.get("name") != name:
             existing["name"] = name
             status = "updated"
+        if (existing.get("npm") in (OPENCODE_NPM_CHAT, OPENCODE_NPM_RESPONSES)
+                and existing.get("npm") != desired_npm):
+            existing["npm"] = desired_npm
+            status = "updated"
         models_dict = existing.setdefault("models", {})
         if not isinstance(models_dict, dict):
             models_dict = {}
@@ -205,6 +298,8 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             if entry_model.get("name") != display:
                 entry_model["name"] = display
                 status = "updated"
+        if _stamp_opencode_responses_models(models_dict, models, responses_models):
+            status = "updated"
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
                 del models_dict[model_id]
@@ -212,11 +307,13 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         if status != "unchanged":
             write_opencode_config(oc_config)
     else:
-        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name,
+                                              responses=responses)
         entry["models"] = {
             model_id: {"name": opencode_model_display_name(model_id, model_name)}
             for model_id, model_name in models.items()
         }
+        _stamp_opencode_responses_models(entry["models"], models, responses_models)
         providers[provider_name] = entry
         write_opencode_config(oc_config)
         status = "created"
@@ -255,15 +352,20 @@ def sync_opencode_profiles(config, names=None):
             _opencode_api_key_ref(api_key_raw),
             models_dict,
             profile_env.get("OPENCODE_NAME") or name,
+            _opencode_responses_flag(profile_env.get("OPENCODE_RESPONSES")),
+            _opencode_responses_models(profile_env.get("OPENCODE_RESPONSES_MODEL"),
+                                       models_dict, name),
         ))
     return [
         (
             name,
             ensure_opencode_provider(base_url, api_key_ref, name, models,
-                                     display_name=display_name, prune=True),
+                                     display_name=display_name, prune=True,
+                                     responses=responses,
+                                     responses_models=responses_models),
             len(models),
         )
-        for name, base_url, api_key_ref, models, display_name in specs
+        for name, base_url, api_key_ref, models, display_name, responses, responses_models in specs
     ]
 
 
@@ -272,10 +374,10 @@ def find_orphan_opencode_providers(config):
 
     An orphan is a provider no opencode profile in the aweswitch config backs
     anymore — typically a renamed or deleted profile. Only entries shaped like
-    build_opencode_provider_entry output (openai-compatible + setCacheKey)
-    count, so hand-written providers are never reported or pruned. Old
-    sessions pinned to an orphan's models keep sending those model IDs
-    upstream, which breaks when the upstream renames them.
+    build_opencode_provider_entry output (one of the two openai npm packages
+    plus setCacheKey) count, so hand-written providers are never reported or
+    pruned. Old sessions pinned to an orphan's models keep sending those model
+    IDs upstream, which breaks when the upstream renames them.
     """
     managed = kind_group(config, "api").get("opencode") or {}
     providers = load_opencode_config()["provider"]
@@ -284,7 +386,7 @@ def find_orphan_opencode_providers(config):
         if name in managed or not isinstance(entry, dict):
             continue
         opts = entry.get("options")
-        if (entry.get("npm") == "@ai-sdk/openai-compatible"
+        if (entry.get("npm") in (OPENCODE_NPM_CHAT, OPENCODE_NPM_RESPONSES)
                 and isinstance(opts, dict) and opts.get("setCacheKey") is True):
             orphans[name] = entry
     return orphans
@@ -965,6 +1067,9 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "model": model,
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
             "model_display_name": models_dict.get(model, model),
+            "responses": _opencode_responses_flag(profile_env.get("OPENCODE_RESPONSES")),
+            "responses_models": sorted(_opencode_responses_models(
+                profile_env.get("OPENCODE_RESPONSES_MODEL"), models_dict, profile_name)),
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
         argv += user_args
@@ -1745,6 +1850,8 @@ def run_profile(ctx, category, title):
             oc_write_info["provider_name"],
             {oc_write_info["model"]: oc_write_info["model_display_name"]},
             display_name=oc_write_info["display_name"],
+            responses=oc_write_info["responses"],
+            responses_models=set(oc_write_info["responses_models"]),
         )
     if account_info is not None:
         ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])

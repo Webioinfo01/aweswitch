@@ -971,6 +971,43 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(oc_info["api_key_ref"], "sk-test")
             self.assertIn("tip: OPENCODE_API_KEY is a plain value", mock_stderr.getvalue())
 
+    def test_prepare_opencode_carries_responses_flag(self):
+        config = self._make_oc_config()
+        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_RESPONSES"] = True
+
+        _, _, oc_info, _ = aweswitch.prepare_run(config, "oc-test", [], {"OC_KEY": "sk-test"})
+
+        self.assertTrue(oc_info["responses"])
+
+    def test_prepare_opencode_responses_flag_defaults_to_false(self):
+        config = self._make_oc_config()
+
+        _, _, oc_info, _ = aweswitch.prepare_run(config, "oc-test", [], {"OC_KEY": "sk-test"})
+
+        self.assertFalse(oc_info["responses"])
+
+    def test_prepare_opencode_carries_responses_model_list(self):
+        config = self._make_oc_config(models={"peng1/x": "x", "peng1/y": "y"})
+        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_RESPONSES_MODEL"] = "peng1/x"
+
+        _, _, oc_info, _ = aweswitch.prepare_run(config, "oc-test", ["peng1/x"], {"OC_KEY": "sk-test"})
+
+        self.assertEqual(oc_info["responses_models"], ["peng1/x"])
+
+    def test_prepare_opencode_rejects_responses_model_missing_from_opencode_model(self):
+        config = self._make_oc_config()
+        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_RESPONSES_MODEL"] = "glm-nope"
+
+        with self.assertRaisesRegex(SystemExit, "missing from OPENCODE_MODEL"):
+            aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {"OC_KEY": "sk-test"})
+
+    def test_prepare_opencode_rejects_bad_responses_flag(self):
+        config = self._make_oc_config()
+        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_RESPONSES"] = "chat"
+
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_RESPONSES must be true or false"):
+            aweswitch.prepare_run(config, "oc-test", ["glm-5.1"], {"OC_KEY": "sk-test"})
+
     def _make_oc_db(self, tmp, session_id, user_models):
         """Create a minimal opencode.db: one session plus user messages.
 
@@ -1296,6 +1333,246 @@ class AweSwitchTests(unittest.TestCase):
 
             self.assertEqual(oc_path.read_text(), original)
 
+    def test_ensure_opencode_provider_responses_flag_selects_openai_npm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://new.com/v1",
+                                                            "{env:KEY}", "oc-resp", {"m-1": "m-1"},
+                                                            responses=True)
+
+            self.assertEqual(status, "created")
+            prov = json.loads(oc_path.read_text())["provider"]["oc-resp"]
+            self.assertEqual(prov["npm"], "@ai-sdk/openai")
+
+    def test_ensure_opencode_provider_switches_existing_npm_to_responses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-resp": {
+                    "name": "oc-resp",
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
+                    "models": {"m-1": {"name": "m-1"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://x/v1",
+                                                            "{env:KEY}", "oc-resp", {"m-1": "m-1"},
+                                                            responses=True)
+
+            self.assertEqual(status, "updated")
+            prov = json.loads(oc_path.read_text())["provider"]["oc-resp"]
+            self.assertEqual(prov["npm"], "@ai-sdk/openai")
+
+    def test_ensure_opencode_provider_reverts_responses_npm_when_flag_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-chat": {
+                    "name": "oc-chat",
+                    "npm": "@ai-sdk/openai",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
+                    "models": {"m-1": {"name": "m-1"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://x/v1",
+                                                            "{env:KEY}", "oc-chat", {"m-1": "m-1"})
+
+            self.assertEqual(status, "updated")
+            prov = json.loads(oc_path.read_text())["provider"]["oc-chat"]
+            self.assertEqual(prov["npm"], "@ai-sdk/openai-compatible")
+
+    def test_ensure_opencode_provider_leaves_foreign_npm_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-anthropic": {
+                    "name": "oc-anthropic",
+                    "npm": "@ai-sdk/anthropic",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}"},
+                    "models": {"m-1": {"name": "m-1"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://x/v1",
+                                                            "{env:KEY}", "oc-anthropic", {"m-1": "m-1"},
+                                                            responses=True)
+
+            self.assertEqual(status, "unchanged")
+            prov = json.loads(oc_path.read_text())["provider"]["oc-anthropic"]
+            self.assertEqual(prov["npm"], "@ai-sdk/anthropic")
+
+    def test_opencode_responses_flag_parsing(self):
+        self.assertFalse(aweswitch._opencode_responses_flag(None))
+        self.assertFalse(aweswitch._opencode_responses_flag(False))
+        self.assertFalse(aweswitch._opencode_responses_flag(""))
+        self.assertFalse(aweswitch._opencode_responses_flag("false"))
+        self.assertFalse(aweswitch._opencode_responses_flag(" off "))
+        self.assertTrue(aweswitch._opencode_responses_flag(True))
+        self.assertTrue(aweswitch._opencode_responses_flag("true"))
+        self.assertTrue(aweswitch._opencode_responses_flag(" YES "))
+        with self.assertRaisesRegex(SystemExit, "OPENCODE_RESPONSES must be true or false"):
+            aweswitch._opencode_responses_flag("chat")
+
+    def test_opencode_responses_models_parsing(self):
+        models = {"peng1/x": "x", "peng1/y": "y"}
+        parse = lambda raw: aweswitch._opencode_responses_models(raw, models, "oc-t")
+        self.assertEqual(parse(None), set())
+        self.assertEqual(parse(""), set())
+        self.assertEqual(parse([]), set())
+        self.assertEqual(parse("peng1/x"), {"peng1/x"})
+        self.assertEqual(parse(" peng1/x , peng1/y "), {"peng1/x", "peng1/y"})
+        self.assertEqual(parse(["peng1/y"]), {"peng1/y"})
+        with self.assertRaisesRegex(SystemExit, "missing from OPENCODE_MODEL"):
+            parse("peng1/x, peng1/typo")
+        with self.assertRaisesRegex(SystemExit, "comma-separated string or a list"):
+            parse({"peng1/x": "x"})
+
+    def test_ensure_opencode_provider_stamps_per_model_responses_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider(
+                    "https://x/v1", "{env:KEY}", "oc-mix",
+                    {"peng1/x": "x", "peng1/y": "y"},
+                    responses_models={"peng1/x"})
+
+            self.assertEqual(status, "created")
+            models = json.loads(oc_path.read_text())["provider"]["oc-mix"]["models"]
+            self.assertEqual(models["peng1/x"]["provider"], {"npm": "@ai-sdk/openai"})
+            self.assertNotIn("provider", models["peng1/y"])
+            self.assertEqual(
+                json.loads(oc_path.read_text())["provider"]["oc-mix"]["npm"],
+                "@ai-sdk/openai-compatible",
+            )
+
+    def test_ensure_opencode_provider_removes_stale_per_model_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-mix": {
+                    "name": "oc-mix",
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
+                    "models": {
+                        "peng1/x": {"name": "peng1/x", "provider": {"npm": "@ai-sdk/openai"}},
+                        "peng1/y": {"name": "y"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider(
+                    "https://x/v1", "{env:KEY}", "oc-mix",
+                    {"peng1/x": "x", "peng1/y": "y"})
+
+            self.assertEqual(status, "updated")
+            models = json.loads(oc_path.read_text())["provider"]["oc-mix"]["models"]
+            self.assertNotIn("provider", models["peng1/x"])
+
+    def test_ensure_opencode_provider_keeps_hand_set_model_npm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-mix": {
+                    "name": "oc-mix",
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
+                    "models": {
+                        "peng1/x": {"name": "peng1/x", "provider": {"npm": "@ai-sdk/cerebras"}},
+                        "peng1/y": {"name": "peng1/y"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider(
+                    "https://x/v1", "{env:KEY}", "oc-mix",
+                    {"peng1/x": "x", "peng1/y": "y"})
+
+            self.assertEqual(status, "unchanged")
+            models = json.loads(oc_path.read_text())["provider"]["oc-mix"]["models"]
+            self.assertEqual(models["peng1/x"]["provider"], {"npm": "@ai-sdk/cerebras"})
+
+    def test_ensure_opencode_provider_launch_additive_keeps_other_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-mix": {
+                    "name": "oc-mix",
+                    "npm": "@ai-sdk/openai-compatible",
+                    "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
+                    "models": {
+                        "peng1/x": {"name": "peng1/x", "provider": {"npm": "@ai-sdk/openai"}},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                # launch of another model (no prune, only that model managed)
+                aweswitch.ensure_opencode_provider(
+                    "https://x/v1", "{env:KEY}", "oc-mix", {"peng1/y": "y"})
+
+            models = json.loads(oc_path.read_text())["provider"]["oc-mix"]["models"]
+            self.assertEqual(models["peng1/x"]["provider"], {"npm": "@ai-sdk/openai"})
+
+    def test_sync_applies_responses_model_overrides(self):
+        config = self._make_sync_config()
+        env = config["profiles"]["api"]["opencode"]["oc-glm"]["env"]
+        env["OPENCODE_RESPONSES_MODEL"] = ["glm-5.2"]
+
+        _, data = self._sync(config)
+
+        models = data["provider"]["oc-glm"]["models"]
+        self.assertEqual(models["glm-5.2"]["provider"], {"npm": "@ai-sdk/openai"})
+        self.assertNotIn("provider", models["glm-5.1"])
+
+    def test_sync_clearing_responses_model_removes_override(self):
+        config = self._make_sync_config()
+        env = config["profiles"]["api"]["opencode"]["oc-glm"]["env"]
+        env["OPENCODE_RESPONSES_MODEL"] = ["glm-5.2"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._sync(config, oc_path=oc_path)
+
+            del env["OPENCODE_RESPONSES_MODEL"]
+            results, data = self._sync(config, oc_path=oc_path)
+
+            self.assertEqual(results[0], ("oc-glm", "updated", 2))
+            self.assertNotIn("provider", data["provider"]["oc-glm"]["models"]["glm-5.2"])
+
+    def test_sync_responses_model_overrides_are_idempotent(self):
+        config = self._make_sync_config()
+        env = config["profiles"]["api"]["opencode"]["oc-glm"]["env"]
+        env["OPENCODE_RESPONSES_MODEL"] = "glm-5.2"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._sync(config, oc_path=oc_path)
+            text_after_first = oc_path.read_text()
+
+            results, _ = self._sync(config, oc_path=oc_path)
+
+            self.assertEqual(results[0], ("oc-glm", "unchanged", 2))
+            self.assertEqual(oc_path.read_text(), text_after_first)
+
+    def test_sync_rejects_responses_model_missing_from_opencode_model(self):
+        config = self._make_sync_config()
+        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_RESPONSES_MODEL"] = "glm-nope"
+
+        with self.assertRaisesRegex(SystemExit, "missing from OPENCODE_MODEL"):
+            self._sync(config)
+
     # --- sync (opencode profiles -> opencode.json) ---
 
     def _make_sync_config(self):
@@ -1373,6 +1650,16 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(glm["options"]["baseURL"], "https://zhipu.com/v1")
             self.assertEqual(list(glm["models"]), ["glm-5.1", "glm-5.2"])
             self.assertIn("opencode", data["provider"])  # not an aweswitch profile
+
+    def test_sync_applies_responses_flag_to_npm(self):
+        config = self._make_sync_config()
+        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_RESPONSES"] = "true"
+
+        results, data = self._sync(config)
+
+        self.assertEqual(results[0], ("oc-glm", "created", 2))
+        self.assertEqual(data["provider"]["oc-glm"]["npm"], "@ai-sdk/openai")
+        self.assertEqual(data["provider"]["oc-xiaomi"]["npm"], "@ai-sdk/openai-compatible")
 
     def test_sync_named_profiles_only(self):
         results, data = self._sync(self._make_sync_config(), names=["oc-glm"])

@@ -408,7 +408,7 @@ Yes. Codex profiles use `OPENAI_BASE_URL` and `OPENAI_API_KEY` in their `env` bl
 
 ### Does aweswitch support OpenCode?
 
-Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in their `env` block. On launch, aweswitch writes the provider entry to `~/.config/opencode/opencode.json` (using `{env:VAR}` syntax so the actual key is never stored on disk), then runs `opencode -m <provider>/<model>`.
+Yes. OpenCode profiles use `OPENCODE_BASE_URL`, `OPENCODE_API_KEY`, and `OPENCODE_MODEL` in their `env` block (plus the optional `OPENCODE_NAME` and `OPENCODE_RESPONSES`). On launch, aweswitch writes the provider entry to `~/.config/opencode/opencode.json` (using `{env:VAR}` syntax so the actual key is never stored on disk), then runs `opencode -m <provider>/<model>`.
 
 The profile name (e.g. `oc-glm`) becomes the provider key in `opencode.json`. Models are specified at launch time: `aweswitch oc-glm glm-5.1`. If no model is given, the first one in the list is used. Launching only adds the launched model to `opencode.json`; after editing the config, `aweswitch apply oc-glm` upserts the provider with its full model list (`aweswitch apply --opencode` does every OpenCode profile).
 
@@ -550,6 +550,10 @@ aweswitch add
 | String | `"glm-5.1,glm-5.2"` | Uses the key (`glm-5.1`) |
 
 `OPENCODE_NAME` (optional) sets the display name for the provider in `opencode.json`. Defaults to the profile name.
+
+`OPENCODE_RESPONSES` (optional) switches the provider's wire API. By default aweswitch uses `@ai-sdk/openai-compatible` (OpenAI Chat Completions, `/chat/completions`). Set it to `true` to use `@ai-sdk/openai` (OpenAI Responses API, `/responses`) instead — for backends whose models only speak the Responses protocol. It applies to every model in the profile. Accepted values: the strings `true`/`1`/`yes`/`on` and `false`/`0`/`no`/`off`, JSON booleans `true`/`false`, or omit the field entirely — anything else is rejected as a config typo. The flag is synced on both launch and `aweswitch apply`, so clearing it reverts the provider back to the chat package.
+
+`OPENCODE_RESPONSES_MODEL` (optional) is the mixed-protocol escape hatch: a comma-separated string or list of model IDs (must all exist in `OPENCODE_MODEL`) that get a per-model Responses override (`"provider": {"npm": "@ai-sdk/openai"}` on that model entry) while the rest of the provider stays on chat. It only matters when `OPENCODE_RESPONSES` is false — with the flag on, the whole provider already uses Responses and the list is redundant. Clearing the list removes the stale overrides on the next sync; a hand-set vendor npm on a model is never touched.
 
 Launch:
 
