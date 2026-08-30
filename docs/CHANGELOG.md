@@ -6,7 +6,7 @@
 
 ### `OPENCODE_RESPONSES_MODEL` stands alone, `OPENCODE_RESPONSES` removed
 
-`OPENCODE_MODEL` is no longer required when `OPENCODE_RESPONSES_MODEL` is set — the responses list becomes the profile's full model list, with every model running on the Responses API (`@ai-sdk/openai`). Mixing is still supported: set both fields to keep the rest of the models on chat completions. A profile with neither field is rejected.
+`OPENCODE_MODEL` is no longer required when `OPENCODE_RESPONSES_MODEL` is set — the two fields have equal standing, so the responses list becomes the profile's full model list, with every model running on the Responses API (`@ai-sdk/openai`). Mixing is still supported: set both fields to keep the rest of the models on chat completions. A profile with neither field is rejected. Model order is deterministic: `OPENCODE_MODEL`'s order leads the merged list when present, responses-only models are appended in configured order, and the no-arg launch default follows that order.
 
 The `OPENCODE_RESPONSES` boolean is removed. Profiles that set it no longer switch the whole provider to `@ai-sdk/openai`; a provider entry still carrying the responses npm from an older version is reset to `@ai-sdk/openai-compatible` on the next launch or `aweswitch apply`, and per-model overrides from `OPENCODE_RESPONSES_MODEL` are stamped on top. Hand-set vendor npm values are never touched.
 

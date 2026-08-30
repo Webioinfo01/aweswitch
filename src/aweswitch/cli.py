@@ -159,11 +159,13 @@ def _opencode_api_key_ref(raw):
 def _opencode_responses_models(raw, profile_name):
     """Parse OPENCODE_RESPONSES_MODEL: model IDs that use the Responses API.
 
-    Accepts a comma-separated string or a list of IDs. Returns a set of model
-    IDs, or an empty set if absent/empty.
+    Accepts a comma-separated string or a list of IDs. Returns a list of model
+    IDs preserving the configured order (deduplicated) so the merged model
+    dict — and with it the no-arg default model — is deterministic, or an
+    empty list if absent/empty.
     """
     if raw is None or raw == "" or raw == []:
-        return set()
+        return []
     if isinstance(raw, str):
         ids = raw.split(",")
     elif isinstance(raw, list) and all(isinstance(m, str) for m in raw):
@@ -171,20 +173,25 @@ def _opencode_responses_models(raw, profile_name):
     else:
         die(f"OPENCODE_RESPONSES_MODEL must be a comma-separated string or a list of "
             f"model IDs for profile: {profile_name}")
-    return {m.strip() for m in ids if m.strip()}
+    return list(dict.fromkeys(m.strip() for m in ids if m.strip()))
 
 
 def _merge_opencode_models(chat_raw, responses_raw, profile_name):
     """Merge OPENCODE_MODEL and OPENCODE_RESPONSES_MODEL into one {id: name} dict.
 
-    At least one must be non-empty. OPENCODE_MODEL wins on display-name conflicts.
+    At least one must be non-empty; the two fields have equal standing, so
+    either alone is a complete model list. OPENCODE_MODEL's order leads the
+    merged dict (a no-arg launch keeps defaulting to its first entry), and
+    responses models not in OPENCODE_MODEL are appended in configured order
+    with the ID as display name.
     """
     chat = normalize_models_opt(chat_raw)
     resp = _opencode_responses_models(responses_raw, profile_name)
     if not chat and not resp:
         die(f"OPENCODE_MODEL or OPENCODE_RESPONSES_MODEL is required for {profile_name}")
-    merged = {m: m for m in resp}
-    merged.update(chat)
+    merged = dict(chat)
+    for model_id in resp:
+        merged.setdefault(model_id, model_id)
     return merged, resp
 
 
@@ -1062,7 +1069,7 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "model": model,
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
             "model_display_name": models_dict.get(model, model),
-            "responses_models": sorted(responses_models),
+            "responses_models": list(responses_models),
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
         argv += user_args

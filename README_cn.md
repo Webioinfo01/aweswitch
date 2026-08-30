@@ -521,7 +521,7 @@ aweswitch add
 
 `OPENCODE_NAME`（可选）设置 opencode.json 中 provider 的显示名称。默认使用 profile name。
 
-`OPENCODE_RESPONSES_MODEL`（可选）逗号分隔的字符串或模型 ID 列表，这些模型会带上单模型 Responses 覆盖（对应模型条目上写 `"provider": {"npm": "@ai-sdk/openai"}`），其余模型仍走 chat（`@ai-sdk/openai-compatible`）。省略 `OPENCODE_MODEL` 时，该列表就是 profile 的全部模型，且所有模型都走 Responses API。清空列表后，下次同步会移除过期的覆盖；手动设置的 vendor npm 不会被改动。
+`OPENCODE_RESPONSES_MODEL`（可选）逗号分隔的字符串或模型 ID 列表，这些模型会带上单模型 Responses 覆盖（对应模型条目上写 `"provider": {"npm": "@ai-sdk/openai"}`），其余模型仍走 chat（`@ai-sdk/openai-compatible`）。它与 `OPENCODE_MODEL` 地位对等：省略 `OPENCODE_MODEL` 时，该列表就是 profile 的全部模型，且所有模型都走 Responses API。模型顺序（以及无参数启动时的默认模型）以 `OPENCODE_MODEL` 为准（在配置了它的情况下）；不在 `OPENCODE_MODEL` 中的 responses 模型会追加在后面。清空列表后，下次同步会移除过期的覆盖；不在此列表中的模型，手动设置的 vendor npm 不会被改动。
 
 启动：
 

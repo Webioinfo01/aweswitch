@@ -1359,14 +1359,31 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_opencode_responses_models_parsing(self):
         parse = lambda raw: aweswitch._opencode_responses_models(raw, "oc-t")
-        self.assertEqual(parse(None), set())
-        self.assertEqual(parse(""), set())
-        self.assertEqual(parse([]), set())
-        self.assertEqual(parse("peng1/x"), {"peng1/x"})
-        self.assertEqual(parse(" peng1/x , peng1/y "), {"peng1/x", "peng1/y"})
-        self.assertEqual(parse(["peng1/y"]), {"peng1/y"})
+        self.assertEqual(parse(None), [])
+        self.assertEqual(parse(""), [])
+        self.assertEqual(parse([]), [])
+        self.assertEqual(parse("peng1/x"), ["peng1/x"])
+        self.assertEqual(parse(" peng1/x , peng1/y "), ["peng1/x", "peng1/y"])
+        self.assertEqual(parse(["peng1/y"]), ["peng1/y"])
+        self.assertEqual(parse(["b", "a", "b"]), ["b", "a"])  # order kept, deduped
         with self.assertRaisesRegex(SystemExit, "comma-separated string or a list"):
             parse({"peng1/x": "x"})
+
+    def test_merge_opencode_models_order_is_deterministic(self):
+        # responses-only profile: configured order is the model order
+        merged, resp = aweswitch._merge_opencode_models(None, ["b", "a"], "oc-t")
+        self.assertEqual(list(merged), ["b", "a"])
+        self.assertEqual(resp, ["b", "a"])
+
+        # mixed profile: OPENCODE_MODEL order leads, responses-only appended
+        merged, resp = aweswitch._merge_opencode_models(
+            {"hub/a": "A", "hub/b": "B"}, "peng1/x", "oc-t")
+        self.assertEqual(list(merged), ["hub/a", "hub/b", "peng1/x"])
+        # OPENCODE_MODEL display name wins for overlapping IDs
+        merged, resp = aweswitch._merge_opencode_models(
+            {"peng1/x": "X Display"}, "peng1/x,peng1/y", "oc-t")
+        self.assertEqual(list(merged), ["peng1/x", "peng1/y"])
+        self.assertEqual(merged["peng1/x"], "X Display")
 
     def test_ensure_opencode_provider_stamps_per_model_responses_override(self):
         with tempfile.TemporaryDirectory() as tmp:

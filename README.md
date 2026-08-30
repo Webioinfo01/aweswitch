@@ -551,7 +551,7 @@ aweswitch add
 
 `OPENCODE_NAME` (optional) sets the display name for the provider in `opencode.json`. Defaults to the profile name.
 
-`OPENCODE_RESPONSES_MODEL` (optional) is a comma-separated string or list of model IDs that get a per-model Responses override (`"provider": {"npm": "@ai-sdk/openai"}` on that model entry) while the rest of the provider stays on chat (`@ai-sdk/openai-compatible`). When `OPENCODE_MODEL` is omitted, this list is the profile's full model list and every model runs on the Responses API. Clearing the list removes the stale overrides on the next sync; a hand-set vendor npm on a model is never touched.
+`OPENCODE_RESPONSES_MODEL` (optional) is a comma-separated string or list of model IDs that get a per-model Responses override (`"provider": {"npm": "@ai-sdk/openai"}` on that model entry) while the rest of the provider stays on chat (`@ai-sdk/openai-compatible`). It has equal standing with `OPENCODE_MODEL`: when `OPENCODE_MODEL` is omitted, this list is the profile's full model list and every model runs on the Responses API. Model order — and with it the no-arg default launch model — follows `OPENCODE_MODEL` when present; responses models not in `OPENCODE_MODEL` are appended after it. Clearing the list removes the stale overrides on the next sync; a hand-set vendor npm on a model not listed here is never touched.
 
 Launch:
 
