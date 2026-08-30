@@ -131,7 +131,8 @@ Profiles split by kind first, then by provider. `api` holds env-based profiles; 
             "OPENCODE_BASE_URL": "<url>",
             "OPENCODE_API_KEY": "${ENV_VAR_NAME}",
             "OPENCODE_NAME": "<display-name>",
-            "OPENCODE_MODEL": "<model-id-or-list>"
+            "OPENCODE_MODEL": "<model-id-or-list>",
+            "OPENCODE_RESPONSES_MODEL": "<model-id-or-list>"
           }
         }
       }
@@ -156,7 +157,7 @@ Names must be unique across the whole `profiles` tree (api and accounts). Pre-0.
 |-------|--------|-------|----------|
 | Base URL | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` | `OPENCODE_BASE_URL` |
 | Auth token | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` | `OPENCODE_API_KEY` |
-| Model | `ANTHROPIC_MODEL` | `OPENAI_MODEL` (list/dict/string, optional) | `OPENCODE_MODEL` (list/dict/string) |
+| Model | `ANTHROPIC_MODEL` | `OPENAI_MODEL` (list/dict/string, optional) | `OPENCODE_MODEL` or `OPENCODE_RESPONSES_MODEL` (at least one required) |
 | Injection | `--settings` temp file | `-c` flag + env var | writes to `~/.config/opencode/opencode.json` via `{env:VAR}` |
 
 ### Naming convention
@@ -192,7 +193,8 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 - `OPENCODE_BASE_URL` — provider API endpoint
 - `OPENCODE_API_KEY` — token env var name (use `${VAR}` reference)
 - `OPENCODE_NAME` — optional display name (defaults to profile name)
-- `OPENCODE_MODEL` — models as comma-separated string, list, or dict mapping
+- `OPENCODE_MODEL` — chat models as comma-separated string, list, or dict mapping (optional when `OPENCODE_RESPONSES_MODEL` is set)
+- `OPENCODE_RESPONSES_MODEL` — responses models as comma-separated string, list, or dict mapping (optional when `OPENCODE_MODEL` is set; at least one of the two is required)
 
 ```json
 {
@@ -204,7 +206,7 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
             "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
             "OPENCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
             "OPENCODE_NAME": "Zhipu GLM",
-            "OPENCODE_MODEL": ["glm-5.1", "glm-5.2"]
+            "OPENCODE_RESPONSES_MODEL": ["glm-5.1", "glm-5.2"]
           }
         }
       }
