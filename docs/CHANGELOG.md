@@ -1,5 +1,21 @@
 # change log
 
+## v0.5.2
+
+`v0.5.2` simplifies OpenCode Responses configuration to a single knob: `OPENCODE_RESPONSES_MODEL` now works on its own, and the provider-wide `OPENCODE_RESPONSES` flag is gone.
+
+### `OPENCODE_RESPONSES_MODEL` stands alone, `OPENCODE_RESPONSES` removed
+
+`OPENCODE_MODEL` is no longer required when `OPENCODE_RESPONSES_MODEL` is set — the responses list becomes the profile's full model list, with every model running on the Responses API (`@ai-sdk/openai`). Mixing is still supported: set both fields to keep the rest of the models on chat completions. A profile with neither field is rejected.
+
+The `OPENCODE_RESPONSES` boolean is removed. Profiles that set it no longer switch the whole provider to `@ai-sdk/openai`; a provider entry still carrying the responses npm from an older version is reset to `@ai-sdk/openai-compatible` on the next launch or `aweswitch apply`, and per-model overrides from `OPENCODE_RESPONSES_MODEL` are stamped on top. Hand-set vendor npm values are never touched.
+
+### Highlights
+
+- `OPENCODE_MODEL` is optional when `OPENCODE_RESPONSES_MODEL` lists the models (Responses-only profiles need one field)
+- `OPENCODE_RESPONSES` boolean removed — use `OPENCODE_RESPONSES_MODEL` per model, or omit `OPENCODE_MODEL` to run everything on Responses
+- Stale provider-level `@ai-sdk/openai` npm from v0.5.1 configs is reverted to the chat package automatically
+
 ## v0.5.1
 
 `v0.5.1` lets OpenCode profiles speak the OpenAI Responses API: some backends only accept `/responses`, and until now every aweswitch-managed provider was pinned to chat completions.

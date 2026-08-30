@@ -112,16 +112,17 @@ def write_opencode_config(data):
 
 
 # The two AI SDK packages aweswitch may write for an opencode provider:
-# chat completions by default, or the OpenAI Responses API when a profile
-# sets OPENCODE_RESPONSES. Both shape-match as aweswitch-owned entries.
+# chat completions by default, or the OpenAI Responses API per model when a
+# profile lists that model in OPENCODE_RESPONSES_MODEL. Both shape-match as
+# aweswitch-owned entries.
 OPENCODE_NPM_CHAT = "@ai-sdk/openai-compatible"
 OPENCODE_NPM_RESPONSES = "@ai-sdk/openai"
 
 
-def build_opencode_provider_entry(base_url, api_key, name="aweswitch", responses=False):
+def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
     return {
         "name": name,
-        "npm": OPENCODE_NPM_RESPONSES if responses else OPENCODE_NPM_CHAT,
+        "npm": OPENCODE_NPM_CHAT,
         "options": {
             "apiKey": api_key,
             "baseURL": base_url,
@@ -155,32 +156,11 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
-def _opencode_responses_flag(raw):
-    """Parse OPENCODE_RESPONSES: enable the Responses API for the whole provider.
+def _opencode_responses_models(raw, profile_name):
+    """Parse OPENCODE_RESPONSES_MODEL: model IDs that use the Responses API.
 
-    A boolean or one of the common truthy spellings enables it; absent, empty,
-    or an explicit falsy value keeps the chat-completions default. Anything
-    else is a config typo, so die instead of guessing.
-    """
-    if raw is None or raw is False or raw == "":
-        return False
-    if raw is True:
-        return True
-    if isinstance(raw, str):
-        lowered = raw.strip().lower()
-        if lowered in ("true", "1", "yes", "on"):
-            return True
-        if lowered in ("false", "0", "no", "off"):
-            return False
-    die(f"OPENCODE_RESPONSES must be true or false (or omitted), got: {raw!r}")
-
-
-def _opencode_responses_models(raw, models_dict, profile_name):
-    """Parse OPENCODE_RESPONSES_MODEL: model IDs that get a per-model Responses
-    npm override (@ai-sdk/openai) while the rest of the provider stays on chat.
-
-    Accepts a comma-separated string or a list of IDs. Every ID must exist in
-    OPENCODE_MODEL — a mismatch is a config typo, not something to ignore.
+    Accepts a comma-separated string or a list of IDs. Returns a set of model
+    IDs, or an empty set if absent/empty.
     """
     if raw is None or raw == "" or raw == []:
         return set()
@@ -191,12 +171,21 @@ def _opencode_responses_models(raw, models_dict, profile_name):
     else:
         die(f"OPENCODE_RESPONSES_MODEL must be a comma-separated string or a list of "
             f"model IDs for profile: {profile_name}")
-    ids = {m.strip() for m in ids if m.strip()}
-    unknown = sorted(ids - set(models_dict))
-    if unknown:
-        die(f"OPENCODE_RESPONSES_MODEL lists models missing from OPENCODE_MODEL "
-            f"for {profile_name}: {', '.join(unknown)}")
-    return ids
+    return {m.strip() for m in ids if m.strip()}
+
+
+def _merge_opencode_models(chat_raw, responses_raw, profile_name):
+    """Merge OPENCODE_MODEL and OPENCODE_RESPONSES_MODEL into one {id: name} dict.
+
+    At least one must be non-empty. OPENCODE_MODEL wins on display-name conflicts.
+    """
+    chat = normalize_models_opt(chat_raw)
+    resp = _opencode_responses_models(responses_raw, profile_name)
+    if not chat and not resp:
+        die(f"OPENCODE_MODEL or OPENCODE_RESPONSES_MODEL is required for {profile_name}")
+    merged = {m: m for m in resp}
+    merged.update(chat)
+    return merged, resp
 
 
 def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
@@ -242,7 +231,7 @@ def opencode_model_display_name(model_id, model_name):
 
 
 def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
-                             display_name=None, prune=False, responses=False,
+                             display_name=None, prune=False,
                              responses_models=None):
     """Ensure provider+models exist in opencode.json, synced to the aweswitch config.
 
@@ -250,16 +239,12 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     stale credentials and display names are updated to match the config instead
     of rejected. Launch passes only the selected model (additive); `aweswitch
     apply` passes the full list with prune=True so the entry matches the config
-    exactly. `responses` selects the npm package (OPENCODE_RESPONSES); like the
-    other owned fields it is rewritten when it differs, but only between the
-    two openai packages — a hand-set vendor SDK npm is left alone.
-    `responses_models` (OPENCODE_RESPONSES_MODEL) stamps a per-model Responses
-    npm override on those models and removes stale ones; it only touches the
-    models passed in `models`.
+    exactly. `responses_models` stamps a per-model Responses npm override on
+    those models and removes stale ones; it only touches the models passed in
+    `models`. The provider-level npm stays @ai-sdk/openai-compatible by default.
     Returns "created", "updated", or "unchanged".
     """
     name = display_name or provider_name
-    desired_npm = OPENCODE_NPM_RESPONSES if responses else OPENCODE_NPM_CHAT
     responses_models = responses_models or set()
     oc_config = load_opencode_config()
     providers = oc_config["provider"]
@@ -281,8 +266,8 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             existing["name"] = name
             status = "updated"
         if (existing.get("npm") in (OPENCODE_NPM_CHAT, OPENCODE_NPM_RESPONSES)
-                and existing.get("npm") != desired_npm):
-            existing["npm"] = desired_npm
+                and existing.get("npm") != OPENCODE_NPM_CHAT):
+            existing["npm"] = OPENCODE_NPM_CHAT
             status = "updated"
         models_dict = existing.setdefault("models", {})
         if not isinstance(models_dict, dict):
@@ -307,8 +292,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         if status != "unchanged":
             write_opencode_config(oc_config)
     else:
-        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name,
-                                              responses=responses)
+        entry = build_opencode_provider_entry(base_url, api_key_ref, name=name)
         entry["models"] = {
             model_id: {"name": opencode_model_display_name(model_id, model_name)}
             for model_id, model_name in models.items()
@@ -345,27 +329,26 @@ def sync_opencode_profiles(config, names=None):
             die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
-        models_dict = normalize_models(profile_env.get("OPENCODE_MODEL"), name, "OPENCODE_MODEL")
+        models_dict, responses_models = _merge_opencode_models(
+            profile_env.get("OPENCODE_MODEL"),
+            profile_env.get("OPENCODE_RESPONSES_MODEL"), name)
         specs.append((
             name,
             expand_value(base_url_raw, dict(os.environ)),
             _opencode_api_key_ref(api_key_raw),
             models_dict,
             profile_env.get("OPENCODE_NAME") or name,
-            _opencode_responses_flag(profile_env.get("OPENCODE_RESPONSES")),
-            _opencode_responses_models(profile_env.get("OPENCODE_RESPONSES_MODEL"),
-                                       models_dict, name),
+            responses_models,
         ))
     return [
         (
             name,
             ensure_opencode_provider(base_url, api_key_ref, name, models,
                                      display_name=display_name, prune=True,
-                                     responses=responses,
                                      responses_models=responses_models),
             len(models),
         )
-        for name, base_url, api_key_ref, models, display_name, responses, responses_models in specs
+        for name, base_url, api_key_ref, models, display_name, responses_models in specs
     ]
 
 
@@ -940,6 +923,17 @@ def normalize_models(raw, profile_name, key):
     die(f"{key} is required for {profile_name}")
 
 
+def normalize_models_opt(raw):
+    """Like normalize_models but returns {} instead of dying on empty/missing input."""
+    if isinstance(raw, dict) and raw:
+        return raw
+    if isinstance(raw, list) and raw:
+        return {m: m for m in raw if isinstance(m, str) and m.strip()}
+    if isinstance(raw, str) and raw.strip():
+        return {m.strip(): m.strip() for m in raw.split(",") if m.strip()}
+    return {}
+
+
 def select_model(models_dict, user_args, profile_name):
     """Select a model ID from the first positional arg or the first configured entry.
 
@@ -1048,12 +1042,13 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
     elif provider == "opencode":
         base_url_raw = profile_env.get("OPENCODE_BASE_URL")
         api_key_raw = profile_env.get("OPENCODE_API_KEY")
-        models_raw = profile_env.get("OPENCODE_MODEL")
         if not base_url_raw:
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        models_dict = normalize_models(models_raw, profile_name, "OPENCODE_MODEL")
+        models_dict, responses_models = _merge_opencode_models(
+            profile_env.get("OPENCODE_MODEL"),
+            profile_env.get("OPENCODE_RESPONSES_MODEL"), profile_name)
         # First positional arg is the model name; default to first in dict
         model, user_args = select_model(models_dict, user_args, profile_name)
         warn_opencode_session_model(user_args, profile_name, model)
@@ -1067,9 +1062,7 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "model": model,
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
             "model_display_name": models_dict.get(model, model),
-            "responses": _opencode_responses_flag(profile_env.get("OPENCODE_RESPONSES")),
-            "responses_models": sorted(_opencode_responses_models(
-                profile_env.get("OPENCODE_RESPONSES_MODEL"), models_dict, profile_name)),
+            "responses_models": sorted(responses_models),
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
         argv += user_args
@@ -1141,7 +1134,7 @@ def profile_model_label(provider, profile):
             return models.strip()
         return env.get("OPENAI_BASE_URL", "?")
     if provider == "opencode":
-        models = env.get("OPENCODE_MODEL", {})
+        models = env.get("OPENCODE_MODEL") or env.get("OPENCODE_RESPONSES_MODEL")
         if isinstance(models, dict):
             return ", ".join(sorted(models)) if models else "?"
         if isinstance(models, list):
@@ -1850,7 +1843,6 @@ def run_profile(ctx, category, title):
             oc_write_info["provider_name"],
             {oc_write_info["model"]: oc_write_info["model_display_name"]},
             display_name=oc_write_info["display_name"],
-            responses=oc_write_info["responses"],
             responses_models=set(oc_write_info["responses_models"]),
         )
     if account_info is not None:
