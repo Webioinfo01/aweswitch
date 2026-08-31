@@ -224,6 +224,31 @@ def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
     return changed
 
 
+def _stamp_opencode_model_defaults(models_dict, model_ids):
+    """Add the default modalities/attachment declaration to the named models.
+
+    opencode defaults every custom-model capability to false when the field is
+    absent, so a bare {"name": ...} entry hides the image-paste/attach
+    affordances even for multimodal models. Declaring text+image for all
+    models only moves a capability mismatch to the upstream API, which errors
+    visibly; the reverse fails silently. Only fills values that are absent —
+    a hand-set declaration (e.g. input: ["text"] to keep a model text-only)
+    always wins. Returns True when anything changed.
+    """
+    changed = False
+    for model_id in model_ids:
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        if "attachment" not in entry:
+            entry["attachment"] = True
+            changed = True
+        if "modalities" not in entry:
+            entry["modalities"] = {"input": ["text", "image"], "output": ["text"]}
+            changed = True
+    return changed
+
+
 def opencode_model_display_name(model_id, model_name):
     """Namespaced model IDs (producer/model, e.g. hub/x) display as the full ID.
 
@@ -248,8 +273,11 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     apply` passes the full list with prune=True so the entry matches the config
     exactly. `responses_models` stamps a per-model Responses npm override on
     those models and removes stale ones; it only touches the models passed in
-    `models`. The provider-level npm stays @ai-sdk/openai-compatible by default.
-    Returns "created", "updated", or "unchanged".
+    `models`. Every managed model also gets the default modalities/attachment
+    declaration (text+image input, attachments on) unless the entry already
+    declares one — hand-set values win. The provider-level npm stays
+    @ai-sdk/openai-compatible by default. Returns "created", "updated", or
+    "unchanged".
     """
     name = display_name or provider_name
     responses_models = responses_models or set()
@@ -290,6 +318,8 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             if entry_model.get("name") != display:
                 entry_model["name"] = display
                 status = "updated"
+        if _stamp_opencode_model_defaults(models_dict, models):
+            status = "updated"
         if _stamp_opencode_responses_models(models_dict, models, responses_models):
             status = "updated"
         if prune:
@@ -304,6 +334,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             model_id: {"name": opencode_model_display_name(model_id, model_name)}
             for model_id, model_name in models.items()
         }
+        _stamp_opencode_model_defaults(entry["models"], models)
         _stamp_opencode_responses_models(entry["models"], models, responses_models)
         providers[provider_name] = entry
         write_opencode_config(oc_config)

@@ -1200,6 +1200,44 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["options"]["baseURL"], "https://new.com/v1")
             self.assertEqual(prov["options"]["apiKey"], "{env:MY_KEY}")
             self.assertEqual(prov["models"]["doubao-1"]["name"], "Doubao 1")
+            self.assertEqual(prov["models"]["doubao-1"]["attachment"], True)
+            self.assertEqual(prov["models"]["doubao-1"]["modalities"],
+                             {"input": ["text", "image"], "output": ["text"]})
+
+    def test_ensure_opencode_provider_backfills_default_modalities(self):
+        """Entries written before the modalities/attachment defaults (and fresh
+        models) get the declaration on the next write; hand-set values win."""
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "oc-glm",
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {
+                        "glm-5.1": {"name": "glm-5.1"},
+                        "glm-text": {"name": "GLM Text", "attachment": False,
+                                     "modalities": {"input": ["text"], "output": ["text"]}},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.1": "glm-5.1", "glm-text": "GLM Text"})
+
+            self.assertEqual(status, "updated")
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertEqual(models["glm-5.1"], {
+                "name": "glm-5.1",
+                "attachment": True,
+                "modalities": {"input": ["text", "image"], "output": ["text"]},
+            })
+            self.assertEqual(models["glm-text"], {
+                "name": "GLM Text",
+                "attachment": False,
+                "modalities": {"input": ["text"], "output": ["text"]},
+            })
 
     def test_ensure_opencode_provider_adds_model_to_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1223,11 +1261,13 @@ class AweSwitchTests(unittest.TestCase):
     def test_ensure_opencode_provider_skips_if_model_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
+            declared = {"name": "glm-5.1", "attachment": True,
+                        "modalities": {"input": ["text", "image"], "output": ["text"]}}
             original = {"provider": {
                 "oc-glm": {
                     "name": "oc-glm",
                     "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
-                    "models": {"glm-5.1": {"name": "glm-5.1"}},
+                    "models": {"glm-5.1": declared},
                 }
             }
             }
@@ -1301,7 +1341,11 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(status, "updated")
             prov = json.loads(oc_path.read_text())["provider"]["oc-glm"]
             self.assertEqual(prov["options"]["baseURL"], "https://zhipu.com/v1")
-            self.assertEqual(prov["models"]["glm-5.1"], {"name": "GLM-5.1"})
+            self.assertEqual(prov["models"]["glm-5.1"], {
+                "name": "GLM-5.1",
+                "attachment": True,
+                "modalities": {"input": ["text", "image"], "output": ["text"]},
+            })
             self.assertEqual(prov["models"]["keep"], {"name": "Keep"})
 
     def test_ensure_opencode_provider_refuses_to_clobber_invalid_json(self):
@@ -1345,7 +1389,8 @@ class AweSwitchTests(unittest.TestCase):
                     "name": "oc-anthropic",
                     "npm": "@ai-sdk/anthropic",
                     "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}"},
-                    "models": {"m-1": {"name": "m-1"}},
+                    "models": {"m-1": {"name": "m-1", "attachment": True,
+                                       "modalities": {"input": ["text", "image"], "output": ["text"]}}},
                 }
             }}))
 
@@ -1432,14 +1477,16 @@ class AweSwitchTests(unittest.TestCase):
     def test_ensure_opencode_provider_keeps_hand_set_model_npm(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
+            declared = {"attachment": True,
+                        "modalities": {"input": ["text", "image"], "output": ["text"]}}
             oc_path.write_text(json.dumps({"provider": {
                 "oc-mix": {
                     "name": "oc-mix",
                     "npm": "@ai-sdk/openai-compatible",
                     "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}", "setCacheKey": True},
                     "models": {
-                        "peng1/x": {"name": "peng1/x", "provider": {"npm": "@ai-sdk/cerebras"}},
-                        "peng1/y": {"name": "peng1/y"},
+                        "peng1/x": {"name": "peng1/x", "provider": {"npm": "@ai-sdk/cerebras"}, **declared},
+                        "peng1/y": {"name": "peng1/y", **declared},
                     },
                 }
             }}))

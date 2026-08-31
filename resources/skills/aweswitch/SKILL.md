@@ -25,7 +25,7 @@ Writes profiles into each agent's own config as the persistent default:
 
 - Claude → env in `~/.claude/settings.json` (undo with `aweswitch config restore`)
 - Codex → provider + model in `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
-- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); `aweswitch apply --opencode` does every OpenCode profile. After renaming/deleting an opencode profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs); `aweswitch apply --opencode --prune-orphans` removes it. Hand-written provider entries are never touched.
+- OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); `aweswitch apply --opencode` does every OpenCode profile. After renaming/deleting an opencode profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs); `aweswitch apply --opencode --prune-orphans` removes it. Hand-written provider entries are never touched. Every managed model gets `"modalities": {"input": ["text", "image"], "output": ["text"]}` + `"attachment": true` unless the entry already declares them — opencode defaults these capabilities to false when absent, which hides the image-paste/attach affordances; a text-only model that receives an image anyway errors visibly upstream. To keep a model text-only, hand-set `input: ["text"]`.
 
 At most one Claude and one Codex profile per call (each holds a single active default); OpenCode profiles coexist and accept bulk.
 
