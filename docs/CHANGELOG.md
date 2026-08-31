@@ -1,6 +1,6 @@
 # change log
 
-## Unreleased
+## v0.5.4
 
 Safety and compatibility hardening for profile application, official-account paths, and OpenCode provider ownership.
 
