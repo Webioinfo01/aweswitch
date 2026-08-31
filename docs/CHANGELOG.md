@@ -1,5 +1,17 @@
 # change log
 
+## Unreleased
+
+Safety and compatibility hardening for profile application, official-account paths, and OpenCode provider ownership.
+
+### Highlights
+
+- Validate every profile in a mixed `apply` command before writing any target config
+- Reject unsafe account paths and top-level command names; restore previous login credentials after any login-flow failure
+- Preserve unrelated Claude settings while removing a stale alternative auth key, and support first apply when the settings directory does not exist
+- Track aweswitch-managed OpenCode provider keys in a sidecar so `--prune-orphans` never infers ownership from a hand-written provider's shape
+- Reject malformed model ID/display-name mappings with an actionable config error
+
 ## v0.5.3
 
 `v0.5.3` stamps default `modalities` and `attachment` declarations on every aweswitch-managed OpenCode model entry so image-paste and attach affordances are not silently hidden.

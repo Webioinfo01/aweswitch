@@ -217,7 +217,7 @@ aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
 aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
 aweswitch apply --opencode            # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
-aweswitch apply --prune-orphans       # 同时清理 opencode.json 里没有 profile 对应的 provider
+aweswitch apply --opencode --prune-orphans  # 全量应用，并清理没有 profile 对应的已登记 provider
 aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
 aweswitch apply cc-glm --force        # 覆盖已有备份
 aweswitch config backup               # 手动备份 Claude settings，输出备份路径
@@ -227,9 +227,9 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 
 各 agent 的语义：
 
-- **Claude** — env 合并进 `~/.claude/settings.json`；重启会话或用 `/model` 选择新模型。
+- **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
-- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。改名或删除 profile 后，旧的 provider 条目会残留；apply 会对此发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --prune-orphans` 可将其删除 — 因此改名的完整流程是：改配置，然后带 `--prune-orphans` apply。手写的 provider 条目永不会被碰。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
+- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune-orphans` 可将其删除。provider 所有权不再根据配置形状猜测，因此手写条目不会被清理。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
 
 Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 的 provider 天然并存，可以一次应用多个（或用 `--opencode` 一次应用全部）。
 
@@ -407,7 +407,7 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 
 - Profile 放在 `profiles.api.<provider>.<profileName>` 下；官方帐号放在 `profiles.accounts.<provider>.<accountName>` 下。
 - 支持的 provider：`claude`、`codex`、`opencode`（帐号：`claude`、`codex`）。
-- profile 名和帐号名在整个 `profiles` 树内全局唯一。
+- profile 名和帐号名在整个 `profiles` 树内全局唯一，且不能复用 aweswitch 顶层命令名；帐号名还必须是单个路径组件。
 - `env` 只作用于本次启动的子进程。
 - `${VAR_NAME}` 会从当前 shell 环境变量中展开。
 - `show` 和 `config show` 会隐藏 token、key、secret、password、auth 这类敏感字段；帐号凭据 blob 整段脱敏。

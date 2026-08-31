@@ -249,7 +249,7 @@ aweswitch apply cc-glm                # Claude: env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex: provider+model -> ~/.codex/config.toml
 aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
 aweswitch apply --opencode            # all OpenCode profiles at once (bulk only makes sense there)
-aweswitch apply --prune-orphans       # ...and remove opencode.json providers no profile backs
+aweswitch apply --opencode --prune-orphans  # apply all and remove tracked providers no profile backs
 aweswitch apply cc-glm cx-glm oc-glm  # mixed: one per agent in a single call
 aweswitch apply cc-glm --force        # overwrite existing backup
 aweswitch config backup               # back up Claude settings on demand and print the backup path
@@ -259,9 +259,9 @@ aweswitch config restore <file>       # restore settings from an explicit backup
 
 Per-agent semantics:
 
-- **Claude** — env is merged into `~/.claude/settings.json`; restart the session or use `/model` to pick the new model.
+- **Claude** — env is merged into `~/.claude/settings.json`; unrelated settings are preserved, while a stale `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` alternative is removed when the new profile does not declare it. Restart the session or use `/model` to pick the new model.
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
-- **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. Renaming or deleting a profile leaves its old provider entry behind; apply then warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --prune-orphans` removes it — so a rename is: edit the config, then apply with `--prune-orphans`. Hand-written provider entries are never touched. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
+- **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. aweswitch records managed provider keys in `.aweswitch-managed-providers.json`; after a tracked profile is renamed or deleted, apply warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --opencode --prune-orphans` removes it. Provider ownership is never inferred from configuration shape, so hand-written entries are not pruned. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
 
 Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode profiles coexist side by side, so several can be applied at once — or all of them with `--opencode`.
 
@@ -436,7 +436,7 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 
 - Profiles live under `profiles.api.<provider>.<profileName>`; official accounts under `profiles.accounts.<provider>.<accountName>`.
 - Supported providers: `claude`, `codex`, `opencode` (accounts: `claude`, `codex`).
-- Profile and account names must be unique across the whole `profiles` tree.
+- Profile and account names must be unique across the whole `profiles` tree and cannot reuse a top-level aweswitch command name; account names must also be a single path component.
 - `env` values only apply to the launched process.
 - `${VAR_NAME}` values are expanded from the current shell environment.
 - `show` and `config show` redact keys matching token, key, secret, password, or auth; account credential blobs are masked entirely.

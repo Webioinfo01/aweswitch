@@ -143,6 +143,29 @@ class AweSwitchTests(unittest.TestCase):
                     "ANTHROPIC_MODEL": "m",
                 }, provider="claude")
 
+    def test_save_profile_rejects_reserved_command_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            with self.assertRaisesRegex(SystemExit, "reserved command name"):
+                aweswitch.save_profile(path, "list", {
+                    "ANTHROPIC_BASE_URL": "https://example.com",
+                    "ANTHROPIC_AUTH_TOKEN": "${T}",
+                    "ANTHROPIC_MODEL": "m",
+                }, provider="claude")
+
+    def test_save_account_rejects_unsafe_filesystem_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            aweswitch.init_config(path)
+
+            with self.assertRaisesRegex(SystemExit, "single path component"):
+                aweswitch.save_account(path, "codex", "../../../escape", {"token": "x"})
+
+            data = json.loads(path.read_text())
+            self.assertEqual(data["profiles"]["accounts"], {})
+
     def test_add_command_creates_claude_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
@@ -595,6 +618,12 @@ class AweSwitchTests(unittest.TestCase):
         config = self._make_cx_config({"gpt-5.2-codex": "GPT-5.2", "gpt-5.1": "GPT-5.1"})
 
         with self.assertRaisesRegex(SystemExit, "ambiguous model 'gpt'"):
+            aweswitch.prepare_run(config, "cx-test", ["gpt"], {"CX_KEY": "sk-test"})
+
+    def test_prepare_codex_rejects_non_string_model_display_name(self):
+        config = self._make_cx_config({"gpt-5.2-codex": 42})
+
+        with self.assertRaisesRegex(SystemExit, "model IDs and display names must be non-empty strings"):
             aweswitch.prepare_run(config, "cx-test", ["gpt"], {"CX_KEY": "sk-test"})
 
     def test_prepare_codex_without_models_keeps_legacy_behavior(self):
@@ -1149,6 +1178,40 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("failed to create backup", result.output)
             self.assertEqual(json.loads(settings_path.read_text()), {"env": {"OLD": "value"}})
 
+    def test_apply_claude_creates_missing_settings_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "new-claude-home" / "settings.json"
+            config = self._make_apply_config()
+
+            result, _ = self._apply(
+                ["apply", "cc-test"], config, tmp,
+                extra_env={"CLAUDE_SETTINGS": str(settings_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertTrue(settings_path.exists())
+            self.assert_settings_file_secure(settings_path)
+
+    def test_apply_claude_removes_stale_mutually_exclusive_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text(json.dumps({"env": {
+                "ANTHROPIC_API_KEY": "stale",
+                "KEEP_ME": "yes",
+            }}) + "\n")
+
+            result, _ = self._apply(
+                ["apply", "cc-test"], self._make_apply_config(), tmp,
+                extra_env={"CLAUDE_SETTINGS": str(settings_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Removed stale ANTHROPIC_API_KEY (not in new profile)", result.output)
+            env = json.loads(settings_path.read_text())["env"]
+            self.assertNotIn("ANTHROPIC_API_KEY", env)
+            self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "secret")
+            self.assertEqual(env["KEEP_ME"], "yes")
+
     def test_profile_model_label_shows_available_models_for_opencode(self):
         profile = {"env": {"OPENCODE_MODEL": {"glm-5.1": "GLM-5.1", "glm-5.2": "GLM-5.2"}}}
         label = aweswitch.profile_model_label("opencode", profile)
@@ -1203,6 +1266,13 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["models"]["doubao-1"]["attachment"], True)
             self.assertEqual(prov["models"]["doubao-1"]["modalities"],
                              {"input": ["text", "image"], "output": ["text"]})
+            managed = json.loads(
+                oc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )
+            self.assertEqual(managed, {"providers": ["oc-doubao"]})
+            self.assert_settings_file_secure(
+                oc_path.with_name(".aweswitch-managed-providers.json")
+            )
 
     def test_ensure_opencode_provider_backfills_default_modalities(self):
         """Entries written before the modalities/attachment defaults (and fresh
@@ -1996,6 +2066,27 @@ class AweSwitchTests(unittest.TestCase):
             saved = json.loads(config_file.read_text())
             self.assertEqual(saved["profiles"]["accounts"]["codex"]["cxo-work"]["auth"], old_blob)
 
+    @unittest.mock.patch("aweswitch.cli.subprocess.run")
+    def test_account_login_restores_old_credentials_after_spawn_error(self, mock_run):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "config.json"
+            old_blob = {"tokens": {"access_token": "old"}}
+            config_file.write_text(json.dumps({
+                "profiles": {"api": {}, "accounts": {"codex": {
+                    "cxo-work": {"auth": old_blob},
+                }}},
+            }) + "\n")
+            mock_run.side_effect = PermissionError("blocked")
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["account", "login", "codex", "cxo-work"],
+                env={"AWESWITCH_CONFIG": str(config_file)})
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("failed to run codex", result.output)
+            runtime_cred = Path(tmp) / "accounts" / "codex" / "cxo-work" / "auth.json"
+            self.assertEqual(json.loads(runtime_cred.read_text()), old_blob)
+
     def test_build_claude_env_names_rejected_profile_kind(self):
         config = {"profiles": {"accounts": {"claude": {
             "cco-work": {"credentials": {}},
@@ -2046,6 +2137,30 @@ class AweSwitchTests(unittest.TestCase):
             data = json.loads(config_file.read_text())
             self.assertNotIn("accounts", data["profiles"])
             self.assertFalse(cred.exists())
+
+    def test_account_remove_rejects_escaping_name_before_mutating_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "config.json"
+            unsafe_name = "../../outside"
+            original = {
+                "profiles": {"api": {}, "accounts": {"codex": {
+                    unsafe_name: {"auth": {"tokens": {}}},
+                }}},
+            }
+            config_file.write_text(json.dumps(original) + "\n")
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("keep")
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["account", "remove", "codex", unsafe_name, "--purge"],
+                env={"AWESWITCH_CONFIG": str(config_file)})
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("single path component", result.output)
+            self.assertEqual(json.loads(config_file.read_text()), original)
+            self.assertEqual(sentinel.read_text(), "keep")
 
     def test_list_marks_account_kind(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2348,9 +2463,11 @@ class AweSwitchTests(unittest.TestCase):
         hand_written = {
             "name": "mine",
             "npm": "@ai-sdk/openai-compatible",
-            "options": {"apiKey": "sk", "baseURL": "https://mine/v1"},
+            "options": {"apiKey": "sk", "baseURL": "https://mine/v1", "setCacheKey": True},
         }
         oc_path.write_text(json.dumps({"provider": {"oc-old": orphan, "mine": hand_written}}))
+        managed_path = oc_path.with_name(".aweswitch-managed-providers.json")
+        managed_path.write_text(json.dumps({"providers": ["oc-old"]}) + "\n")
 
     def test_apply_warns_about_orphaned_aweswitch_provider(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2365,7 +2482,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("--prune-orphans", result.output)
             providers = json.loads(oc_path.read_text())["provider"]
             self.assertIn("oc-old", providers)  # warn-only: kept
-            self.assertIn("mine", providers)  # hand-written: never reported
+            self.assertIn("mine", providers)  # identical shape but untracked: never reported
 
     def test_apply_prune_orphans_removes_only_aweswitch_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2381,6 +2498,31 @@ class AweSwitchTests(unittest.TestCase):
             self.assertNotIn("oc-old", providers)
             self.assertIn("oc-test", providers)
             self.assertIn("mine", providers)
+            managed = json.loads(
+                oc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )["providers"]
+            self.assertNotIn("oc-old", managed)
+            self.assertIn("oc-test", managed)
+
+    def test_apply_prune_refuses_invalid_managed_provider_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            original = {"provider": {"manual": {
+                "name": "manual",
+                "npm": "@ai-sdk/openai-compatible",
+                "options": {"setCacheKey": True},
+            }}}
+            oc_path.write_text(json.dumps(original))
+            oc_path.with_name(".aweswitch-managed-providers.json").write_text("{broken")
+
+            result, _ = self._apply(
+                ["apply", "--opencode", "--prune-orphans"],
+                self._make_apply_config(), tmp,
+            )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("invalid managed-provider JSON", result.output)
+            self.assertEqual(json.loads(oc_path.read_text()), original)
 
     def test_ensure_opencode_provider_displays_namespaced_ids_in_full(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2414,6 +2556,22 @@ class AweSwitchTests(unittest.TestCase):
             self.assertTrue(settings_path.exists())
             self.assertIn("[model_providers.custom]", codex_path.read_text())
             self.assertIn("oc-test", json.loads(oc_path.read_text())["provider"])
+
+    def test_apply_preflights_all_profiles_before_any_write(self):
+        config = self._make_apply_config()
+        config["profiles"]["accounts"] = {
+            "claude": {"acct": {"credentials": {"x": 1}}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            result, _ = self._apply(
+                ["apply", "cc-test", "acct"], config, tmp,
+                extra_env={"CLAUDE_SETTINGS": str(settings_path)},
+            )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("accounts are launch-only", result.output)
+            self.assertFalse(settings_path.exists())
 
     def test_apply_rejects_two_codex_profiles(self):
         config = self._make_apply_config()

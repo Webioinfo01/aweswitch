@@ -50,6 +50,19 @@ ACCOUNT_PROVIDERS = ("claude", "codex")
 ACCOUNT_BLOB_KEY = {"codex": "auth", "claude": "credentials"}
 ACCOUNT_CRED_FILENAME = {"codex": "auth.json", "claude": ".credentials.json"}
 
+# Profile names are invoked as top-level commands, so these names can never
+# reach ProfileGroup's fallback launcher. Reject them when creating new
+# profiles/accounts instead of saving an unusable entry.
+RESERVED_PROFILE_NAMES = {
+    "__profile__", "account", "add", "apply", "config", "init", "list",
+    "self-update", "show",
+}
+
+# These two credentials are alternative Claude authentication mechanisms.
+# An apply must not leave the previous mechanism active when the new profile
+# only configures the other one.
+CLAUDE_AUTH_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
 
 def config_path():
     return Path(os.environ.get("AWESWITCH_CONFIG", "~/.config/aweswitch/config.json")).expanduser()
@@ -67,15 +80,36 @@ def opencode_config_path():
     return Path(os.environ.get("OPENCODE_CONFIG", "~/.config/opencode/opencode.json")).expanduser()
 
 
+def managed_opencode_path():
+    """Sidecar recording provider keys aweswitch may safely prune."""
+    return opencode_config_path().with_name(".aweswitch-managed-providers.json")
+
+
 def accounts_root():
     """Runtime dirs for official accounts live next to the config file."""
     return config_path().parent / "accounts"
 
 
+def validate_profile_name(name, account=False):
+    if not isinstance(name, str) or not name or name.startswith("-"):
+        die("profile name must be a non-empty command name and cannot start with '-'")
+    if name in RESERVED_PROFILE_NAMES:
+        die(f"reserved command name cannot be used as a profile: {name}")
+    if account and (name in (".", "..") or "/" in name or "\\" in name):
+        die(f"account name must be a single path component, got: {name}")
+
+
 def account_dir(provider, name):
     if provider not in ACCOUNT_PROVIDERS:
         die(f"official accounts support {', '.join(ACCOUNT_PROVIDERS)}, got: {provider}")
-    return accounts_root() / provider / name
+    validate_profile_name(name, account=True)
+    provider_root = accounts_root() / provider
+    target = provider_root / name
+    try:
+        target.resolve().relative_to(provider_root.resolve())
+    except ValueError:
+        die(f"account path escapes its provider directory: {name}")
+    return target
 
 
 def live_credentials_path(provider):
@@ -111,10 +145,56 @@ def write_opencode_config(data):
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
+def load_managed_opencode_providers():
+    path = managed_opencode_path()
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        die(f"invalid managed-provider JSON at {path}: {exc}\n  Fix or remove the file, then retry.")
+    providers = data.get("providers") if isinstance(data, dict) else None
+    if not isinstance(providers, list) or not all(isinstance(name, str) and name for name in providers):
+        die(f"invalid managed-provider data at {path}: expected a providers string list")
+    return set(providers)
+
+
+def write_managed_opencode_providers(providers):
+    """Atomically persist the provider keys aweswitch owns."""
+    path = managed_opencode_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        if os.name != "nt":
+            os.chmod(temp_path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"providers": sorted(providers)}, f, indent=2)
+            f.write("\n")
+        os.replace(temp_path, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def record_managed_opencode_provider(provider_name):
+    providers = load_managed_opencode_providers()
+    if provider_name not in providers:
+        providers.add(provider_name)
+        write_managed_opencode_providers(providers)
+
+
 # The two AI SDK packages aweswitch may write for an opencode provider:
 # chat completions by default, or the OpenAI Responses API per model when a
-# profile lists that model in OPENCODE_RESPONSES_MODEL. Both shape-match as
-# aweswitch-owned entries.
+# profile lists that model in OPENCODE_RESPONSES_MODEL. Provider ownership is
+# tracked separately; these package names alone are never used as proof.
 OPENCODE_NPM_CHAT = "@ai-sdk/openai-compatible"
 OPENCODE_NPM_RESPONSES = "@ai-sdk/openai"
 
@@ -185,7 +265,7 @@ def _merge_opencode_models(chat_raw, responses_raw, profile_name):
     responses models not in OPENCODE_MODEL are appended in configured order
     with the ID as display name.
     """
-    chat = normalize_models_opt(chat_raw)
+    chat = normalize_models_opt(chat_raw, profile_name, "OPENCODE_MODEL")
     resp = _opencode_responses_models(responses_raw, profile_name)
     if not chat and not resp:
         die(f"OPENCODE_MODEL or OPENCODE_RESPONSES_MODEL is required for {profile_name}")
@@ -339,6 +419,11 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         providers[provider_name] = entry
         write_opencode_config(oc_config)
         status = "created"
+    # An unchanged launch historically required no directory write. Preserve
+    # that path; apply (prune=True) explicitly opts into tracking even when the
+    # provider content already matches.
+    if status != "unchanged" or prune:
+        record_managed_opencode_provider(provider_name)
     return status
 
 
@@ -378,6 +463,9 @@ def sync_opencode_profiles(config, names=None):
             profile_env.get("OPENCODE_NAME") or name,
             responses_models,
         ))
+    if specs:
+        load_opencode_config()
+        load_managed_opencode_providers()
     return [
         (
             name,
@@ -394,21 +482,19 @@ def find_orphan_opencode_providers(config):
     """Return {name: entry} for aweswitch-written providers left in opencode.json.
 
     An orphan is a provider no opencode profile in the aweswitch config backs
-    anymore — typically a renamed or deleted profile. Only entries shaped like
-    build_opencode_provider_entry output (one of the two openai npm packages
-    plus setCacheKey) count, so hand-written providers are never reported or
-    pruned. Old sessions pinned to an orphan's models keep sending those model
-    IDs upstream, which breaks when the upstream renames them.
+    anymore — typically a renamed or deleted profile. Ownership comes from a
+    sidecar written whenever aweswitch manages a provider; shape guessing is
+    deliberately avoided so a hand-written provider is never pruned. Old
+    sessions pinned to an orphan's models keep sending those model IDs
+    upstream, which breaks when the upstream renames them.
     """
     managed = kind_group(config, "api").get("opencode") or {}
     providers = load_opencode_config()["provider"]
+    owned = load_managed_opencode_providers()
     orphans = {}
-    for name, entry in providers.items():
-        if name in managed or not isinstance(entry, dict):
-            continue
-        opts = entry.get("options")
-        if (entry.get("npm") in (OPENCODE_NPM_CHAT, OPENCODE_NPM_RESPONSES)
-                and isinstance(opts, dict) and opts.get("setCacheKey") is True):
+    for name in owned:
+        entry = providers.get(name)
+        if name not in managed and isinstance(entry, dict):
             orphans[name] = entry
     return orphans
 
@@ -427,7 +513,7 @@ def prune_or_warn_opencode_orphans(config, prune):
             )
         click.echo(
             "  No aweswitch profile backs it (renamed or deleted?); old sessions pinned to its\n"
-            "  models keep using them. Prune with: aweswitch apply --prune-orphans",
+            "  models keep using them. Prune with: aweswitch apply --opencode --prune-orphans",
             err=True,
         )
         return
@@ -437,6 +523,7 @@ def prune_or_warn_opencode_orphans(config, prune):
         del providers[name]
         click.echo(f"Pruned orphaned provider '{name}' from {opencode_config_path()}")
     write_opencode_config(oc_config)
+    write_managed_opencode_providers(load_managed_opencode_providers() - set(orphans))
 
 
 def opencode_data_path():
@@ -887,6 +974,7 @@ def secure_config_file(path):
 
 def save_account(path, provider, name, blob):
     """Store an account's credential blob under profiles.accounts.<provider>.<name>."""
+    validate_profile_name(name, account=True)
     path = Path(path).expanduser()
     data = load_config(path)
     if profile_name_taken(data, name, ignore=("account", provider)):
@@ -950,26 +1038,35 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
     return result
 
 
-def normalize_models(raw, profile_name, key):
-    """Normalize a model list (dict, list, or comma-separated str) → {id: name}."""
+def _normalize_models(raw, profile_name, key, required):
+    """Normalize supported model shapes and reject entries selectors cannot use."""
     if isinstance(raw, dict) and raw:
+        if not all(
+            isinstance(model_id, str) and model_id.strip()
+            and isinstance(display_name, str) and display_name.strip()
+            for model_id, display_name in raw.items()
+        ):
+            die(f"{key} model IDs and display names must be non-empty strings for {profile_name}")
         return raw
     if isinstance(raw, list) and raw:
-        return {m: m for m in raw if isinstance(m, str) and m.strip()}
+        if not all(isinstance(model_id, str) and model_id.strip() for model_id in raw):
+            die(f"{key} model IDs and display names must be non-empty strings for {profile_name}")
+        return {model_id: model_id for model_id in raw}
     if isinstance(raw, str) and raw.strip():
-        return {m.strip(): m.strip() for m in raw.split(",") if m.strip()}
-    die(f"{key} is required for {profile_name}")
-
-
-def normalize_models_opt(raw):
-    """Like normalize_models but returns {} instead of dying on empty/missing input."""
-    if isinstance(raw, dict) and raw:
-        return raw
-    if isinstance(raw, list) and raw:
-        return {m: m for m in raw if isinstance(m, str) and m.strip()}
-    if isinstance(raw, str) and raw.strip():
-        return {m.strip(): m.strip() for m in raw.split(",") if m.strip()}
+        return {model_id.strip(): model_id.strip() for model_id in raw.split(",") if model_id.strip()}
+    if required:
+        die(f"{key} is required for {profile_name}")
     return {}
+
+
+def normalize_models(raw, profile_name, key):
+    """Normalize a required model list (dict, list, or comma-separated str)."""
+    return _normalize_models(raw, profile_name, key, required=True)
+
+
+def normalize_models_opt(raw, profile_name="profile", key="OPENCODE_MODEL"):
+    """Like normalize_models but returns {} instead of dying on empty/missing input."""
+    return _normalize_models(raw, profile_name, key, required=False)
 
 
 def select_model(models_dict, user_args, profile_name):
@@ -1298,6 +1395,7 @@ def exec_agent(argv, env):
 
 
 def save_profile(path, name, env_vars, provider="claude"):
+    validate_profile_name(name)
     path = Path(path).expanduser()
     data = load_config(path)
     if profile_name_taken(data, name):
@@ -1555,18 +1653,25 @@ def _mask_value(key, value):
     return value
 
 
-def apply_claude_profile(config, profile, force):
+def apply_claude_profile(config, profile, force, prepared=None):
     """Write a claude profile's env into ~/.claude/settings.json (one active at a time)."""
     settings_path = claude_settings_path()
-    if settings_path.exists():
+    if prepared is not None:
+        settings_data = copy.deepcopy(prepared["settings_data"])
+        expanded_env = prepared["expanded_env"]
+    elif settings_path.exists():
         try:
-            settings_data = json.loads(settings_path.read_text())
-        except json.JSONDecodeError:
+            settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
             die(f"invalid JSON in {settings_path}")
+        if not isinstance(settings_data, dict):
+            die(f"unexpected JSON in {settings_path}: expected an object at the top level")
+        if not isinstance(settings_data.get("env", {}), dict):
+            die(f"'env' in {settings_path} must be an object")
+        expanded_env = build_claude_env(config, profile)
     else:
         settings_data = {}
-
-    expanded_env = build_claude_env(config, profile)
+        expanded_env = build_claude_env(config, profile)
 
     # Backup: only on first apply, or when --force is used.
     backup_path = settings_path.with_suffix(".json.bak")
@@ -1579,8 +1684,16 @@ def apply_claude_profile(config, profile, force):
                 die(f"failed to create backup {backup_path}: {exc}")
             backed_up = True
 
-    settings_data["env"] = {**settings_data.get("env", {}), **expanded_env}
-    settings_path.write_text(json.dumps(settings_data, indent=2) + "\n")
+    current_env = dict(settings_data.get("env", {}))
+    for key in CLAUDE_AUTH_KEYS:
+        if key not in expanded_env and key in current_env:
+            click.echo(f"  Removed stale {key} (not in new profile)", err=True)
+            current_env.pop(key)
+    settings_data["env"] = {**current_env, **expanded_env}
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(settings_data, indent=2) + "\n", encoding="utf-8")
+    if os.name != "nt":
+        os.chmod(settings_path, 0o600)
 
     click.echo(f"Applied {profile} to {settings_path}")
     for key, value in sorted(expanded_env.items()):
@@ -1648,6 +1761,73 @@ def apply_codex_profile(config, profile_name, force):
     click.echo("Restart codex for changes to take effect.")
 
 
+def preflight_apply(config, resolved):
+    """Validate every requested apply before the first target file is changed."""
+    prepared = {}
+    has_opencode = False
+    for name, provider, kind, entry in resolved:
+        if kind == "account":
+            die(f"accounts are launch-only: {name}")
+        if provider not in ("claude", "codex", "opencode"):
+            die(f"unsupported provider for {name}: {provider}")
+        profile_env = entry.get("env", {})
+        if not isinstance(profile_env, dict):
+            die(f"profile env must be an object: {provider}.{name}")
+
+        if provider == "claude":
+            expanded_env = build_claude_env(config, name)
+            settings_path = claude_settings_path()
+            if settings_path.exists():
+                try:
+                    settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    die(f"invalid JSON in {settings_path}")
+                if not isinstance(settings_data, dict):
+                    die(f"unexpected JSON in {settings_path}: expected an object at the top level")
+                if not isinstance(settings_data.get("env", {}), dict):
+                    die(f"'env' in {settings_path} must be an object")
+            else:
+                settings_data = {}
+            prepared[name] = {
+                "expanded_env": expanded_env,
+                "settings_data": settings_data,
+            }
+        elif provider == "codex":
+            base_url = profile_env.get("OPENAI_BASE_URL")
+            api_key = profile_env.get("OPENAI_API_KEY")
+            if not base_url:
+                die(f"OPENAI_BASE_URL is required for codex profile: {name}")
+            if not api_key:
+                die(f"OPENAI_API_KEY is required for codex profile: {name}")
+            expand_value(base_url, dict(os.environ))
+            if profile_env.get("OPENAI_MODEL"):
+                normalize_models(profile_env["OPENAI_MODEL"], name, "OPENAI_MODEL")
+            path = codex_config_path()
+            if path.exists():
+                try:
+                    path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    die(f"invalid UTF-8 in {path}")
+        else:
+            base_url = profile_env.get("OPENCODE_BASE_URL")
+            api_key = profile_env.get("OPENCODE_API_KEY")
+            if not base_url:
+                die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
+            if not api_key:
+                die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
+            _merge_opencode_models(
+                profile_env.get("OPENCODE_MODEL"),
+                profile_env.get("OPENCODE_RESPONSES_MODEL"), name,
+            )
+            expand_value(base_url, dict(os.environ))
+            has_opencode = True
+
+    if has_opencode:
+        load_opencode_config()
+        load_managed_opencode_providers()
+    return prepared
+
+
 @cli.command("apply")
 @click.argument("profiles", nargs=-1)
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
@@ -1691,12 +1871,11 @@ def apply_command(profiles, force, opencode, prune_orphans):
         die("apply one claude profile at a time (settings.json holds a single active profile)")
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("codex", "api")) > 1:
         die("apply one codex profile at a time (config.toml holds a single active provider)")
+    prepared = preflight_apply(config, resolved)
     applied_opencode = False
     for name, provider, kind, _ in resolved:
-        if kind == "account":
-            die(f"accounts are launch-only: {name}")
         if provider == "claude":
-            apply_claude_profile(config, name, force)
+            apply_claude_profile(config, name, force, prepared=prepared.get(name))
         elif provider == "codex":
             apply_codex_profile(config, name, force)
         elif provider == "opencode":
@@ -1748,9 +1927,9 @@ def login_account(path, provider, name):
         cred_path.replace(backup_path)
 
     def restore_previous_credentials():
+        if cred_path.exists():
+            cred_path.unlink()
         if backup_path.exists():
-            if cred_path.exists():
-                cred_path.unlink()
             backup_path.replace(cred_path)
 
     env = dict(os.environ)
@@ -1764,21 +1943,21 @@ def login_account(path, provider, name):
         argv = ["claude"]
         click.echo(f"Starting claude for account '{name}' — run /login inside, then exit.")
     try:
-        result = subprocess.run(argv, env=env)
-    except FileNotFoundError:
-        restore_previous_credentials()
-        die(f"command not found: {argv[0]}")
-    if result.returncode != 0 or not cred_path.exists():
-        restore_previous_credentials()
-        die(f"no credentials captured at {cred_path} (login exited with code {result.returncode})")
-    try:
+        try:
+            result = subprocess.run(argv, env=env)
+        except FileNotFoundError:
+            die(f"command not found: {argv[0]}")
+        except OSError as exc:
+            die(f"failed to run {argv[0]}: {exc}")
+        if result.returncode != 0 or not cred_path.exists():
+            die(f"no credentials captured at {cred_path} (login exited with code {result.returncode})")
         captured = read_json_object(cred_path, "captured credentials")
-    except SystemExit:
+        save_account(path, provider, name, captured)
+    except BaseException:
         restore_previous_credentials()
         raise
     if backup_path.exists():
         backup_path.unlink()
-    save_account(path, provider, name, captured)
     click.echo(f"Account '{name}' saved. Launch it with: aweswitch {name}")
 
 
@@ -1842,13 +2021,15 @@ def account_remove_command(provider, name, purge):
     provider_accounts = kind_group(data, "account").get(provider, {})
     if name not in provider_accounts:
         die(f"unknown account: {name}\nrun: aweswitch list  # view available profiles")
+    # Resolve and validate before mutating config: an unsafe legacy name must
+    # never turn a failed purge into a partially removed account entry.
+    d = account_dir(provider, name)
     del provider_accounts[name]
     if not provider_accounts:
         kind_group(data, "account").pop(provider, None)
         if not kind_group(data, "account"):
             data["profiles"].pop("accounts", None)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    d = account_dir(provider, name)
     if purge and d.exists():
         shutil.rmtree(d)
         click.echo(f"Removed account '{name}' and deleted {d}")

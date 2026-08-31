@@ -207,7 +207,7 @@ Steps:
 1. Read the current config first.
 2. Add the new profile under `profiles.api.<provider>`.
 3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
-4. Ensure names are unique across the whole `profiles` tree (api and accounts).
+4. Ensure names are unique across the whole `profiles` tree (api and accounts), do not use a top-level aweswitch command name, and keep account names to one path component (no `/`, `\\`, `.` or `..`).
 
 ---
 
