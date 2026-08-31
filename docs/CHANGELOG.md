@@ -1,5 +1,20 @@
 # change log
 
+## v0.5.3
+
+`v0.5.3` stamps default `modalities` and `attachment` declarations on every aweswitch-managed OpenCode model entry so image-paste and attach affordances are not silently hidden.
+
+### Default modalities/attachment for OpenCode models
+
+opencode defaults every custom-model capability to `false` when the field is absent, which hides the image-paste and attach affordances even for models that support them. aweswitch now writes `"attachment": true` and `"modalities": {"input": ["text", "image"], "output": ["text"]}` on every managed model unless the entry already declares one — a hand-set value (for example `input: ["text"]` to keep a model text-only) always wins.
+
+### Highlights
+
+- New `_stamp_opencode_model_defaults` helper: fills `attachment` and `modalities` only when absent
+- Backfill on every apply: entries written before v0.5.3 pick up the declaration on the next sync
+- Hand-set values are never clobbered
+- SKILL.md documents the new default behavior and the override path
+
 ## v0.5.2
 
 `v0.5.2` simplifies OpenCode Responses configuration to a single knob: `OPENCODE_RESPONSES_MODEL` now works on its own, and the provider-wide `OPENCODE_RESPONSES` flag is gone.
