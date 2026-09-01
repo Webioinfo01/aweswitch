@@ -38,12 +38,13 @@
 
 ## 支持工具
 
-aweswitch 由两个配套工具驱动：
+aweswitch 由三个配套工具驱动：
 
 - **[aweskill](https://github.com/Webioinfo01/aweskill)** — 面向 AI agent 的 CLI skill 包管理器。负责 skill 的安装、更新和投影，支持 47+ 编程 agent。
 - **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Claude Code 和 Codex 的会话 bookmark 管理器。可以保存、分类和恢复会话，支持 aweswitch profile。
+- **[awerouter](https://github.com/mugpeng/awerouter)** — 智能 LLM 路由器：按结构信号把 agent 请求分给 flash（便宜）或 pro（强力）模型。
 
-aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。
+aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。搭配 awerouter 也一样丝滑：把 profile 的 `BASE_URL` 指向 awerouter daemon（`ANTHROPIC_MODEL=auto`），启动的每个会话都走它的 flash/pro 智能分流。
 
 ## 安装与使用
 
