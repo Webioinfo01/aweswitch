@@ -1,5 +1,32 @@
 # change log
 
+## v0.5.5
+
+`v0.5.5` adds zcode as a supported provider alongside Claude Code, Codex, and OpenCode. zcode is a desktop GUI app; profiles are apply-only — `aweswitch apply --zcode` upserts provider entries and full model lists into `~/.zcode/v2/config.json`, same ownership and orphan tracking as OpenCode.
+
+### zcode provider support
+
+zcode profiles live under `profiles.api.zcode` and use `ZCODE_BASE_URL`, `ZCODE_API_KEY`, `ZCODE_KIND`, and `ZCODE_MODEL` env vars. `ZCODE_KIND` accepts `anthropic`, `openai`, or `openai-compatible` (defaults to `anthropic`). Like OpenCode, every managed model gets default limit (`1M` context, `128K` output) and modalities (`text+image` input, `text` output) stamps unless the entry already declares them — zcode hides image-paste and other affordances when these fields are absent. Apply is the only interaction mode: `aweswitch <profile>` is rejected with a clear message telling the user to use apply instead.
+
+Orphan detection works the same as OpenCode: a `.aweswitch-managed-providers.json` sidecar tracks which providers aweswitch owns, so hand-written entries are never pruned. `aweswitch apply --zcode --prune-orphans` removes leftover providers from renamed or deleted profiles.
+
+### Bulk apply flags are now mutually exclusive
+
+`--opencode` and `--zcode` are mutually exclusive flags; passing both is rejected with an actionable error. Bare `aweswitch apply` with no arguments was already rejected since v0.4.6; the error message now lists both `--opencode` and `--zcode` as options.
+
+### Highlights
+
+- New zcode provider with `ZCODE_BASE_URL` / `ZCODE_API_KEY` / `ZCODE_KIND` / `ZCODE_MODEL` support
+- `aweswitch apply --zcode` bulk-upserts zcode profiles into `~/.zcode/v2/config.json`
+- `aweswitch add` now supports zcode profiles (prompts for ZCODE fields)
+- Orphan tracking via `.aweswitch-managed-providers.json` sidecar; `--prune-orphans` removes leftovers
+- Managed model entries get default limit and modalities stamps on first apply
+- `--opencode` and `--zcode` are mutually exclusive (previously could be combined silently)
+- SKILL.md documents zcode workflows, config structure, and naming conventions
+- Default config includes `zc-bigmodel` and `zc-bai` example profiles
+- Launch mode rejects zcode profiles with a clear apply-only message
+- `aweswitch list` shows zcode profiles with their model list
+
 ## v0.5.4
 
 Safety and compatibility hardening for profile application, official-account paths, and OpenCode provider ownership.
