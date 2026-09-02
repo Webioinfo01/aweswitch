@@ -63,6 +63,32 @@
             }
           }
         }
+      },
+      "zcode": {
+        "zc-bigmodel": {
+          "env": {
+            "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ZCODE_API_KEY": "${GLM_API_KEY}",
+            "ZCODE_NAME": "BigModel - Coding Plan",
+            "ZCODE_KIND": "anthropic",
+            "ZCODE_MODEL": {
+              "GLM-5.3-Flash": "GLM-5.3-Flash",
+              "GLM-5-Turbo": "GLM-5-Turbo"
+            }
+          }
+        },
+        "zc-bai": {
+          "env": {
+            "ZCODE_BASE_URL": "https://api.b.ai/v1",
+            "ZCODE_API_KEY": "${BAI_API_KEY}",
+            "ZCODE_NAME": "bai",
+            "ZCODE_KIND": "openai-compatible",
+            "ZCODE_MODEL": {
+              "deepseek-v4-flash": "deepseek-v4-flash",
+              "Qwen3.8-Flash": "Qwen3.8-Flash"
+            }
+          }
+        }
       }
     },
     "accounts": {}

@@ -236,6 +236,26 @@ def _opencode_api_key_ref(raw):
     return f"{{env:{m.group(1)}}}"
 
 
+def _zcode_api_key_ref(raw):
+    """Return zcode's env-ref syntax without persisting an expanded secret."""
+    if not isinstance(raw, str):
+        click.echo(
+            "  tip: ZCODE_API_KEY is not a string — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  Example: \"ZCODE_API_KEY\": \"${MY_API_KEY}\"",
+            err=True,
+        )
+        return str(raw)
+    m = ENV_REF_RE.fullmatch(raw)
+    if not m:
+        click.echo(
+            "  tip: ZCODE_API_KEY is a plain value — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  Example: \"ZCODE_API_KEY\": \"${MY_API_KEY}\"",
+            err=True,
+        )
+        return raw
+    return f"{{env:{m.group(1)}}}"
+
+
 def _opencode_responses_models(raw, profile_name):
     """Parse OPENCODE_RESPONSES_MODEL: model IDs that use the Responses API.
 
@@ -524,6 +544,327 @@ def prune_or_warn_opencode_orphans(config, prune):
         click.echo(f"Pruned orphaned provider '{name}' from {opencode_config_path()}")
     write_opencode_config(oc_config)
     write_managed_opencode_providers(load_managed_opencode_providers() - set(orphans))
+
+
+def zcode_config_path():
+    return Path(os.environ.get("ZCODE_CONFIG", "~/.zcode/v2/config.json")).expanduser()
+
+
+def managed_zcode_path():
+    """Sidecar recording provider keys aweswitch may safely prune."""
+    return zcode_config_path().with_name(".aweswitch-managed-providers.json")
+
+
+def load_zcode_config():
+    path = zcode_config_path()
+    if not path.exists():
+        return {"provider": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # Never fall through to write_zcode_config with an empty config:
+        # that would silently replace the user's whole config.json.
+        die(f"invalid JSON in {path}: {exc}\n  Fix or remove the file, then retry.")
+    if not isinstance(data, dict):
+        die(f"unexpected JSON in {path}: expected an object at the top level")
+    provider = data.get("provider")
+    if provider is None:
+        data["provider"] = {}
+    elif not isinstance(provider, dict):
+        die(f"'provider' in {path} must be an object")
+    return data
+
+
+def write_zcode_config(data):
+    path = zcode_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    secure_config_file(path)
+
+
+def load_managed_zcode_providers():
+    path = managed_zcode_path()
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        die(f"invalid managed-provider JSON at {path}: {exc}\n  Fix or remove the file, then retry.")
+    providers = data.get("providers") if isinstance(data, dict) else None
+    if not isinstance(providers, list) or not all(isinstance(name, str) and name for name in providers):
+        die(f"invalid managed-provider data at {path}: expected a providers string list")
+    return set(providers)
+
+
+def write_managed_zcode_providers(providers):
+    """Atomically persist the provider keys aweswitch owns."""
+    path = managed_zcode_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        if os.name != "nt":
+            os.chmod(temp_path, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"providers": sorted(providers)}, f, indent=2)
+            f.write("\n")
+        os.replace(temp_path, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def record_managed_zcode_provider(provider_name):
+    providers = load_managed_zcode_providers()
+    if provider_name not in providers:
+        providers.add(provider_name)
+        write_managed_zcode_providers(providers)
+
+
+# zcode provider kinds aweswitch may write. Mirrors the enum the zcode desktop
+# app accepts in provider.kind; anything else is left to the desktop UI to
+# create (and stays untouched by aweswitch).
+ZCODE_KINDS = ("anthropic", "openai", "openai-compatible")
+
+# Default model limits stamped onto entries we manage when the user didn't
+# supply them in the profile. Mirrors what zcode writes for its own custom
+# providers, so the model picker behaves the same as a hand-added entry.
+ZCODE_DEFAULT_LIMIT_CONTEXT = 1000000
+ZCODE_DEFAULT_LIMIT_OUTPUT = 128000
+
+
+def build_zcode_provider_entry(base_url, api_key, kind, name):
+    """Build a fresh zcode provider entry owned by aweswitch."""
+    return {
+        "name": name,
+        "kind": kind,
+        "options": {
+            "apiKey": api_key,
+            "baseURL": base_url,
+        },
+        "enabled": True,
+        "source": "custom",
+    }
+
+
+def _stamp_zcode_model_defaults(models_dict, model_ids):
+    """Add the default limit/modalities stamp to the named models.
+
+    zcode treats absent capability fields as "unsupported", so a bare entry
+    hides text/image input even for multimodal models. Stamping
+    text+image input, text output, and the default context/output window
+    matches what zcode writes for its own custom providers — and only fills
+    values the user didn't already set. Returns True when anything changed.
+    """
+    changed = False
+    for model_id in model_ids:
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        if "limit" not in entry:
+            entry["limit"] = {
+                "context": ZCODE_DEFAULT_LIMIT_CONTEXT,
+                "output": ZCODE_DEFAULT_LIMIT_OUTPUT,
+            }
+            changed = True
+        if "modalities" not in entry:
+            entry["modalities"] = {"input": ["text", "image"], "output": ["text"]}
+            changed = True
+        zcode_meta = entry.get("zcode")
+        if not isinstance(zcode_meta, dict):
+            zcode_meta = {}
+            entry["zcode"] = zcode_meta
+        if "modalitiesConfigured" not in zcode_meta:
+            zcode_meta["modalitiesConfigured"] = True
+            changed = True
+    return changed
+
+
+def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
+                          display_name=None, prune=False):
+    """Ensure provider+models exist in zcode config.json, synced to aweswitch.
+
+    The provider entry is owned by aweswitch (its name is the profile name), so
+    stale credentials, kind, and display names are updated to match the config
+    instead of rejected. Launch is N/A (zcode is a desktop app); apply is the
+    only call path, so the full model list always overwrites the entry's
+    models — same as `sync_opencode_profiles(prune=True)`. The provider's
+    enabled flag is set to True and source to "custom" on every managed sync.
+    Each managed model gets the default limit/modalities stamp unless the
+    entry already declares one. Returns "created", "updated", or "unchanged".
+    """
+    name = display_name or provider_name
+    zc_config = load_zcode_config()
+    providers = zc_config["provider"]
+    existing = providers.get(provider_name)
+    status = "unchanged"
+
+    if existing:
+        if not isinstance(existing, dict):
+            existing = {}
+            providers[provider_name] = existing
+        opts = existing.setdefault("options", {})
+        if not isinstance(opts, dict):
+            opts = {}
+            existing["options"] = opts
+        if opts.get("baseURL") != base_url:
+            opts["baseURL"] = base_url
+            status = "updated"
+        if opts.get("apiKey") != api_key_ref:
+            opts["apiKey"] = api_key_ref
+            status = "updated"
+        if existing.get("name") != name:
+            existing["name"] = name
+            status = "updated"
+        if existing.get("kind") != kind:
+            existing["kind"] = kind
+            status = "updated"
+        if existing.get("enabled") is not True:
+            existing["enabled"] = True
+            status = "updated"
+        if existing.get("source") != "custom":
+            existing["source"] = "custom"
+            status = "updated"
+        models_dict = existing.setdefault("models", {})
+        if not isinstance(models_dict, dict):
+            models_dict = {}
+            existing["models"] = models_dict
+        for model_id in models:
+            if model_id not in models_dict:
+                models_dict[model_id] = {"name": model_id}
+                status = "updated"
+            else:
+                entry = models_dict[model_id]
+                if not isinstance(entry, dict):
+                    entry = {"name": model_id}
+                    models_dict[model_id] = entry
+                    status = "updated"
+                elif "name" not in entry:
+                    entry["name"] = model_id
+                    status = "updated"
+        if _stamp_zcode_model_defaults(models_dict, models):
+            status = "updated"
+        if prune:
+            for model_id in [m for m in models_dict if m not in models]:
+                del models_dict[model_id]
+                status = "updated"
+        if status != "unchanged":
+            write_zcode_config(zc_config)
+    else:
+        entry = build_zcode_provider_entry(base_url, api_key_ref, kind, name=name)
+        entry["models"] = {model_id: {"name": model_id} for model_id in models}
+        _stamp_zcode_model_defaults(entry["models"], models)
+        providers[provider_name] = entry
+        write_zcode_config(zc_config)
+        status = "created"
+    record_managed_zcode_provider(provider_name)
+    return status
+
+
+def sync_zcode_profiles(config, names=None):
+    """Write every (or the named) zcode profile into zcode config.json.
+
+    Replaces each provider entry (base URL, key ref, kind, display name) and
+    its full model list so the file matches the aweswitch config — models
+    removed from the config disappear from zcode too. Providers the config
+    doesn't know about are left alone. All profiles are validated before
+    anything is written. Returns a list of (profile, status, model_count).
+    """
+    profiles = kind_group(config, "api").get("zcode", {})
+    if not isinstance(profiles, dict):
+        die("provider entries must be an object: api.zcode")
+    specs = []
+    for name in dict.fromkeys(names if names is not None else profiles):
+        provider, kind, _ = profile_for(config, name)
+        if provider != "zcode" or kind != "api":
+            die(f"sync only supports zcode api profiles, got: {name} (provider={provider}, kind={kind})")
+        profile_env = profiles.get(name, {}).get("env", {})
+        base_url_raw = profile_env.get("ZCODE_BASE_URL")
+        api_key_raw = profile_env.get("ZCODE_API_KEY")
+        if not base_url_raw:
+            die(f"ZCODE_BASE_URL is required for zcode profile: {name}")
+        if not api_key_raw:
+            die(f"ZCODE_API_KEY is required for zcode profile: {name}")
+        zkind = profile_env.get("ZCODE_KIND") or "anthropic"
+        if zkind not in ZCODE_KINDS:
+            die(f"ZCODE_KIND must be one of {', '.join(ZCODE_KINDS)} for {name}, got: {zkind}")
+        models_dict = normalize_models_opt(
+            profile_env.get("ZCODE_MODEL"), name, "ZCODE_MODEL")
+        if not models_dict:
+            die(f"ZCODE_MODEL is required for {name}")
+        specs.append((
+            name,
+            expand_value(base_url_raw, dict(os.environ)),
+            _zcode_api_key_ref(api_key_raw),
+            zkind,
+            list(models_dict),
+            profile_env.get("ZCODE_NAME") or name,
+        ))
+    if specs:
+        load_zcode_config()
+        load_managed_zcode_providers()
+    return [
+        (
+            name,
+            ensure_zcode_provider(base_url, api_key_ref, name, kind, models,
+                                  display_name=display_name, prune=True),
+            len(models),
+        )
+        for name, base_url, api_key_ref, kind, models, display_name in specs
+    ]
+
+
+def find_orphan_zcode_providers(config):
+    """Return {name: entry} for aweswitch-written providers left in zcode config.
+
+    An orphan is a provider no zcode profile in the aweswitch config backs
+    anymore — typically a renamed or deleted profile. Ownership comes from a
+    sidecar written whenever aweswitch manages a provider; shape guessing is
+    deliberately avoided so a hand-written provider is never pruned.
+    """
+    managed = kind_group(config, "api").get("zcode") or {}
+    providers = load_zcode_config()["provider"]
+    owned = load_managed_zcode_providers()
+    orphans = {}
+    for name in owned:
+        entry = providers.get(name)
+        if name not in managed and isinstance(entry, dict):
+            orphans[name] = entry
+    return orphans
+
+
+def prune_or_warn_zcode_orphans(config, prune):
+    """Report (or delete with prune) orphaned aweswitch providers after a sync."""
+    orphans = find_orphan_zcode_providers(config)
+    if not orphans:
+        return
+    if not prune:
+        for name, entry in sorted(orphans.items()):
+            models = ", ".join(sorted(entry.get("models") or {})) or "no models"
+            click.echo(
+                f"warning: orphaned aweswitch provider '{name}' in zcode config ({models})",
+                err=True,
+            )
+        click.echo(
+            "  No aweswitch profile backs it (renamed or deleted?); the zcode GUI will still list it.\n"
+            "  Prune with: aweswitch apply --zcode --prune-orphans",
+            err=True,
+        )
+        return
+    zc_config = load_zcode_config()
+    providers = zc_config["provider"]
+    for name in sorted(orphans):
+        del providers[name]
+        click.echo(f"Pruned orphaned provider '{name}' from {zcode_config_path()}")
+    write_zcode_config(zc_config)
+    write_managed_zcode_providers(load_managed_zcode_providers() - set(orphans))
 
 
 def opencode_data_path():
@@ -1201,6 +1542,12 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
         argv += user_args
+    elif provider == "zcode":
+        die(
+            f"zcode is a desktop GUI app and does not support launch mode.\n"
+            f"  Use 'aweswitch apply {profile_name}' to write the profile into\n"
+            f"  ~/.zcode/v2/config.json, then open the zcode app to activate it."
+        )
     else:
         die(f"unsupported provider for {profile_name}: {provider}")
 
@@ -1270,6 +1617,16 @@ def profile_model_label(provider, profile):
         return env.get("OPENAI_BASE_URL", "?")
     if provider == "opencode":
         models = env.get("OPENCODE_MODEL") or env.get("OPENCODE_RESPONSES_MODEL")
+        if isinstance(models, dict):
+            return ", ".join(sorted(models)) if models else "?"
+        if isinstance(models, list):
+            return ", ".join(models) if models else "?"
+        if isinstance(models, str):
+            parts = [m.strip() for m in models.split(",")]
+            return ", ".join(p for p in parts if p) or "?"
+        return "?"
+    if provider == "zcode":
+        models = env.get("ZCODE_MODEL")
         if isinstance(models, dict):
             return ", ".join(sorted(models)) if models else "?"
         if isinstance(models, list):
@@ -1453,7 +1810,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode. Official accounts (claude/codex\nOAuth logins) are managed with `aweswitch account` and launch through private\nper-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json); aweswitch apply --opencode applies every opencode profile.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode, zcode. Official accounts\n(claude/codex OAuth logins) are managed with `aweswitch account` and launch\nthrough private per-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json / zcode config.json); use --opencode or --zcode for bulk sync.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -1593,7 +1950,7 @@ def add_command():
             import_account(path, provider, name)
         return
 
-    provider = click.prompt("Provider", type=click.Choice(["claude", "codex", "opencode"]))
+    provider = click.prompt("Provider", type=click.Choice(["claude", "codex", "opencode", "zcode"]))
     name = click.prompt("Profile name")
 
     if provider == "opencode":
@@ -1608,6 +1965,29 @@ def add_command():
             "OPENCODE_API_KEY": auth_token,
             "OPENCODE_MODEL": models_dict,
         }
+        save_profile(path, name, env_vars, provider=provider)
+        click.echo(f"Profile '{name}' added.")
+    elif provider == "zcode":
+        base_url = click.prompt("ZCODE_BASE_URL")
+        auth_var = click.prompt("ZCODE_API_KEY env var name (saved as ${VAR_NAME})")
+        auth_token = f"${{{auth_var}}}"
+        kind = click.prompt(
+            "ZCODE_KIND",
+            default="anthropic",
+            show_default=True,
+        )
+        models_str = click.prompt("ZCODE_MODEL (comma-separated, e.g. GLM-5.3-Flash,GLM-5-Turbo)")
+        models_dict = {m.strip(): m.strip() for m in models_str.split(",") if m.strip()}
+        name_val = click.prompt("ZCODE_NAME (display name, optional, Enter to skip)", default="", show_default=False)
+
+        env_vars = {
+            "ZCODE_BASE_URL": base_url,
+            "ZCODE_API_KEY": auth_token,
+            "ZCODE_KIND": kind,
+            "ZCODE_MODEL": models_dict,
+        }
+        if name_val.strip():
+            env_vars["ZCODE_NAME"] = name_val.strip()
         save_profile(path, name, env_vars, provider=provider)
         click.echo(f"Profile '{name}' added.")
     elif provider == "claude":
@@ -1765,10 +2145,11 @@ def preflight_apply(config, resolved):
     """Validate every requested apply before the first target file is changed."""
     prepared = {}
     has_opencode = False
+    has_zcode = False
     for name, provider, kind, entry in resolved:
         if kind == "account":
             die(f"accounts are launch-only: {name}")
-        if provider not in ("claude", "codex", "opencode"):
+        if provider not in ("claude", "codex", "opencode", "zcode"):
             die(f"unsupported provider for {name}: {provider}")
         profile_env = entry.get("env", {})
         if not isinstance(profile_env, dict):
@@ -1808,7 +2189,7 @@ def preflight_apply(config, resolved):
                     path.read_text(encoding="utf-8")
                 except UnicodeDecodeError:
                     die(f"invalid UTF-8 in {path}")
-        else:
+        elif provider == "opencode":
             base_url = profile_env.get("OPENCODE_BASE_URL")
             api_key = profile_env.get("OPENCODE_API_KEY")
             if not base_url:
@@ -1821,10 +2202,26 @@ def preflight_apply(config, resolved):
             )
             expand_value(base_url, dict(os.environ))
             has_opencode = True
+        else:
+            base_url = profile_env.get("ZCODE_BASE_URL")
+            api_key = profile_env.get("ZCODE_API_KEY")
+            if not base_url:
+                die(f"ZCODE_BASE_URL is required for zcode profile: {name}")
+            if not api_key:
+                die(f"ZCODE_API_KEY is required for zcode profile: {name}")
+            zkind = profile_env.get("ZCODE_KIND") or "anthropic"
+            if zkind not in ZCODE_KINDS:
+                die(f"ZCODE_KIND must be one of {', '.join(ZCODE_KINDS)} for {name}, got: {zkind}")
+            normalize_models_opt(profile_env.get("ZCODE_MODEL"), name, "ZCODE_MODEL")
+            expand_value(base_url, dict(os.environ))
+            has_zcode = True
 
     if has_opencode:
         load_opencode_config()
         load_managed_opencode_providers()
+    if has_zcode:
+        load_zcode_config()
+        load_managed_zcode_providers()
     return prepared
 
 
@@ -1833,24 +2230,38 @@ def preflight_apply(config, resolved):
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing backup.")
 @click.option("--opencode", is_flag=True,
               help="Apply every OpenCode profile (bulk only makes sense there).")
+@click.option("--zcode", is_flag=True,
+              help="Apply every zcode profile (bulk only — zcode is a desktop app).")
 @click.option("--prune-orphans", is_flag=True,
-              help="Also remove opencode.json providers no aweswitch profile backs.")
-def apply_command(profiles, force, opencode, prune_orphans):
+              help="Also remove providers no aweswitch profile backs "
+                   "(opencode.json or zcode config, depending on context).")
+def apply_command(profiles, force, opencode, zcode, prune_orphans):
     """Apply profiles as persistent defaults in each agent's config.
 
     Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
     ~/.codex/config.toml. OpenCode -> provider entry with its full model list
     in ~/.config/opencode/opencode.json (overwritten if the provider exists,
-    added if missing).
+    added if missing). zcode -> provider entry with its full model list in
+    ~/.zcode/v2/config.json (zcode is a desktop GUI app; no launch mode).
 
     Claude and Codex keep a single active default, so at most one profile of
-    each may be applied per call; OpenCode profiles coexist, so several may
-    be applied at once — or all of them via --opencode.
+    each may be applied per call; OpenCode and zcode profiles coexist, so
+    several may be applied at once — or all of them via --opencode / --zcode.
     """
     config = load_config(config_path())
     names = list(profiles)
-    if opencode and names:
-        die("pick one: --opencode (every opencode profile) or explicit profile names")
+
+    flag_count = sum(1 for f in [opencode, zcode] if f)
+    if flag_count > 1:
+        die("pick one: --opencode or --zcode (they are mutually exclusive)")
+    if flag_count == 1 and names:
+        die("pick one: --opencode/--zcode (bulk) or explicit profile names, not both")
+    if not names and flag_count == 0:
+        die(
+            "nothing to apply\n"
+            "run: aweswitch apply <profile> ... | --opencode | --zcode"
+        )
+
     if opencode:
         results = sync_opencode_profiles(config)
         if not results:
@@ -1860,11 +2271,16 @@ def apply_command(profiles, force, opencode, prune_orphans):
         click.echo(f"Synced to {opencode_config_path()}")
         prune_or_warn_opencode_orphans(config, prune_orphans)
         return
-    if not names:
-        die(
-            "nothing to apply\n"
-            "run: aweswitch apply <profile> ... or aweswitch apply --opencode"
-        )
+
+    if zcode:
+        results = sync_zcode_profiles(config)
+        if not results:
+            die("no zcode profiles found\nrun: aweswitch apply <profile>")
+        for name, status, model_count in results:
+            click.echo(f"{name}: {status} ({model_count} models)")
+        click.echo(f"Synced to {zcode_config_path()}")
+        prune_or_warn_zcode_orphans(config, prune_orphans)
+        return
 
     resolved = [(name, *profile_for(config, name)) for name in names]
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("claude", "api")) > 1:
@@ -1873,6 +2289,7 @@ def apply_command(profiles, force, opencode, prune_orphans):
         die("apply one codex profile at a time (config.toml holds a single active provider)")
     prepared = preflight_apply(config, resolved)
     applied_opencode = False
+    applied_zcode = False
     for name, provider, kind, _ in resolved:
         if provider == "claude":
             apply_claude_profile(config, name, force, prepared=prepared.get(name))
@@ -1882,10 +2299,16 @@ def apply_command(profiles, force, opencode, prune_orphans):
             _, status, model_count = sync_opencode_profiles(config, [name])[0]
             click.echo(f"{name}: {status} ({model_count} models) -> {opencode_config_path()}")
             applied_opencode = True
+        elif provider == "zcode":
+            _, status, model_count = sync_zcode_profiles(config, [name])[0]
+            click.echo(f"{name}: {status} ({model_count} models) -> {zcode_config_path()}")
+            applied_zcode = True
         else:
             die(f"unsupported provider for {name}: {provider}")
     if applied_opencode:
         prune_or_warn_opencode_orphans(config, prune_orphans)
+    if applied_zcode:
+        prune_or_warn_zcode_orphans(config, prune_orphans)
 
 
 @cli.group(context_settings={"help_option_names": ["-h", "--help"]})

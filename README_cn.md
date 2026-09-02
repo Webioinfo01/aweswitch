@@ -19,7 +19,7 @@
   </p>
   <p>
     <img src="https://img.shields.io/badge/status-beta-c96a3d?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
+    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode_%7C_zcode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-ubuntu%20%7C%20macOS%20%7C%20windows-334155?style=flat-square" alt="Platform">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -32,9 +32,9 @@
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
-- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`。`aweswitch apply --opencode` 一次应用全部 OpenCode profile。Claude 和 Codex 同一时间只有一个活跃默认。
+- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`，zcode provider+模型写入 `~/.zcode/v2/config.json`。`aweswitch apply --opencode` / `aweswitch apply --zcode` 可一次应用对应 agent 的全部 profile。Claude 和 Codex 同一时间只有一个活跃默认。
 
-它刻意保持小而直接。目前支持 Claude Code、Codex 和 OpenCode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
+它刻意保持小而直接。目前支持 Claude Code、Codex、OpenCode 和 zcode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
 ## 支持工具
 
@@ -155,6 +155,20 @@ aweswitch add
             }
           }
         }
+      },
+      "zcode": {
+        "zc-glm": {
+          "env": {
+            "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ZCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "ZCODE_NAME": "BigModel - Coding Plan",
+            "ZCODE_KIND": "anthropic",
+            "ZCODE_MODEL": {
+              "GLM-5.3-Flash": "GLM-5.3-Flash",
+              "GLM-5-Turbo": "GLM-5-Turbo"
+            }
+          }
+        }
       }
     },
     "accounts": {}
@@ -173,6 +187,9 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 
 # Codex profiles
 export OPENAI_API_KEY="..."
+
+# zcode profiles
+export ZCODE_API_KEY="..."
 ```
 
 如果希望每次打开终端都可用，可以把这些变量放进你的 shell 配置文件：macOS 用 `~/.zshrc`，bash 用 `~/.bashrc` 或 `~/.bash_profile`，PowerShell 用 `$PROFILE`。
@@ -216,8 +233,10 @@ aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookm
 ```bash
 aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
-aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
-aweswitch apply --opencode            # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
+  aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
+  aweswitch apply zc-glm                # zcode：provider+模型列表 -> ~/.zcode/v2/config.json
+  aweswitch apply --opencode            # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
+  aweswitch apply --zcode               # 一次应用全部 zcode profile
 aweswitch apply --opencode --prune-orphans  # 全量应用，并清理没有 profile 对应的已登记 provider
 aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
 aweswitch apply cc-glm --force        # 覆盖已有备份
@@ -231,8 +250,9 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 - **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
 - **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune-orphans` 可将其删除。provider 所有权不再根据配置形状猜测，因此手写条目不会被清理。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
+- **zcode** — provider 条目（base URL、环境变量 key 引用、kind、显示名）及其**完整模型列表**按 upsert 写入 `~/.zcode/v2/config.json`。zcode 是桌面 GUI 应用，因此 zcode profile 只支持 apply，不支持启动。`--zcode` 会同步全部 zcode profile；aweswitch 用 `.aweswitch-managed-providers.json` 登记自己管理的 provider，默认只警告孤儿条目，显式加 `--prune-orphans` 才清理。手写 provider 永远不会被清理。
 
-Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 的 provider 天然并存，可以一次应用多个（或用 `--opencode` 一次应用全部）。
+Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 和 zcode 的 provider 天然并存，可以一次应用多个（或用 `--opencode` / `--zcode` 一次应用全部）。
 
 #### 什么时候用哪种模式
 
@@ -243,6 +263,7 @@ Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各�
 | 快速试用不同 API | 启动 |
 | 设置持久默认 profile | 写入 |
 | 把改过的 OpenCode profile 推送到 opencode.json | 写入（`aweswitch apply`） |
+| 把改过的 zcode profile 推送到 zcode config.json | 写入（`aweswitch apply`） |
 
 > **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
 

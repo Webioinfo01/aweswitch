@@ -1775,6 +1775,618 @@ class AweSwitchTests(unittest.TestCase):
             # nothing was written even though oc-glm sorted before oc-broken
             self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})
 
+    # ------------------------------------------------------------------
+    # zcode tests
+    # ------------------------------------------------------------------
+
+    def test_ensure_zcode_provider_creates_new_provider_with_env_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "anthropic",
+                    ["GLM-5.3-Flash", "GLM-5-Turbo"],
+                    display_name="BigModel - Coding Plan",
+                )
+
+            self.assertEqual(status, "created")
+            data = json.loads(zc_path.read_text())
+            prov = data["provider"]["zc-glm"]
+            self.assertEqual(prov["name"], "BigModel - Coding Plan")
+            self.assertEqual(prov["kind"], "anthropic")
+            self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
+            self.assertEqual(prov["options"]["apiKey"], "{env:GLM_KEY}")
+            self.assertTrue(prov["enabled"])
+            self.assertEqual(prov["source"], "custom")
+            self.assertEqual(prov["models"]["GLM-5.3-Flash"]["name"], "GLM-5.3-Flash")
+            self.assertEqual(prov["models"]["GLM-5.3-Flash"]["limit"],
+                             {"context": 1000000, "output": 128000})
+            self.assertEqual(prov["models"]["GLM-5.3-Flash"]["modalities"],
+                             {"input": ["text", "image"], "output": ["text"]})
+            self.assertTrue(prov["models"]["GLM-5.3-Flash"]["zcode"]["modalitiesConfigured"])
+            managed = json.loads(
+                zc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )
+            self.assertEqual(managed, {"providers": ["zc-glm"]})
+            self.assert_settings_file_secure(
+                zc_path.with_name(".aweswitch-managed-providers.json")
+            )
+
+    def test_ensure_zcode_provider_backfills_default_modalities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "anthropic",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/anthropic",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "GLM-5.3-Flash": {"name": "GLM-5.3-Flash"},
+                        "GLM-text": {"name": "GLM Text", "modalities": {"input": ["text"], "output": ["text"]}},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "anthropic",
+                    ["GLM-5.3-Flash", "GLM-text"],
+                    display_name="BigModel - Coding Plan",
+                )
+
+            self.assertEqual(status, "updated")
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(models["GLM-5.3-Flash"], {
+                "name": "GLM-5.3-Flash",
+                "limit": {"context": 1000000, "output": 128000},
+                "modalities": {"input": ["text", "image"], "output": ["text"]},
+                "zcode": {"modalitiesConfigured": True},
+            })
+            self.assertEqual(models["GLM-text"], {
+                "name": "GLM Text",
+                "limit": {"context": 1000000, "output": 128000},
+                "modalities": {"input": ["text"], "output": ["text"]},
+                "zcode": {"modalitiesConfigured": True},
+            })
+
+    def test_ensure_zcode_provider_updates_stale_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "openai",
+                    "options": {
+                        "baseURL": "https://old.com/v1",
+                        "apiKey": "sk-old",
+                    },
+                    "models": {"GLM-5.3-Flash": {"name": "GLM-5.3-Flash"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:NEW_KEY}", "zc-glm", "anthropic",
+                    ["GLM-5.3-Flash"],
+                    display_name="BigModel - Coding Plan",
+                )
+
+            self.assertEqual(status, "updated")
+            data = json.loads(zc_path.read_text())
+            prov = data["provider"]["zc-glm"]
+            self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
+            self.assertEqual(prov["options"]["apiKey"], "{env:NEW_KEY}")
+            self.assertEqual(prov["kind"], "anthropic")
+            self.assertEqual(prov["name"], "BigModel - Coding Plan")
+
+    def test_ensure_zcode_provider_prunes_models_not_in_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "anthropic",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/anthropic",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "GLM-5.3-Flash": {"name": "GLM-5.3-Flash"},
+                        "GLM-stale": {"name": "GLM-stale"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "anthropic",
+                    ["GLM-5.3-Flash"],
+                    prune=True,
+                )
+
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(list(models), ["GLM-5.3-Flash"])
+
+    def test_ensure_zcode_provider_repairs_hand_edited_shapes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "options": "oops",
+                    "models": {"GLM-5.3-Flash": "plain string", "keep": {"name": "Keep"}},
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "anthropic",
+                    ["GLM-5.3-Flash"],
+                )
+
+            self.assertEqual(status, "updated")
+            prov = json.loads(zc_path.read_text())["provider"]["zc-glm"]
+            self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
+            self.assertEqual(prov["models"]["GLM-5.3-Flash"]["name"], "GLM-5.3-Flash")
+            self.assertTrue(prov["enabled"])
+            self.assertEqual(prov["source"], "custom")
+            self.assertEqual(prov["models"]["keep"], {"name": "Keep"})
+
+    def test_ensure_zcode_provider_refuses_to_clobber_invalid_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            original = '{ "provider": { broken json ,,'
+            zc_path.write_text(original)
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                with self.assertRaisesRegex(SystemExit, "invalid JSON"):
+                    aweswitch.ensure_zcode_provider(
+                        "https://x/v1", "{env:KEY}", "zc-x", "anthropic", ["m-1"]
+                    )
+
+            self.assertEqual(zc_path.read_text(), original)
+
+    def test_sync_zcode_profiles_writes_all_profiles_with_full_model_lists(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-a": {"env": {
+                            "ZCODE_BASE_URL": "https://a.test/v1",
+                            "ZCODE_API_KEY": "${A_KEY}",
+                            "ZCODE_KIND": "anthropic",
+                            "ZCODE_MODEL": {"m1": "M1", "m2": "M2"},
+                        }},
+                        "zc-b": {"env": {
+                            "ZCODE_BASE_URL": "https://b.test/v1",
+                            "ZCODE_API_KEY": "${B_KEY}",
+                            "ZCODE_KIND": "openai-compatible",
+                            "ZCODE_MODEL": ["n1", "n2"],
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}):
+                results = aweswitch.sync_zcode_profiles(config)
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0][0], "zc-a")
+            self.assertEqual(results[0][1], "created")
+            self.assertEqual(results[0][2], 2)
+            self.assertEqual(results[1][0], "zc-b")
+            self.assertEqual(results[1][1], "created")
+            self.assertEqual(results[1][2], 2)
+
+            data = json.loads(zc_path.read_text())
+            self.assertEqual(data["provider"]["zc-a"]["kind"], "anthropic")
+            self.assertEqual(sorted(data["provider"]["zc-a"]["models"]), ["m1", "m2"])
+            self.assertEqual(data["provider"]["zc-b"]["kind"], "openai-compatible")
+            self.assertEqual(sorted(data["provider"]["zc-b"]["models"]), ["n1", "n2"])
+
+    def test_sync_zcode_profiles_keeps_api_key_as_env_reference(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-secret": {"env": {
+                            "ZCODE_BASE_URL": "https://zcode.test/v1",
+                            "ZCODE_API_KEY": "${ZCODE_TOKEN}",
+                            "ZCODE_MODEL": "m1",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch.dict(os.environ, {
+                "ZCODE_CONFIG": str(zc_path),
+                "ZCODE_TOKEN": "super-secret",
+            }):
+                aweswitch.sync_zcode_profiles(config)
+
+            provider = json.loads(zc_path.read_text())["provider"]["zc-secret"]
+            self.assertEqual(provider["options"]["apiKey"], "{env:ZCODE_TOKEN}")
+            self.assertNotIn("super-secret", zc_path.read_text())
+
+    def test_sync_zcode_rejects_non_zcode_profile(self):
+        config = self._make_apply_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "X_KEY": "x"}):
+                with self.assertRaisesRegex(SystemExit, "sync only supports zcode api profiles"):
+                    aweswitch.sync_zcode_profiles(config, ["oc-test"])
+
+    def test_sync_zcode_requires_model(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-x": {"env": {
+                            "ZCODE_BASE_URL": "https://x.test/v1",
+                            "ZCODE_API_KEY": "${X_KEY}",
+                            "ZCODE_KIND": "anthropic",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path)}):
+                with self.assertRaisesRegex(SystemExit, "ZCODE_MODEL is required"):
+                    aweswitch.sync_zcode_profiles(config)
+
+    def test_sync_zcode_rejects_invalid_kind(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-x": {"env": {
+                            "ZCODE_BASE_URL": "https://x.test/v1",
+                            "ZCODE_API_KEY": "${X_KEY}",
+                            "ZCODE_KIND": "not-a-kind",
+                            "ZCODE_MODEL": "m1",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path)}):
+                with self.assertRaisesRegex(SystemExit, "ZCODE_KIND must be one of"):
+                    aweswitch.sync_zcode_profiles(config)
+
+    def test_sync_zcode_prunes_models_not_in_config(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-glm": {"env": {
+                            "ZCODE_BASE_URL": "https://a.test/v1",
+                            "ZCODE_API_KEY": "${A_KEY}",
+                            "ZCODE_KIND": "anthropic",
+                            "ZCODE_MODEL": "m1",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "anthropic",
+                    "options": {"baseURL": "https://a.test/v1", "apiKey": "{env:A_KEY}"},
+                    "models": {"m1": {"name": "m1"}, "m-stale": {"name": "m-stale"}},
+                }
+            }}))
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a"}):
+                aweswitch.sync_zcode_profiles(config)
+
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(list(models), ["m1"])
+
+    def test_apply_zcode_profile_upserts_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-test": {"env": {
+                                "ZCODE_BASE_URL": "https://example.test/v1",
+                                "ZCODE_API_KEY": "${TOKEN}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": {"m1": "M1", "m2": "M2"},
+                            }},
+                        }
+                    }
+                }
+            }
+            (Path(tmp) / "config.json").write_text(json.dumps(config) + "\n")
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "TOKEN": "secret",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(aweswitch.cli, ["apply", "zc-test"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("zc-test: created (2 models)", result.output)
+            prov = json.loads(zc_path.read_text())["provider"]["zc-test"]
+            self.assertEqual(sorted(prov["models"]), ["m1", "m2"])
+
+            # second apply overwrites to match config
+            config["profiles"]["api"]["zcode"]["zc-test"]["env"]["ZCODE_MODEL"] = {"m1": "M1"}
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(aweswitch.cli, ["apply", "zc-test"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("zc-test: updated (1 models)", result.output)
+            self.assertEqual(list(json.loads(zc_path.read_text())["provider"]["zc-test"]["models"]), ["m1"])
+
+    def test_apply_zcode_flag_applies_all_zcode_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-a": {"env": {
+                                "ZCODE_BASE_URL": "https://a.test/v1",
+                                "ZCODE_API_KEY": "${A_KEY}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": "m1",
+                            }},
+                            "zc-b": {"env": {
+                                "ZCODE_BASE_URL": "https://b.test/v1",
+                                "ZCODE_API_KEY": "${B_KEY}",
+                                "ZCODE_KIND": "openai-compatible",
+                                "ZCODE_MODEL": "n1",
+                            }},
+                        }
+                    }
+                }
+            }
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "A_KEY": "a",
+                "B_KEY": "b",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(aweswitch.cli, ["apply", "--zcode"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("zc-a: created (1 models)", result.output)
+            self.assertIn("zc-b: created (1 models)", result.output)
+            self.assertIn("Synced to", result.output)
+
+    def test_apply_zcode_flag_rejects_profile_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-test": {"env": {
+                                "ZCODE_BASE_URL": "https://x.test/v1",
+                                "ZCODE_API_KEY": "${X_KEY}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": "m1",
+                            }},
+                        }
+                    }
+                }
+            }
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "X_KEY": "x",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(aweswitch.cli, ["apply", "--zcode", "zc-test"], env=env)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("pick one", result.output)
+
+    def test_apply_zcode_warns_about_orphaned_aweswitch_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            orphan = {
+                "name": "zc-old", "kind": "anthropic",
+                "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
+                "models": {"m1": {"name": "m1"}},
+            }
+            hand_written = {
+                "name": "mine", "kind": "openai-compatible",
+                "options": {"apiKey": "sk", "baseURL": "https://mine/v1"},
+            }
+            zc_path.write_text(json.dumps({"provider": {"zc-old": orphan, "mine": hand_written}}))
+            managed_path = zc_path.with_name(".aweswitch-managed-providers.json")
+            managed_path.write_text(json.dumps({"providers": ["zc-old"]}) + "\n")
+
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-test": {"env": {
+                                "ZCODE_BASE_URL": "https://example.test/v1",
+                                "ZCODE_API_KEY": "${TOKEN}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": "m1",
+                            }},
+                        }
+                    }
+                }
+            }
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "TOKEN": "secret",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(aweswitch.cli, ["apply", "--zcode"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("orphaned", result.output)
+            self.assertIn("zc-old", result.output)
+            self.assertIn("--prune-orphans", result.output)
+            providers = json.loads(zc_path.read_text())["provider"]
+            self.assertIn("zc-old", providers)
+            self.assertIn("mine", providers)
+
+    def test_apply_zcode_prune_orphans_removes_only_aweswitch_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            orphan = {
+                "name": "zc-old", "kind": "anthropic",
+                "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
+                "models": {"m1": {"name": "m1"}},
+            }
+            hand_written = {
+                "name": "mine", "kind": "openai-compatible",
+                "options": {"apiKey": "sk", "baseURL": "https://mine/v1"},
+            }
+            zc_path.write_text(json.dumps({"provider": {"zc-old": orphan, "mine": hand_written}}))
+            managed_path = zc_path.with_name(".aweswitch-managed-providers.json")
+            managed_path.write_text(json.dumps({"providers": ["zc-old"]}) + "\n")
+
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-test": {"env": {
+                                "ZCODE_BASE_URL": "https://example.test/v1",
+                                "ZCODE_API_KEY": "${TOKEN}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": "m1",
+                            }},
+                        }
+                    }
+                }
+            }
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "TOKEN": "secret",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--zcode", "--prune-orphans"], env=env
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned orphaned provider 'zc-old'", result.output)
+            providers = json.loads(zc_path.read_text())["provider"]
+            self.assertNotIn("zc-old", providers)
+            self.assertIn("zc-test", providers)
+            self.assertIn("mine", providers)
+            managed = json.loads(
+                zc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )["providers"]
+            self.assertNotIn("zc-old", managed)
+            self.assertIn("zc-test", managed)
+
+    def test_apply_zcode_prune_refuses_invalid_managed_provider_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            original = {"provider": {"manual": {
+                "name": "manual", "kind": "openai",
+                "options": {"apiKey": "sk", "baseURL": "https://manual/v1"},
+            }}}
+            zc_path.write_text(json.dumps(original))
+            zc_path.with_name(".aweswitch-managed-providers.json").write_text("{broken")
+
+            config = {
+                "profiles": {
+                    "api": {
+                        "zcode": {
+                            "zc-test": {"env": {
+                                "ZCODE_BASE_URL": "https://example.test/v1",
+                                "ZCODE_API_KEY": "${TOKEN}",
+                                "ZCODE_KIND": "anthropic",
+                                "ZCODE_MODEL": "m1",
+                            }},
+                        }
+                    }
+                }
+            }
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "aweswitch-config.json"),
+                "ZCODE_CONFIG": str(zc_path),
+                "TOKEN": "secret",
+            }
+            (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--zcode", "--prune-orphans"], env=env
+            )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("invalid managed-provider JSON", result.output)
+            self.assertEqual(json.loads(zc_path.read_text()), original)
+
+    def test_prepare_run_zcode_rejects_launch(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-test": {"env": {
+                            "ZCODE_BASE_URL": "https://example.test/v1",
+                            "ZCODE_API_KEY": "${TOKEN}",
+                            "ZCODE_KIND": "anthropic",
+                            "ZCODE_MODEL": "m1",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {
+                "AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                "TOKEN": "secret",
+            }
+            (Path(tmp) / "config.json").write_text(json.dumps(config) + "\n")
+            with self.assertRaisesRegex(SystemExit, "zcode is a desktop GUI app"):
+                aweswitch.prepare_run(aweswitch.load_config(Path(tmp) / "config.json"), "zc-test", [])
+
+    def test_profile_model_label_for_zcode(self):
+        # dict
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": {"a": "A", "b": "B"}}})
+        self.assertEqual(label, "a, b")
+        # list
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": ["a", "b"]}})
+        self.assertEqual(label, "a, b")
+        # string
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": "a,b"}})
+        self.assertEqual(label, "a, b")
+        # empty
+        label = aweswitch.profile_model_label("zcode", {"env": {}})
+        self.assertEqual(label, "?")
+
     def test_auto_bookmark_runs_worker_in_detached_child(self):
         """On POSIX the bookmark worker must run in a forked child, because
         os.execvpe() in exec_agent destroys threads before their first poll."""

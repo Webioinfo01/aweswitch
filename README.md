@@ -19,7 +19,7 @@
   </p>
   <p>
     <img src="https://img.shields.io/badge/status-beta-c96a3d?style=flat-square" alt="Status">
-    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode-7C3AED?style=flat-square" alt="Provider">
+    <img src="https://img.shields.io/badge/provider-Claude_Code_%7C_Codex_%7C_OpenCode_%7C_zcode-7C3AED?style=flat-square" alt="Provider">
     <img src="https://img.shields.io/badge/install-pip-22C55E?style=flat-square" alt="pip install">
     <img src="https://img.shields.io/badge/platform-ubuntu%20%7C%20macOS%20%7C%20windows-334155?style=flat-square" alt="Platform">
     <img src="https://img.shields.io/pepy/dt/aweswitch?style=flat-square" alt="PyPI downloads">
@@ -32,9 +32,9 @@
 `aweswitch` reads profiles from `~/.config/aweswitch/config.json` and offers two modes:
 
 - **Launch mode** (`aweswitch <profile>`) — starts a new agent session with isolated env. Each session gets its own API endpoint, token, and model. Different terminals can run different profiles simultaneously. Env is frozen at launch time.
-- **Write mode** (`aweswitch apply <profile>`) — makes a profile the agent's persistent default: Claude env into `~/.claude/settings.json`, Codex provider+model into `~/.codex/config.toml`, OpenCode provider+models into `~/.config/opencode/opencode.json`. `aweswitch apply --opencode` applies every OpenCode profile. Claude and Codex keep one active default at a time.
+- **Write mode** (`aweswitch apply <profile>`) — makes a profile the agent's persistent default: Claude env into `~/.claude/settings.json`, Codex provider+model into `~/.codex/config.toml`, OpenCode provider+models into `~/.config/opencode/opencode.json`, and zcode providers+models into `~/.zcode/v2/config.json`. `aweswitch apply --opencode` and `aweswitch apply --zcode` apply every profile for that agent. Claude and Codex keep one active default at a time.
 
-It is intentionally small. Today it supports Claude Code, Codex, and OpenCode profiles, plus official-login accounts (Claude Code / Codex OAuth).
+It is intentionally small. Today it supports Claude Code, Codex, OpenCode, and zcode profiles, plus official-login accounts (Claude Code / Codex OAuth).
 
 ## Support Tools
 
@@ -156,6 +156,20 @@ The default config shape splits profiles by kind (`api` for env-based API profil
             }
           }
         }
+      },
+      "zcode": {
+        "zc-glm": {
+          "env": {
+            "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ZCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
+            "ZCODE_NAME": "BigModel - Coding Plan",
+            "ZCODE_KIND": "anthropic",
+            "ZCODE_MODEL": {
+              "GLM-5.3-Flash": "GLM-5.3-Flash",
+              "GLM-5-Turbo": "GLM-5-Turbo"
+            }
+          }
+        }
       }
     },
     "accounts": {}
@@ -174,6 +188,9 @@ export XIAOMI_ANTHROPIC_AUTH_TOKEN="..."
 
 # Codex profiles
 export OPENAI_API_KEY="..."
+
+# zcode profiles
+export ZCODE_API_KEY="..."
 ```
 
 Put long-lived variables in your shell config file if you want them available in every shell — `~/.zshrc` on macOS, `~/.bashrc` or `~/.bash_profile` on bash, or `$PROFILE` on PowerShell.
@@ -247,8 +264,10 @@ aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
 ```bash
 aweswitch apply cc-glm                # Claude: env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex: provider+model -> ~/.codex/config.toml
-aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
-aweswitch apply --opencode            # all OpenCode profiles at once (bulk only makes sense there)
+  aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
+  aweswitch apply zc-glm                # zcode: provider+models -> ~/.zcode/v2/config.json
+  aweswitch apply --opencode            # all OpenCode profiles at once (bulk only makes sense there)
+  aweswitch apply --zcode               # all zcode profiles at once
 aweswitch apply --opencode --prune-orphans  # apply all and remove tracked providers no profile backs
 aweswitch apply cc-glm cx-glm oc-glm  # mixed: one per agent in a single call
 aweswitch apply cc-glm --force        # overwrite existing backup
@@ -262,8 +281,9 @@ Per-agent semantics:
 - **Claude** — env is merged into `~/.claude/settings.json`; unrelated settings are preserved, while a stale `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` alternative is removed when the new profile does not declare it. Restart the session or use `/model` to pick the new model.
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
 - **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. aweswitch records managed provider keys in `.aweswitch-managed-providers.json`; after a tracked profile is renamed or deleted, apply warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --opencode --prune-orphans` removes it. Provider ownership is never inferred from configuration shape, so hand-written entries are not pruned. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
+- **zcode** — the provider entry (base URL, env key reference, kind, display name) and its **full model list** are upserted into `~/.zcode/v2/config.json`. zcode is a desktop GUI app, so zcode profiles are apply-only and do not support launch mode. `--zcode` syncs every zcode profile; managed providers are tracked in `.aweswitch-managed-providers.json`, with orphan warnings by default and opt-in cleanup via `--prune-orphans`. Hand-written providers are never pruned.
 
-Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode profiles coexist side by side, so several can be applied at once — or all of them with `--opencode`.
+Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode and zcode profiles coexist side by side, so several can be applied at once — or all of them with `--opencode` / `--zcode`.
 
 #### When to use which mode
 
@@ -274,6 +294,7 @@ Claude and Codex keep a single active default, so at most one profile of each ma
 | Quickly try different APIs | Launch |
 | Set a persistent default profile | Write |
 | Push edited OpenCode profiles into opencode.json | Write (`aweswitch apply`) |
+| Push edited zcode profiles into zcode config.json | Write (`aweswitch apply`) |
 
 > **Note:** The two modes do not interfere with each other. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
 
