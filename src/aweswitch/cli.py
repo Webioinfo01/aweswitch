@@ -543,45 +543,57 @@ def warn_opencode_orphans(config):
         )
     click.echo(
         "  No aweswitch profile backs it (renamed or deleted?); old sessions pinned to its\n"
-        "  models keep using them. Prune with: aweswitch apply --opencode --prune-orphans",
+        "  models keep using them. Prune with: aweswitch apply --opencode --prune orphans",
         err=True,
     )
 
 
-# --prune-providers' bare form: the flag was given without provider names.
-PRUNE_PROVIDERS_ALL = "*"
+# --prune accepts a mode keyword or a provider-name list.
+PRUNE_ORPHANS = "orphans"
+PRUNE_ALL = "all"
+
+
+def _parse_prune(raw):
+    """Resolve a --prune value into 'orphans', 'all', or a name list."""
+    if raw is None:
+        return None
+    value = raw.strip()
+    if value == PRUNE_ORPHANS:
+        return PRUNE_ORPHANS
+    if value == PRUNE_ALL:
+        return PRUNE_ALL
+    names = _parse_prune_provider_names(value)
+    return names
 
 
 def _parse_prune_provider_names(raw):
-    """Split a --prune-providers value into a de-duplicated provider-name list."""
+    """Split a --prune value into a de-duplicated provider-name list."""
     names = [name.strip() for name in raw.split(",") if name.strip()]
     if not names:
-        die(f"--prune-providers needs at least one provider name, got: {raw!r}")
+        die(f"--prune needs 'orphans', 'all', or at least one provider name, got: {raw!r}")
     return list(dict.fromkeys(names))
 
 
-def plan_opencode_prune(config, prune_providers, prune_orphans):
-    """Resolve apply's prune flags into a {name: entry} deletion set. No writes.
+def plan_opencode_prune(config, prune):
+    """Resolve apply's --prune value into a {name: entry} deletion set. No writes.
 
-    --prune-orphans contributes tracked providers no profile backs. A bare
-    --prune-providers adds every unbacked provider, hand-written ones included
-    — explicit opt-in to full alignment. A named --prune-providers adds
-    exactly those entries; they must exist and must not be profile-backed (a
-    sync would recreate them otherwise).
+    'orphans' contributes tracked providers no profile backs. 'all' adds every
+    unbacked provider, hand-written ones included — explicit opt-in to full
+    alignment. A name list adds exactly those entries; they must exist and must
+    not be profile-backed (a sync would recreate them otherwise).
     """
-    if prune_providers is None and not prune_orphans:
+    if prune is None:
         return {}
     backed = kind_group(config, "api").get("opencode") or {}
     providers = load_opencode_config()["provider"]
     targets = {}
-    if prune_orphans:
+    if prune == PRUNE_ORPHANS:
         targets.update(find_orphan_opencode_providers(config))
-    if prune_providers is None:
         return targets
-    if prune_providers == PRUNE_PROVIDERS_ALL:
+    if prune == PRUNE_ALL:
         if not backed:
             die(
-                "--prune-providers with no names would delete every provider, but the "
+                "--prune all would delete every provider, but the "
                 "aweswitch config has no opencode profiles.\n"
                 "  Add a profile first, or name the providers to prune."
             )
@@ -589,17 +601,17 @@ def plan_opencode_prune(config, prune_providers, prune_orphans):
             if name not in backed and isinstance(entry, dict):
                 targets[name] = entry
         return targets
-    for name in _parse_prune_provider_names(prune_providers):
+    for name in prune:
         entry = providers.get(name)
         if not isinstance(entry, dict):
             available = ", ".join(sorted(providers)) or "(none)"
             die(
-                f"--prune-providers: no provider '{name}' in {opencode_config_path()}\n"
+                f"--prune: no provider '{name}' in {opencode_config_path()}\n"
                 f"  Available providers: {available}"
             )
         if name in backed:
             die(
-                f"--prune-providers: '{name}' is backed by the aweswitch profile of the "
+                f"--prune: '{name}' is backed by the aweswitch profile of the "
                 "same name; remove that profile from the config instead."
             )
         targets[name] = entry
@@ -971,12 +983,50 @@ def find_orphan_zcode_providers(config):
     return orphans
 
 
-def prune_or_warn_zcode_orphans(config, prune):
-    """Report (or delete with prune) orphaned aweswitch providers after a sync."""
-    orphans = find_orphan_zcode_providers(config)
-    if not orphans:
-        return
-    if not prune:
+def plan_zcode_prune(config, prune):
+    """Resolve apply's --prune value into a {name: entry} zcode deletion set."""
+    if prune is None:
+        return {}
+    backed = kind_group(config, "api").get("zcode") or {}
+    providers = load_zcode_config()["provider"]
+    targets = {}
+    if prune == PRUNE_ORPHANS:
+        targets.update(find_orphan_zcode_providers(config))
+        return targets
+    if prune == PRUNE_ALL:
+        if not backed:
+            die(
+                "--prune all would delete every provider, but the "
+                "aweswitch config has no zcode profiles.\n"
+                "  Add a profile first, or name the providers to prune."
+            )
+        for name, entry in providers.items():
+            if name not in backed and isinstance(entry, dict):
+                targets[name] = entry
+        return targets
+    for name in prune:
+        entry = providers.get(name)
+        if not isinstance(entry, dict):
+            available = ", ".join(sorted(providers)) or "(none)"
+            die(
+                f"--prune: no provider '{name}' in {zcode_config_path()}\n"
+                f"  Available providers: {available}"
+            )
+        if name in backed:
+            die(
+                f"--prune: '{name}' is backed by the aweswitch profile of the "
+                "same name; remove that profile from the config instead."
+            )
+        targets[name] = entry
+    return targets
+
+
+def prune_or_warn_zcode_providers(config, prune):
+    """Report (prune=None) or delete (--prune) leftover zcode providers."""
+    if prune is None:
+        orphans = find_orphan_zcode_providers(config)
+        if not orphans:
+            return
         for name, entry in sorted(orphans.items()):
             models = ", ".join(sorted(entry.get("models") or {})) or "no models"
             click.echo(
@@ -985,17 +1035,19 @@ def prune_or_warn_zcode_orphans(config, prune):
             )
         click.echo(
             "  No aweswitch profile backs it (renamed or deleted?); the zcode GUI will still list it.\n"
-            "  Prune with: aweswitch apply --zcode --prune-orphans",
+            "  Prune with: aweswitch apply --zcode --prune orphans",
             err=True,
         )
         return
+    targets = plan_zcode_prune(config, prune)
     zc_config = load_zcode_config()
     providers = zc_config["provider"]
-    for name in sorted(orphans):
-        del providers[name]
-        click.echo(f"Pruned orphaned provider '{name}' from {zcode_config_path()}")
+    for name in sorted(targets):
+        if providers.pop(name, None) is None:
+            continue
+        click.echo(f"Pruned provider '{name}' from {zcode_config_path()}")
     write_zcode_config(zc_config)
-    write_managed_zcode_providers(load_managed_zcode_providers() - set(orphans))
+    write_managed_zcode_providers(load_managed_zcode_providers() - set(targets))
 
 
 def opencode_data_path():
@@ -2363,20 +2415,17 @@ def preflight_apply(config, resolved):
               help="Apply every OpenCode profile (bulk only makes sense there).")
 @click.option("--zcode", is_flag=True,
               help="Apply every zcode profile (bulk only — zcode is a desktop app).")
-@click.option("--prune-orphans", is_flag=True,
-              help="Also remove providers no aweswitch profile backs "
-                   "(opencode.json or zcode config, depending on context).")
-@click.option("--prune-providers", "prune_providers",
-              is_flag=False, flag_value=PRUNE_PROVIDERS_ALL, default=None,
-              metavar="[NAME[,NAME...]]",
-              help="Remove OpenCode provider entries: with names, exactly "
-                   "those; bare, every provider no aweswitch profile backs "
-                   "(hand-written ones included).")
+@click.option("--prune", "prune_raw", default=None,
+              metavar="orphans|all|NAME[,NAME...]",
+              help="Remove providers no aweswitch profile backs: 'orphans' "
+                   "removes tracked leftovers only; 'all' removes every "
+                   "unbacked provider (hand-written ones included); or list "
+                   "provider names to remove exactly those. Applies to "
+                   "opencode and zcode.")
 @click.option("--dry-run", is_flag=True,
               help="Preview the OpenCode sync and prune plan without "
                    "writing (requires a prune flag).")
-def apply_command(profiles, force, opencode, zcode, prune_orphans,
-                  prune_providers, dry_run):
+def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
     """Apply profiles as persistent defaults in each agent's config.
 
     Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
@@ -2389,10 +2438,11 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
     each may be applied per call; OpenCode and zcode profiles coexist, so
     several may be applied at once — or all of them via --opencode / --zcode.
 
-    OpenCode prunes are opt-in: --prune-orphans removes tracked providers no
-    profile backs, --prune-providers removes named or (bare) all unbacked
-    entries; --dry-run previews the plan. A prune never leaves the default
-    model pointing at a deleted provider.
+    OpenCode/zcode prunes are opt-in via --prune: 'orphans' removes tracked
+    providers no profile backs, 'all' removes every unbacked provider
+    (hand-written ones included), or a name list removes exactly those;
+    --dry-run previews the plan. A prune never leaves the default model
+    pointing at a deleted provider.
     """
     config = load_config(config_path())
     names = list(profiles)
@@ -2407,16 +2457,15 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
             "nothing to apply\n"
             "run: aweswitch apply <profile> ... | --opencode | --zcode"
         )
-    prune_requested = prune_orphans or prune_providers is not None
+    prune = _parse_prune(prune_raw)
+    prune_requested = prune is not None
     if dry_run and not prune_requested:
-        die("--dry-run previews pruning; add --prune-orphans or --prune-providers")
+        die("--dry-run previews pruning; add --prune orphans|all|NAME,...")
     if dry_run and zcode:
         die("--dry-run previews OpenCode pruning only (this run has no OpenCode part)")
-    if prune_providers is not None and zcode:
-        die("--prune-providers only applies to OpenCode providers")
 
     if opencode:
-        targets = plan_opencode_prune(config, prune_providers, prune_orphans)
+        targets = plan_opencode_prune(config, prune)
         if dry_run:
             specs = build_opencode_specs(config)
             if not specs:
@@ -2442,7 +2491,7 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
         for name, status, model_count in results:
             click.echo(f"{name}: {status} ({model_count} models)")
         click.echo(f"Synced to {zcode_config_path()}")
-        prune_or_warn_zcode_orphans(config, prune_orphans)
+        prune_or_warn_zcode_providers(config, prune)
         return
 
     resolved = [(name, *profile_for(config, name)) for name in names]
@@ -2451,21 +2500,21 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("codex", "api")) > 1:
         die("apply one codex profile at a time (config.toml holds a single active provider)")
     oc_names = [name for name, provider, _, _ in resolved if provider == "opencode"]
-    if prune_providers is not None and not oc_names:
-        die("--prune-providers only applies to OpenCode providers")
+    if prune is not None and not oc_names and not any(
+            p == "zcode" for _, p, _, _ in resolved):
+        die("--prune needs an opencode or zcode profile in this apply run")
     if dry_run and not oc_names:
         die("--dry-run previews OpenCode pruning only (this run has no OpenCode profile)")
     if dry_run:
         preview_opencode_prune(
             build_opencode_specs(config, oc_names),
-            plan_opencode_prune(config, prune_providers, prune_orphans),
+            plan_opencode_prune(config, prune),
             config)
         return
     prepared = preflight_apply(config, resolved)
     opencode_prune_targets = {}
     if oc_names:
-        opencode_prune_targets = plan_opencode_prune(
-            config, prune_providers, prune_orphans)
+        opencode_prune_targets = plan_opencode_prune(config, prune)
     applied_opencode = False
     applied_zcode = False
     for name, provider, kind, _ in resolved:
@@ -2489,7 +2538,7 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
         elif not prune_requested:
             warn_opencode_orphans(config)
     if applied_zcode:
-        prune_or_warn_zcode_orphans(config, prune_orphans)
+        prune_or_warn_zcode_providers(config, prune)
 
 
 @cli.group(context_settings={"help_option_names": ["-h", "--help"]})

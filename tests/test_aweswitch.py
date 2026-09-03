@@ -2254,7 +2254,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("orphaned", result.output)
             self.assertIn("zc-old", result.output)
-            self.assertIn("--prune-orphans", result.output)
+            self.assertIn("--prune orphans", result.output)
             providers = json.loads(zc_path.read_text())["provider"]
             self.assertIn("zc-old", providers)
             self.assertIn("mine", providers)
@@ -2296,11 +2296,11 @@ class AweSwitchTests(unittest.TestCase):
             }
             (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
             result = CliRunner().invoke(
-                aweswitch.cli, ["apply", "--zcode", "--prune-orphans"], env=env
+                aweswitch.cli, ["apply", "--zcode", "--prune", "orphans"], env=env
             )
 
             self.assertEqual(result.exit_code, 0, result.output)
-            self.assertIn("Pruned orphaned provider 'zc-old'", result.output)
+            self.assertIn("Pruned provider 'zc-old'", result.output)
             providers = json.loads(zc_path.read_text())["provider"]
             self.assertNotIn("zc-old", providers)
             self.assertIn("zc-test", providers)
@@ -2342,7 +2342,7 @@ class AweSwitchTests(unittest.TestCase):
             }
             (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
             result = CliRunner().invoke(
-                aweswitch.cli, ["apply", "--zcode", "--prune-orphans"], env=env
+                aweswitch.cli, ["apply", "--zcode", "--prune", "orphans"], env=env
             )
 
             self.assertNotEqual(result.exit_code, 0)
@@ -3120,7 +3120,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("orphaned", result.output)
             self.assertIn("oc-old", result.output)
-            self.assertIn("--prune-orphans", result.output)
+            self.assertIn("--prune orphans", result.output)
             providers = json.loads(oc_path.read_text())["provider"]
             self.assertIn("oc-old", providers)  # warn-only: kept
             self.assertIn("mine", providers)  # identical shape but untracked: never reported
@@ -3130,7 +3130,7 @@ class AweSwitchTests(unittest.TestCase):
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_with_orphans(oc_path)
 
-            result, oc_path = self._apply(["apply", "--opencode", "--prune-orphans"],
+            result, oc_path = self._apply(["apply", "--opencode", "--prune", "orphans"],
                                           self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -3157,7 +3157,7 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.with_name(".aweswitch-managed-providers.json").write_text("{broken")
 
             result, _ = self._apply(
-                ["apply", "--opencode", "--prune-orphans"],
+                ["apply", "--opencode", "--prune", "orphans"],
                 self._make_apply_config(), tmp,
             )
 
@@ -3188,13 +3188,13 @@ class AweSwitchTests(unittest.TestCase):
         oc_path.write_text(json.dumps(data, indent=2) + "\n")
         return data
 
-    def test_apply_prune_providers_named_removes_handwritten_entries(self):
+    def test_apply_prune_named_removes_handwritten_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
 
             result, oc_path = self._apply(
-                ["apply", "--opencode", "--prune-providers",
+                ["apply", "--opencode", "--prune",
                  "aweshare,aweshare2,aweshare-peng,aweshare-deepseek,aweshare-code"],
                 self._make_apply_config(), tmp)
 
@@ -3211,14 +3211,14 @@ class AweSwitchTests(unittest.TestCase):
             )["providers"]
             self.assertEqual(managed, ["oc-test"])
 
-    def test_apply_prune_providers_unknown_name_dies_before_any_write(self):
+    def test_apply_prune_unknown_name_dies_before_any_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
             before = oc_path.read_text()
 
             result, _ = self._apply(
-                ["apply", "--opencode", "--prune-providers", "aweshare,nope"],
+                ["apply", "--opencode", "--prune", "aweshare,nope"],
                 self._make_apply_config(), tmp)
 
             self.assertNotEqual(result.exit_code, 0)
@@ -3230,21 +3230,21 @@ class AweSwitchTests(unittest.TestCase):
             )
             self.assertEqual(oc_path.read_text(), before)  # guards fire before the sync writes
 
-    def test_apply_named_prune_providers_unknown_name_dies_before_any_write(self):
+    def test_apply_named_prune_unknown_name_dies_before_any_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
             before = oc_path.read_text()
 
             result, _ = self._apply(
-                ["apply", "oc-test", "--prune-providers", "nope"],
+                ["apply", "oc-test", "--prune", "nope"],
                 self._make_apply_config(), tmp)
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("no provider 'nope'", result.output)
             self.assertEqual(oc_path.read_text(), before)
 
-    def test_apply_prune_providers_backed_profile_refused(self):
+    def test_apply_prune_backed_profile_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
@@ -3255,20 +3255,20 @@ class AweSwitchTests(unittest.TestCase):
             before = oc_path.read_text()
 
             result, _ = self._apply(
-                ["apply", "--opencode", "--prune-providers", "oc-test"],
+                ["apply", "--opencode", "--prune", "oc-test"],
                 self._make_apply_config(), tmp)
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("remove that profile from the config", result.output)
             self.assertEqual(oc_path.read_text(), before)
 
-    def test_apply_prune_providers_bare_removes_all_unbacked_and_repairs_model(self):
+    def test_apply_prune_all_removes_all_unbacked_and_repairs_model(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
 
             result, oc_path = self._apply(
-                ["apply", "--opencode", "--prune-providers"],
+                ["apply", "--opencode", "--prune", "all"],
                 self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -3283,7 +3283,7 @@ class AweSwitchTests(unittest.TestCase):
             )["providers"]
             self.assertEqual(managed, ["oc-test"])
 
-    def test_apply_prune_providers_bare_without_profiles_refused(self):
+    def test_apply_prune_all_without_profiles_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
@@ -3292,20 +3292,20 @@ class AweSwitchTests(unittest.TestCase):
             del config["profiles"]["api"]["opencode"]
 
             result, _ = self._apply(
-                ["apply", "--opencode", "--prune-providers"], config, tmp)
+                ["apply", "--opencode", "--prune", "all"], config, tmp)
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("would delete every provider", result.output)
             self.assertEqual(oc_path.read_text(), before)
 
-    def test_apply_prune_providers_dry_run_writes_nothing(self):
+    def test_apply_prune_all_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
             before = oc_path.read_text()
 
             result, oc_path = self._apply(
-                ["apply", "--opencode", "--prune-providers", "--dry-run"],
+                ["apply", "--opencode", "--prune", "all", "--dry-run"],
                 self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -3341,7 +3341,7 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.write_text(json.dumps(data))
 
             result, oc_path = self._apply(
-                ["apply", "--opencode", "--prune-orphans"],
+                ["apply", "--opencode", "--prune", "orphans"],
                 self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -3357,20 +3357,20 @@ class AweSwitchTests(unittest.TestCase):
             oc_path.write_text(json.dumps(data))
 
             result, oc_path = self._apply(
-                ["apply", "--opencode", "--prune-providers", "aweshare,aweshare2"],
+                ["apply", "--opencode", "--prune", "aweshare,aweshare2"],
                 self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertNotIn("Default model:", result.output)
             self.assertEqual(json.loads(oc_path.read_text())["model"], "mine/own-m")
 
-    def test_apply_prune_providers_single_profile_form(self):
+    def test_apply_prune_single_profile_form(self):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             self._write_oc_aweshare_leftovers(oc_path)
 
             result, oc_path = self._apply(
-                ["apply", "oc-test", "--prune-providers", "aweshare"],
+                ["apply", "oc-test", "--prune", "aweshare"],
                 self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -3380,15 +3380,33 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("mine", providers)
             self.assertIn("oc-test", providers)
 
-    def test_apply_prune_providers_rejected_for_zcode(self):
+    def test_apply_zcode_prune_all_removes_unbacked(self):
         with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "zcode.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-old": {"name": "zc-old", "kind": "anthropic",
+                           "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"}},
+                "mine": {"name": "mine", "kind": "openai-compatible",
+                         "options": {"apiKey": "sk", "baseURL": "https://mine/v1"}},
+            }}))
+            config = self._make_apply_config()
+            config["profiles"]["api"]["zcode"] = {
+                "zc-test": {"env": {
+                    "ZCODE_BASE_URL": "https://example.test/v1",
+                    "ZCODE_API_KEY": "${TOKEN}",
+                    "ZCODE_KIND": "anthropic",
+                    "ZCODE_MODEL": "m1",
+                }},
+            }
             result, oc_path = self._apply(
-                ["apply", "--zcode", "--prune-providers", "x"],
-                self._make_apply_config(), tmp)
+                ["apply", "--zcode", "--prune", "all"],
+                config, tmp, extra_env={"ZCODE_CONFIG": str(zc_path)})
 
-            self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("only applies to OpenCode", result.output)
-            self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned provider 'zc-old'", result.output)
+            self.assertIn("Pruned provider 'mine'", result.output)
+            providers = json.loads(zc_path.read_text())["provider"]
+            self.assertEqual(list(providers), ["zc-test"])
 
     def test_ensure_opencode_provider_displays_namespaced_ids_in_full(self):
         with tempfile.TemporaryDirectory() as tmp:

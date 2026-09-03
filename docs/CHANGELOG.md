@@ -1,5 +1,15 @@
 # change log
 
+## v0.5.7
+
+`--prune-orphans` and `--prune-providers` are replaced by a single `--prune` flag on `aweswitch apply`. It takes a value instead of being a bare switch: `--prune orphans` removes tracked leftovers no profile backs, `--prune all` removes every unbacked provider (hand-written ones included), and `--prune name1,name2` removes exactly those named entries. The flag works for both OpenCode and zcode — previously `--prune-providers` was OpenCode-only and zcode cleanup required the separate `--prune-orphans` switch.
+
+### Highlights
+
+- `--prune orphans` / `--prune all` / `--prune NAME[,NAME...]` replace `--prune-orphans` and `--prune-providers`
+- zcode accepts the same `--prune` values as OpenCode
+- `--dry-run` now needs `--prune orphans|all|NAME,...`
+
 ## v0.5.6
 
 `v0.5.6` fixes two correctness gaps in `aweswitch apply` introduced by the v0.5.5 OpenCode prune work and the new zcode provider support.
