@@ -2387,6 +2387,35 @@ class AweSwitchTests(unittest.TestCase):
         label = aweswitch.profile_model_label("zcode", {"env": {}})
         self.assertEqual(label, "?")
 
+    def test_apply_mixed_apply_rejects_missing_zcode_model_before_writing_codex(self):
+        """preflight is supposed to validate every profile before any target
+        file changes. A zcode profile missing ZCODE_MODEL must abort the call
+        before codex.toml is written — otherwise a mixed apply leaves the
+        user with a partial state (codex written, zcode failed)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_apply_config()
+            config["profiles"]["api"]["zcode"] = {
+                "zc-x": {"env": {
+                    "ZCODE_BASE_URL": "https://z/v1",
+                    "ZCODE_API_KEY": "${ZKEY}",
+                    "ZCODE_KIND": "anthropic",
+                }},
+            }
+            codex_path = Path(tmp) / "config.toml"
+            codex_path.write_text("# original codex\n")
+
+            result, _ = self._apply(
+                ["apply", "cx-glm", "zc-x"], config, tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path), "ZKEY": "z"},
+            )
+
+            self.assertNotEqual(result.exit_code, 0, result.output)
+            self.assertIn("ZCODE_MODEL is required for zc-x", result.output)
+            self.assertEqual(
+                codex_path.read_text(), "# original codex\n",
+                "codex.toml must not be written when zcode preflight fails",
+            )
+
     def test_auto_bookmark_runs_worker_in_detached_child(self):
         """On POSIX the bookmark worker must run in a forked child, because
         os.execvpe() in exec_agent destroys threads before their first poll."""
@@ -3200,6 +3229,20 @@ class AweSwitchTests(unittest.TestCase):
                 result.output,
             )
             self.assertEqual(oc_path.read_text(), before)  # guards fire before the sync writes
+
+    def test_apply_named_prune_providers_unknown_name_dies_before_any_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            before = oc_path.read_text()
+
+            result, _ = self._apply(
+                ["apply", "oc-test", "--prune-providers", "nope"],
+                self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no provider 'nope'", result.output)
+            self.assertEqual(oc_path.read_text(), before)
 
     def test_apply_prune_providers_backed_profile_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

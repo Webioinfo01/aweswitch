@@ -2343,7 +2343,7 @@ def preflight_apply(config, resolved):
             zkind = profile_env.get("ZCODE_KIND") or "anthropic"
             if zkind not in ZCODE_KINDS:
                 die(f"ZCODE_KIND must be one of {', '.join(ZCODE_KINDS)} for {name}, got: {zkind}")
-            normalize_models_opt(profile_env.get("ZCODE_MODEL"), name, "ZCODE_MODEL")
+            normalize_models(profile_env.get("ZCODE_MODEL"), name, "ZCODE_MODEL")
             expand_value(base_url, dict(os.environ))
             has_zcode = True
 
@@ -2462,6 +2462,10 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
             config)
         return
     prepared = preflight_apply(config, resolved)
+    opencode_prune_targets = {}
+    if oc_names:
+        opencode_prune_targets = plan_opencode_prune(
+            config, prune_providers, prune_orphans)
     applied_opencode = False
     applied_zcode = False
     for name, provider, kind, _ in resolved:
@@ -2480,9 +2484,8 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans,
         else:
             die(f"unsupported provider for {name}: {provider}")
     if applied_opencode:
-        targets = plan_opencode_prune(config, prune_providers, prune_orphans)
-        if targets:
-            execute_opencode_prune(config, targets)
+        if opencode_prune_targets:
+            execute_opencode_prune(config, opencode_prune_targets)
         elif not prune_requested:
             warn_opencode_orphans(config)
     if applied_zcode:

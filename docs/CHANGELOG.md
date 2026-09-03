@@ -1,14 +1,22 @@
 # change log
 
-## Unreleased
+## v0.5.6
 
-`apply` gains opt-in provider pruning for OpenCode, closing the gap left by hand-written entries that `--prune-orphans` cannot see (ownership for that flag comes from the sidecar, which hand-written entries never enter).
+`v0.5.6` fixes two correctness gaps in `aweswitch apply` introduced by the v0.5.5 OpenCode prune work and the new zcode provider support.
 
-- `--prune-providers NAME[,NAME...]` removes exactly the named entries; the names must exist in `opencode.json` and must not be backed by a profile (error suggests removing the profile instead).
-- A bare `--prune-providers` removes every provider no aweswitch profile backs — full alignment, hand-written ones included. It refuses to run when the config has no OpenCode profiles at all. `--prune-orphans` behavior is unchanged (tracked entries only).
-- `--dry-run` (requires a prune flag) previews the sync and prune plan — per-provider deletion list with models, default-model repoint, sync counts — and writes nothing.
-- Prunes never leave the top-level `model` dangling: when the provider it points at is deleted, it is repointed to the alphabetically-first profile's first configured model. This also fixes `--prune-orphans` leaving a dangling default behind.
-- Prune output now lists each removed provider with its models (`Pruned provider 'x' (...)`).
+### OpenCode prune safety
+
+Named-form `apply <profile> --prune-providers ...` now validates the requested prune set before any profile sync writes, matching the bulk `--opencode` behavior. Previously the named form synced first and only then died on an unknown or profile-backed provider name, leaving `opencode.json` partially modified.
+
+### ZCODE_MODEL preflight
+
+A zcode profile with missing `ZCODE_MODEL` no longer slips through `preflight_apply`. Mixed apply commands like `apply cx-test zc-x` now abort before writing any target file, instead of writing `codex.toml` and failing midway through the zcode sync.
+
+### Highlights
+
+- Named-form OpenCode prune guards run before any `opencode.json` write
+- ZCODE_MODEL is required during preflight for zcode profiles
+- Regression tests cover both atomicity fixes
 
 ## v0.5.5
 
