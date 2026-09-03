@@ -159,7 +159,7 @@ aweswitch add
       "zcode": {
         "zc-glm": {
           "env": {
-            "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+            "ZCODE_BASE_URL": "https://open.bigmodel.cn/anthropic",
             "ZCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
             "ZCODE_NAME": "BigModel - Coding Plan",
             "ZCODE_MODEL": {
