@@ -1,5 +1,22 @@
 # change log
 
+## v0.5.9
+
+v0.5.8 wrote per-model `kind` keys and deleted the provider-level kind — but zcode ignores a model-level kind entirely: the desktop app resolves one transport kind per provider (from the provider's own `kind` field), so every model in a mixed profile actually went out over the same protocol. The kind is now provider-level again, set by which model field the profile declares.
+
+### Provider-level kind for zcode
+
+zcode profiles take `ZCODE_CHAT_MODEL` (chat completions → provider `kind: "openai-compatible"`) or `ZCODE_RESPONSES_MODEL` (Responses API → provider `kind: "openai"`) — exactly one of the two; declaring both is rejected with a prompt to split into two profiles, since one provider carries one API format. The provider-level `kind` is written into `~/.zcode/v2/config.json` and stale values are updated on sync. Stale per-model `kind` keys left by v0.5.8 are stripped on the next sync. A profile that still declares `ZCODE_MODEL` (v0.5.8 naming) is rejected with instructions to rename it to `ZCODE_CHAT_MODEL`.
+
+<details><summary>Highlights</summary>
+
+- Provider-level `kind` restored; per-model kinds never took effect in zcode and are cleaned up
+- `ZCODE_CHAT_MODEL` / `ZCODE_RESPONSES_MODEL` are mutually exclusive — one API format per provider
+- Legacy `ZCODE_MODEL` rejected with a rename hint
+- Default config's zcode profiles use the BigModel coding-plan chat endpoint
+
+</details>
+
 ## v0.5.8
 
 zcode profile model configuration is now split by API mode, matching OpenCode. `ZCODE_KIND` (the provider-level `anthropic` / `openai` / `openai-compatible` setting) is removed; each model declares its own transport kind.

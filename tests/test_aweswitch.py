@@ -1505,16 +1505,20 @@ class AweSwitchTests(unittest.TestCase):
             aweswitch._merge_opencode_models(
                 {"peng1/x": "X Display"}, "peng1/x,peng1/y", "oc-t")
 
-    def test_zcode_models_map_chat_and_responses_to_model_kind(self):
-        models, responses = aweswitch._merge_zcode_models(
-            {"chat": "Chat"}, ["response"], "zc-test")
+    def test_zcode_models_resolve_chat_field_to_provider_kind(self):
+        models, kind = aweswitch._resolve_zcode_models(
+            {"chat": "Chat"}, None, "zc-test")
+        self.assertEqual(models, {"chat": "Chat"})
+        self.assertEqual(kind, "openai-compatible")
 
-        self.assertEqual(models, {"chat": "Chat", "response": "response"})
-        self.assertEqual(responses, ["response"])
+        models, kind = aweswitch._resolve_zcode_models(
+            None, ["r1", "r2"], "zc-test")
+        self.assertEqual(models, {"r1": "r1", "r2": "r2"})
+        self.assertEqual(kind, "openai")
 
-    def test_zcode_models_reject_duplicates_between_fields(self):
-        with self.assertRaisesRegex(SystemExit, "must not be listed in both"):
-            aweswitch._merge_zcode_models("same", ["same"], "zc-test")
+    def test_zcode_models_reject_both_fields(self):
+        with self.assertRaisesRegex(SystemExit, "not both"):
+            aweswitch._resolve_zcode_models("chat1", ["resp1"], "zc-test")
 
     def test_ensure_opencode_provider_stamps_per_model_responses_override(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1803,8 +1807,8 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 status = aweswitch.ensure_zcode_provider(
                     "https://open.bigmodel.cn/api/anthropic",
-                    "{env:GLM_KEY}", "zc-glm",
-                    ["GLM-5.3-Flash", "GLM-5-Turbo"],
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
+                    ["GLM-5.3-Flash", "GLM-Turbo"],
                     display_name="BigModel - Coding Plan",
                 )
 
@@ -1812,7 +1816,7 @@ class AweSwitchTests(unittest.TestCase):
             data = json.loads(zc_path.read_text())
             prov = data["provider"]["zc-glm"]
             self.assertEqual(prov["name"], "BigModel - Coding Plan")
-            self.assertNotIn("kind", prov)
+            self.assertEqual(prov["kind"], "openai-compatible")
             self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
             self.assertEqual(prov["options"]["apiKey"], "{env:GLM_KEY}")
             self.assertTrue(prov["enabled"])
@@ -1823,7 +1827,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["models"]["GLM-5.3-Flash"]["modalities"],
                              {"input": ["text", "image"], "output": ["text"]})
             self.assertTrue(prov["models"]["GLM-5.3-Flash"]["zcode"]["modalitiesConfigured"])
-            self.assertEqual(prov["models"]["GLM-5.3-Flash"]["kind"], "openai-compatible")
+            self.assertNotIn("kind", prov["models"]["GLM-5.3-Flash"])
             managed = json.loads(
                 zc_path.with_name(".aweswitch-managed-providers.json").read_text()
             )
@@ -1853,23 +1857,23 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 status = aweswitch.ensure_zcode_provider(
                     "https://open.bigmodel.cn/api/anthropic",
-                    "{env:GLM_KEY}", "zc-glm",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
                     ["GLM-5.3-Flash", "GLM-text"],
                     display_name="BigModel - Coding Plan",
                 )
 
             self.assertEqual(status, "updated")
-            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            prov = json.loads(zc_path.read_text())["provider"]["zc-glm"]
+            self.assertEqual(prov["kind"], "openai-compatible")
+            models = prov["models"]
             self.assertEqual(models["GLM-5.3-Flash"], {
                 "name": "GLM-5.3-Flash",
-                "kind": "openai-compatible",
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text", "image"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
             })
             self.assertEqual(models["GLM-text"], {
                 "name": "GLM Text",
-                "kind": "openai-compatible",
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
@@ -1893,7 +1897,7 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 status = aweswitch.ensure_zcode_provider(
                     "https://open.bigmodel.cn/api/anthropic",
-                    "{env:NEW_KEY}", "zc-glm",
+                    "{env:NEW_KEY}", "zc-glm", "openai-compatible",
                     ["GLM-5.3-Flash"],
                     display_name="BigModel - Coding Plan",
                 )
@@ -1903,7 +1907,7 @@ class AweSwitchTests(unittest.TestCase):
             prov = data["provider"]["zc-glm"]
             self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
             self.assertEqual(prov["options"]["apiKey"], "{env:NEW_KEY}")
-            self.assertNotIn("kind", prov)
+            self.assertEqual(prov["kind"], "openai-compatible")
             self.assertEqual(prov["name"], "BigModel - Coding Plan")
 
     def test_ensure_zcode_provider_prunes_models_not_in_config(self):
@@ -1927,7 +1931,7 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 aweswitch.ensure_zcode_provider(
                     "https://open.bigmodel.cn/api/anthropic",
-                    "{env:GLM_KEY}", "zc-glm",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
                     ["GLM-5.3-Flash"],
                     prune=True,
                 )
@@ -1948,12 +1952,13 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 status = aweswitch.ensure_zcode_provider(
                     "https://open.bigmodel.cn/api/anthropic",
-                    "{env:GLM_KEY}", "zc-glm",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
                     ["GLM-5.3-Flash"],
                 )
 
             self.assertEqual(status, "updated")
             prov = json.loads(zc_path.read_text())["provider"]["zc-glm"]
+            self.assertEqual(prov["kind"], "openai-compatible")
             self.assertEqual(prov["options"]["baseURL"], "https://open.bigmodel.cn/api/anthropic")
             self.assertEqual(prov["models"]["GLM-5.3-Flash"]["name"], "GLM-5.3-Flash")
             self.assertTrue(prov["enabled"])
@@ -1969,7 +1974,7 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 with self.assertRaisesRegex(SystemExit, "invalid JSON"):
                     aweswitch.ensure_zcode_provider(
-                    "https://x/v1", "{env:KEY}", "zc-x", ["m-1"]
+                        "https://x/v1", "{env:KEY}", "zc-x", "openai-compatible", ["m-1"]
                     )
 
             self.assertEqual(zc_path.read_text(), original)
@@ -1982,12 +1987,12 @@ class AweSwitchTests(unittest.TestCase):
                         "zc-a": {"env": {
                             "ZCODE_BASE_URL": "https://a.test/v1",
                             "ZCODE_API_KEY": "${A_KEY}",
-                            "ZCODE_MODEL": {"m1": "M1", "m2": "M2"},
+                            "ZCODE_CHAT_MODEL": {"m1": "M1", "m2": "M2"},
                         }},
                         "zc-b": {"env": {
                             "ZCODE_BASE_URL": "https://b.test/v1",
                             "ZCODE_API_KEY": "${B_KEY}",
-                            "ZCODE_MODEL": ["n1", "n2"],
+                            "ZCODE_CHAT_MODEL": ["n1", "n2"],
                         }},
                     }
                 }
@@ -2009,20 +2014,19 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(results[1][2], 2)
 
             data = json.loads(zc_path.read_text())
-            self.assertNotIn("kind", data["provider"]["zc-a"])
+            self.assertEqual(data["provider"]["zc-a"]["kind"], "openai-compatible")
             self.assertEqual(sorted(data["provider"]["zc-a"]["models"]), ["m1", "m2"])
-            self.assertNotIn("kind", data["provider"]["zc-b"])
+            self.assertEqual(data["provider"]["zc-b"]["kind"], "openai-compatible")
             self.assertEqual(sorted(data["provider"]["zc-b"]["models"]), ["n1", "n2"])
 
-    def test_sync_zcode_profiles_writes_response_kind_per_model(self):
+    def test_sync_zcode_profiles_writes_openai_kind_for_responses_profile(self):
         config = {
             "profiles": {
                 "api": {
                     "zcode": {
-                        "zc-mix": {"env": {
+                        "zc-resp": {"env": {
                             "ZCODE_BASE_URL": "https://a.test/v1",
                             "ZCODE_API_KEY": "${A_KEY}",
-                            "ZCODE_MODEL": ["chat1", "chat2"],
                             "ZCODE_RESPONSES_MODEL": ["resp1"],
                         }},
                     }
@@ -2036,17 +2040,65 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a"}):
                 aweswitch.sync_zcode_profiles(config)
 
-            models = json.loads(zc_path.read_text())["provider"]["zc-mix"]["models"]
-            self.assertEqual(models["chat1"]["kind"], "openai-compatible")
-            self.assertEqual(models["chat2"]["kind"], "openai-compatible")
-            self.assertEqual(models["resp1"]["kind"], "openai")
+            prov = json.loads(zc_path.read_text())["provider"]["zc-resp"]
+            self.assertEqual(prov["kind"], "openai")
+            self.assertEqual(list(prov["models"]), ["resp1"])
+            self.assertNotIn("kind", prov["models"]["resp1"])
 
-    def test_ensure_zcode_provider_reverts_response_kind_when_no_longer_responses(self):
+    def test_sync_zcode_profiles_rejects_chat_and_responses_in_one_profile(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-mix": {"env": {
+                            "ZCODE_BASE_URL": "https://a.test/v1",
+                            "ZCODE_API_KEY": "${A_KEY}",
+                            "ZCODE_CHAT_MODEL": ["chat1"],
+                            "ZCODE_RESPONSES_MODEL": ["resp1"],
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a"}):
+                with self.assertRaisesRegex(SystemExit, "not both"):
+                    aweswitch.sync_zcode_profiles(config)
+
+            self.assertEqual(json.loads(zc_path.read_text()), {"provider": {}})
+
+    def test_sync_zcode_profiles_rejects_legacy_zcode_model_field(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-x": {"env": {
+                            "ZCODE_BASE_URL": "https://a.test/v1",
+                            "ZCODE_API_KEY": "${A_KEY}",
+                            "ZCODE_MODEL": "m1",
+                        }},
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a"}):
+                with self.assertRaisesRegex(SystemExit, "ZCODE_MODEL is no longer supported"):
+                    aweswitch.sync_zcode_profiles(config)
+
+    def test_ensure_zcode_provider_strips_stale_model_kinds_and_updates_kind(self):
         with tempfile.TemporaryDirectory() as tmp:
             zc_path = Path(tmp) / "config.json"
             zc_path.write_text(json.dumps({"provider": {
-                "zc-mix": {
-                    "name": "zc-mix",
+                "zc-x": {
+                    "name": "zc-x",
+                    "kind": "anthropic",
                     "options": {
                         "baseURL": "https://a.test/v1",
                         "apiKey": "{env:A_KEY}",
@@ -2060,12 +2112,14 @@ class AweSwitchTests(unittest.TestCase):
 
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 aweswitch.ensure_zcode_provider(
-                    "https://a.test/v1", "{env:A_KEY}", "zc-mix",
-                    ["chat1", "chat2"], responses_models=[], prune=True,
+                    "https://a.test/v1", "{env:A_KEY}", "zc-x",
+                    "openai-compatible", ["chat1", "chat2"], prune=True,
                 )
 
-            models = json.loads(zc_path.read_text())["provider"]["zc-mix"]["models"]
-            self.assertEqual(models["chat1"]["kind"], "openai-compatible")
+            prov = json.loads(zc_path.read_text())["provider"]["zc-x"]
+            self.assertEqual(prov["kind"], "openai-compatible")
+            self.assertNotIn("kind", prov["models"]["chat1"])
+            self.assertNotIn("kind", prov["models"]["chat2"])
 
     def test_sync_zcode_profiles_keeps_api_key_as_env_reference(self):
         config = {
@@ -2075,7 +2129,7 @@ class AweSwitchTests(unittest.TestCase):
                         "zc-secret": {"env": {
                             "ZCODE_BASE_URL": "https://zcode.test/v1",
                             "ZCODE_API_KEY": "${ZCODE_TOKEN}",
-                            "ZCODE_MODEL": "m1",
+                            "ZCODE_CHAT_MODEL": "m1",
                         }},
                     }
                 }
@@ -2121,7 +2175,7 @@ class AweSwitchTests(unittest.TestCase):
             zc_path = Path(tmp) / "config.json"
             zc_path.write_text(json.dumps({"provider": {}}))
             with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path)}):
-                with self.assertRaisesRegex(SystemExit, "ZCODE_MODEL or ZCODE_RESPONSES_MODEL is required"):
+                with self.assertRaisesRegex(SystemExit, "ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL is required"):
                     aweswitch.sync_zcode_profiles(config)
 
     def test_sync_zcode_rejects_removed_kind_field(self):
@@ -2133,7 +2187,7 @@ class AweSwitchTests(unittest.TestCase):
                             "ZCODE_BASE_URL": "https://x.test/v1",
                             "ZCODE_API_KEY": "${X_KEY}",
                             "ZCODE_KIND": "anthropic",
-                            "ZCODE_MODEL": "m1",
+                            "ZCODE_CHAT_MODEL": "m1",
                         }},
                     }
                 }
@@ -2154,7 +2208,7 @@ class AweSwitchTests(unittest.TestCase):
                         "zc-glm": {"env": {
                             "ZCODE_BASE_URL": "https://a.test/v1",
                             "ZCODE_API_KEY": "${A_KEY}",
-                            "ZCODE_MODEL": "m1",
+                            "ZCODE_CHAT_MODEL": "m1",
                         }},
                     }
                 }
@@ -2186,7 +2240,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://example.test/v1",
                                 "ZCODE_API_KEY": "${TOKEN}",
-                                "ZCODE_MODEL": {"m1": "M1", "m2": "M2"},
+                                "ZCODE_CHAT_MODEL": {"m1": "M1", "m2": "M2"},
                             }},
                         }
                     }
@@ -2207,7 +2261,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(sorted(prov["models"]), ["m1", "m2"])
 
             # second apply overwrites to match config
-            config["profiles"]["api"]["zcode"]["zc-test"]["env"]["ZCODE_MODEL"] = {"m1": "M1"}
+            config["profiles"]["api"]["zcode"]["zc-test"]["env"]["ZCODE_CHAT_MODEL"] = {"m1": "M1"}
             (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
             result = CliRunner().invoke(aweswitch.cli, ["apply", "zc-test"], env=env)
 
@@ -2225,12 +2279,12 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-a": {"env": {
                                 "ZCODE_BASE_URL": "https://a.test/v1",
                                 "ZCODE_API_KEY": "${A_KEY}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                             "zc-b": {"env": {
                                 "ZCODE_BASE_URL": "https://b.test/v1",
                                 "ZCODE_API_KEY": "${B_KEY}",
-                                "ZCODE_MODEL": "n1",
+                                "ZCODE_CHAT_MODEL": "n1",
                             }},
                         }
                     }
@@ -2260,7 +2314,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://x.test/v1",
                                 "ZCODE_API_KEY": "${X_KEY}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                         }
                     }
@@ -2300,7 +2354,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://example.test/v1",
                                 "ZCODE_API_KEY": "${TOKEN}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                         }
                     }
@@ -2345,7 +2399,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://example.test/v1",
                                 "ZCODE_API_KEY": "${TOKEN}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                         }
                     }
@@ -2390,7 +2444,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://example.test/v1",
                                 "ZCODE_API_KEY": "${TOKEN}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                         }
                     }
@@ -2421,7 +2475,7 @@ class AweSwitchTests(unittest.TestCase):
                             "zc-test": {"env": {
                                 "ZCODE_BASE_URL": "https://example.test/v1",
                                 "ZCODE_API_KEY": "${TOKEN}",
-                                "ZCODE_MODEL": "m1",
+                                "ZCODE_CHAT_MODEL": "m1",
                             }},
                         }
                     }
@@ -2460,7 +2514,7 @@ class AweSwitchTests(unittest.TestCase):
                         "zc-test": {"env": {
                             "ZCODE_BASE_URL": "https://example.test/v1",
                             "ZCODE_API_KEY": "${TOKEN}",
-                            "ZCODE_MODEL": "m1",
+                            "ZCODE_CHAT_MODEL": "m1",
                         }},
                     },
                 }
@@ -2547,7 +2601,7 @@ class AweSwitchTests(unittest.TestCase):
                         "zc-test": {"env": {
                             "ZCODE_BASE_URL": "https://example.test/v1",
                             "ZCODE_API_KEY": "${TOKEN}",
-                            "ZCODE_MODEL": "m1",
+                            "ZCODE_CHAT_MODEL": "m1",
                         }},
                     }
                 }
@@ -2564,13 +2618,13 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_profile_model_label_for_zcode(self):
         # dict
-        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": {"a": "A", "b": "B"}}})
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_CHAT_MODEL": {"a": "A", "b": "B"}}})
         self.assertEqual(label, "a, b")
         # list
-        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": ["a", "b"]}})
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_CHAT_MODEL": ["a", "b"]}})
         self.assertEqual(label, "a, b")
         # string
-        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_MODEL": "a,b"}})
+        label = aweswitch.profile_model_label("zcode", {"env": {"ZCODE_CHAT_MODEL": "a,b"}})
         self.assertEqual(label, "a, b")
         # responses-only profile falls back to ZCODE_RESPONSES_MODEL
         label = aweswitch.profile_model_label(
@@ -2582,7 +2636,8 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_apply_mixed_apply_rejects_missing_zcode_model_before_writing_codex(self):
         """preflight is supposed to validate every profile before any target
-        file changes. A zcode profile missing ZCODE_MODEL must abort the call
+        file changes. A zcode profile missing both model fields must abort
+        the call
         before codex.toml is written — otherwise a mixed apply leaves the
         user with a partial state (codex written, zcode failed)."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -2602,7 +2657,7 @@ class AweSwitchTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.exit_code, 0, result.output)
-            self.assertIn("ZCODE_MODEL or ZCODE_RESPONSES_MODEL is required for zc-x", result.output)
+            self.assertIn("ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL is required for zc-x", result.output)
             self.assertEqual(
                 codex_path.read_text(), "# original codex\n",
                 "codex.toml must not be written when zcode preflight fails",
@@ -3586,7 +3641,7 @@ class AweSwitchTests(unittest.TestCase):
                 "zc-test": {"env": {
                     "ZCODE_BASE_URL": "https://example.test/v1",
                     "ZCODE_API_KEY": "${TOKEN}",
-                    "ZCODE_MODEL": "m1",
+                    "ZCODE_CHAT_MODEL": "m1",
                 }},
             }
             result, oc_path = self._apply(

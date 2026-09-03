@@ -160,15 +160,16 @@ The default config shape splits profiles by kind (`api` for env-based API profil
       "zcode": {
         "zc-glm": {
           "env": {
-            "ZCODE_BASE_URL": "https://open.bigmodel.cn/anthropic",
+            "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
             "ZCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
             "ZCODE_NAME": "BigModel - Coding Plan",
-            "ZCODE_MODEL": {
+            "ZCODE_CHAT_MODEL": {
               "GLM-5.3-Flash": "GLM-5.3-Flash",
               "GLM-5-Turbo": "GLM-5-Turbo"
-            },
-            "ZCODE_RESPONSES_MODEL": ["GLM-4.6"]
+            }
           }
+        }
+      }
         }
       }
     },
@@ -283,7 +284,7 @@ Per-agent semantics:
 - **Claude** — env is merged into `~/.claude/settings.json`; unrelated settings are preserved, while a stale `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` alternative is removed when the new profile does not declare it. Restart the session or use `/model` to pick the new model.
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
 - **OpenCode** — the provider entry (base URL, key ref, display name) and its **full model list** are upserted into `~/.config/opencode/opencode.json`: overwritten if the provider exists, added if missing. Launching a profile only adds the launched model; apply pushes everything. aweswitch records managed provider keys in `.aweswitch-managed-providers.json`; after a tracked profile is renamed or deleted, apply warns about the orphan (old sessions are pinned to those model IDs), and `aweswitch apply --opencode --prune orphans` removes it. Ownership for that mode is never inferred from configuration shape, so hand-written entries stay put unless you opt in: `--prune old-a,old-b` removes exactly the named entries (they must exist and must not be profile-backed), `--prune all` removes every provider no profile backs — full alignment, hand-written ones included; `--prune orphans` removes only tracked leftovers. Pruning refuses to run when the config has no OpenCode profiles at all. A prune never leaves the file's top-level `model` dangling: if the provider it points at was deleted, it is repointed to the alphabetically-first profile's first configured model. `--dry-run` previews the sync and prune plan without writing anything. Model IDs that contain a `/` (e.g. `hub/seed-evolving`) are displayed with the full ID in the model picker, keeping entries from different producers distinguishable.
-- **zcode** — the provider entry (base URL, env key reference, display name) and its **full model list** are upserted into `~/.zcode/v2/config.json`, with each model carrying its own `kind` (`openai-compatible` for `ZCODE_MODEL`, `openai` for `ZCODE_RESPONSES_MODEL`). zcode is a desktop GUI app, so zcode profiles are apply-only and do not support launch mode. `--zcode` syncs every zcode profile; managed providers are tracked in `.aweswitch-managed-providers.json`, with orphan warnings by default and opt-in cleanup via `--prune` (`orphans`, `all`, or names).
+- **zcode** — the provider entry (base URL, env key reference, display name) and its **full model list** are upserted into `~/.zcode/v2/config.json`. zcode supports exactly one API format per provider, so a profile takes `ZCODE_CHAT_MODEL` (chat completions, provider `kind: openai-compatible`) **or** `ZCODE_RESPONSES_MODEL` (Responses API, provider `kind: openai`) — never both; split them into two profiles instead. zcode is a desktop GUI app, so zcode profiles are apply-only and do not support launch mode. `--zcode` syncs every zcode profile; managed providers are tracked in `.aweswitch-managed-providers.json`, with orphan warnings by default and opt-in cleanup via `--prune` (`orphans`, `all`, or names).
 
 Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode and zcode profiles coexist side by side, so several can be applied at once — or all of them with `--opencode` / `--zcode`.
 

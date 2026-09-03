@@ -301,22 +301,24 @@ def _merge_opencode_models(chat_raw, responses_raw, profile_name):
     return merged, resp
 
 
-def _merge_zcode_models(chat_raw, responses_raw, profile_name):
-    """Merge zcode chat and Responses model fields without allowing overlap."""
-    chat = normalize_models_opt(chat_raw, profile_name, "ZCODE_MODEL")
+def _resolve_zcode_models(chat_raw, responses_raw, profile_name):
+    """Resolve the zcode model fields into a model dict and the provider kind.
+
+    zcode supports exactly one API format per provider, so exactly one of
+    ZCODE_CHAT_MODEL (chat completions, kind openai-compatible) or
+    ZCODE_RESPONSES_MODEL (Responses API, kind openai) must be set.
+    """
+    chat = normalize_models_opt(chat_raw, profile_name, "ZCODE_CHAT_MODEL")
     resp = _parse_responses_models(
         responses_raw, profile_name, "ZCODE_RESPONSES_MODEL")
+    if chat and resp:
+        die(f"zcode supports one API format per provider; use ZCODE_CHAT_MODEL or "
+            f"ZCODE_RESPONSES_MODEL, not both — split {profile_name} into two profiles")
     if not chat and not resp:
-        die(f"ZCODE_MODEL or ZCODE_RESPONSES_MODEL is required for {profile_name}")
-    duplicate_models = set(chat) & set(resp)
-    if duplicate_models:
-        die(f"models must not be listed in both ZCODE_MODEL and "
-            f"ZCODE_RESPONSES_MODEL for {profile_name}: "
-            f"{', '.join(sorted(duplicate_models))}")
-    merged = dict(chat)
-    for model_id in resp:
-        merged[model_id] = model_id
-    return merged, resp
+        die(f"ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL is required for {profile_name}")
+    if chat:
+        return dict(chat), "openai-compatible"
+    return {model_id: model_id for model_id in resp}, "openai"
 
 
 def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
@@ -824,10 +826,11 @@ ZCODE_DEFAULT_LIMIT_CONTEXT = 1000000
 ZCODE_DEFAULT_LIMIT_OUTPUT = 128000
 
 
-def build_zcode_provider_entry(base_url, api_key, name):
+def build_zcode_provider_entry(base_url, api_key, kind, name):
     """Build a fresh zcode provider entry owned by aweswitch."""
     return {
         "name": name,
+        "kind": kind,
         "options": {
             "apiKey": api_key,
             "baseURL": base_url,
@@ -870,23 +873,24 @@ def _stamp_zcode_model_defaults(models_dict, model_ids):
     return changed
 
 
-def _stamp_zcode_model_kinds(models_dict, model_ids, responses_models):
-    """Set the zcode transport kind on each managed model."""
+def _strip_zcode_model_kinds(models_dict, model_ids):
+    """Drop per-model kind keys written by v0.5.8.
+
+    zcode ignores a model-level kind (the transport kind is provider-level),
+    so the keys are dead weight from a scheme that never took effect.
+    Returns True when anything changed.
+    """
     changed = False
-    responses_models = set(responses_models)
     for model_id in model_ids:
         entry = models_dict.get(model_id)
-        if not isinstance(entry, dict):
-            continue
-        model_kind = "openai" if model_id in responses_models else "openai-compatible"
-        if entry.get("kind") != model_kind:
-            entry["kind"] = model_kind
+        if isinstance(entry, dict) and "kind" in entry:
+            del entry["kind"]
             changed = True
     return changed
 
 
-def ensure_zcode_provider(base_url, api_key_ref, provider_name, models,
-                          display_name=None, prune=False, responses_models=None):
+def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
+                          display_name=None, prune=False):
     """Ensure provider+models exist in zcode config.json, synced to aweswitch.
 
     The provider entry is owned by aweswitch (its name is the profile name), so
@@ -921,8 +925,8 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, models,
         if existing.get("name") != name:
             existing["name"] = name
             status = "updated"
-        if "kind" in existing:
-            del existing["kind"]
+        if existing.get("kind") != kind:
+            existing["kind"] = kind
             status = "updated"
         if existing.get("enabled") is not True:
             existing["enabled"] = True
@@ -949,7 +953,7 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, models,
                     status = "updated"
         if _stamp_zcode_model_defaults(models_dict, models):
             status = "updated"
-        if _stamp_zcode_model_kinds(models_dict, models, responses_models or []):
+        if _strip_zcode_model_kinds(models_dict, models):
             status = "updated"
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
@@ -958,12 +962,8 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, models,
         if status != "unchanged":
             write_zcode_config(zc_config)
     else:
-        entry = build_zcode_provider_entry(base_url, api_key_ref, name=name)
-        response_ids = set(responses_models or [])
-        entry["models"] = {
-            model_id: {"name": model_id, "kind": "openai" if model_id in response_ids else "openai-compatible"}
-            for model_id in models
-        }
+        entry = build_zcode_provider_entry(base_url, api_key_ref, kind, name=name)
+        entry["models"] = {model_id: {"name": model_id} for model_id in models}
         _stamp_zcode_model_defaults(entry["models"], models)
         providers[provider_name] = entry
         write_zcode_config(zc_config)
@@ -997,15 +997,17 @@ def sync_zcode_profiles(config, names=None):
         if not api_key_raw:
             die(f"ZCODE_API_KEY is required for zcode profile: {name}")
         if "ZCODE_KIND" in profile_env:
-            die(f"ZCODE_KIND is no longer supported for {name}; use ZCODE_MODEL or ZCODE_RESPONSES_MODEL")
-        models_dict, responses_models = _merge_zcode_models(
-            profile_env.get("ZCODE_MODEL"), profile_env.get("ZCODE_RESPONSES_MODEL"), name)
+            die(f"ZCODE_KIND is no longer supported for {name}; use ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL")
+        if "ZCODE_MODEL" in profile_env:
+            die(f"ZCODE_MODEL is no longer supported for {name}; rename it to ZCODE_CHAT_MODEL")
+        models_dict, kind = _resolve_zcode_models(
+            profile_env.get("ZCODE_CHAT_MODEL"), profile_env.get("ZCODE_RESPONSES_MODEL"), name)
         specs.append((
             name,
             expand_value(base_url_raw, dict(os.environ)),
             _zcode_api_key_ref(api_key_raw),
+            kind,
             list(models_dict),
-            responses_models,
             profile_env.get("ZCODE_NAME") or name,
         ))
     if specs:
@@ -1014,12 +1016,11 @@ def sync_zcode_profiles(config, names=None):
     return [
         (
             name,
-            ensure_zcode_provider(base_url, api_key_ref, name, models,
-                                  responses_models=responses_models,
+            ensure_zcode_provider(base_url, api_key_ref, name, kind, models,
                                   display_name=display_name, prune=True),
             len(models),
         )
-        for name, base_url, api_key_ref, models, responses_models, display_name in specs
+        for name, base_url, api_key_ref, kind, models, display_name in specs
     ]
 
 
@@ -1853,7 +1854,7 @@ def profile_model_label(provider, profile):
             return ", ".join(p for p in parts if p) or "?"
         return "?"
     if provider == "zcode":
-        models = env.get("ZCODE_MODEL") or env.get("ZCODE_RESPONSES_MODEL")
+        models = env.get("ZCODE_CHAT_MODEL") or env.get("ZCODE_RESPONSES_MODEL")
         if isinstance(models, dict):
             return ", ".join(sorted(models)) if models else "?"
         if isinstance(models, list):
@@ -2198,22 +2199,23 @@ def add_command():
         base_url = click.prompt("ZCODE_BASE_URL")
         auth_var = click.prompt("ZCODE_API_KEY env var name (saved as ${VAR_NAME})")
         auth_token = f"${{{auth_var}}}"
-        models_str = click.prompt("ZCODE_MODEL chat models (comma-separated, optional)", default="", show_default=False)
+        chat_str = click.prompt("ZCODE_CHAT_MODEL chat models (comma-separated, optional)", default="", show_default=False)
         responses_str = click.prompt("ZCODE_RESPONSES_MODEL response models (comma-separated, optional)", default="", show_default=False)
-        models_dict = {m.strip(): m.strip() for m in models_str.split(",") if m.strip()}
+        models_dict = {m.strip(): m.strip() for m in chat_str.split(",") if m.strip()}
         responses = [m.strip() for m in responses_str.split(",") if m.strip()]
         if not models_dict and not responses:
-            die("ZCODE_MODEL or ZCODE_RESPONSES_MODEL is required")
-        if set(models_dict) & set(responses):
-            die("models must not be listed in both ZCODE_MODEL and ZCODE_RESPONSES_MODEL")
+            die("ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL is required")
+        if models_dict and responses:
+            die("zcode supports one API format per provider; use ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL, not both")
         name_val = click.prompt("ZCODE_NAME (display name, optional, Enter to skip)", default="", show_default=False)
 
         env_vars = {
             "ZCODE_BASE_URL": base_url,
             "ZCODE_API_KEY": auth_token,
-            "ZCODE_MODEL": models_dict,
         }
-        if responses:
+        if models_dict:
+            env_vars["ZCODE_CHAT_MODEL"] = models_dict
+        else:
             env_vars["ZCODE_RESPONSES_MODEL"] = responses
         if name_val.strip():
             env_vars["ZCODE_NAME"] = name_val.strip()
@@ -2439,9 +2441,11 @@ def preflight_apply(config, resolved):
             if not api_key:
                 die(f"ZCODE_API_KEY is required for zcode profile: {name}")
             if "ZCODE_KIND" in profile_env:
-                die(f"ZCODE_KIND is no longer supported for {name}; use ZCODE_MODEL or ZCODE_RESPONSES_MODEL")
-            _merge_zcode_models(
-                profile_env.get("ZCODE_MODEL"),
+                die(f"ZCODE_KIND is no longer supported for {name}; use ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL")
+            if "ZCODE_MODEL" in profile_env:
+                die(f"ZCODE_MODEL is no longer supported for {name}; rename it to ZCODE_CHAT_MODEL")
+            _resolve_zcode_models(
+                profile_env.get("ZCODE_CHAT_MODEL"),
                 profile_env.get("ZCODE_RESPONSES_MODEL"), name,
             )
             expand_value(base_url, dict(os.environ))
