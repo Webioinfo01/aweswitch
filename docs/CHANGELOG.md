@@ -1,5 +1,15 @@
 # change log
 
+## Unreleased
+
+`apply` gains opt-in provider pruning for OpenCode, closing the gap left by hand-written entries that `--prune-orphans` cannot see (ownership for that flag comes from the sidecar, which hand-written entries never enter).
+
+- `--prune-providers NAME[,NAME...]` removes exactly the named entries; the names must exist in `opencode.json` and must not be backed by a profile (error suggests removing the profile instead).
+- A bare `--prune-providers` removes every provider no aweswitch profile backs — full alignment, hand-written ones included. It refuses to run when the config has no OpenCode profiles at all. `--prune-orphans` behavior is unchanged (tracked entries only).
+- `--dry-run` (requires a prune flag) previews the sync and prune plan — per-provider deletion list with models, default-model repoint, sync counts — and writes nothing.
+- Prunes never leave the top-level `model` dangling: when the provider it points at is deleted, it is repointed to the alphabetically-first profile's first configured model. This also fixes `--prune-orphans` leaving a dangling default behind.
+- Prune output now lists each removed provider with its models (`Pruned provider 'x' (...)`).
+
 ## v0.5.5
 
 `v0.5.5` adds zcode as a supported provider alongside Claude Code, Codex, and OpenCode. zcode is a desktop GUI app; profiles are apply-only — `aweswitch apply --zcode` upserts provider entries and full model lists into `~/.zcode/v2/config.json`, same ownership and orphan tracking as OpenCode.

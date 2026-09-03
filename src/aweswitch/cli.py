@@ -447,15 +447,12 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     return status
 
 
-def sync_opencode_profiles(config, names=None):
-    """Write every (or the named) opencode profile into opencode.json.
+def build_opencode_specs(config, names=None):
+    """Validate and materialize the sync spec for every (or the named) profile.
 
-    Unlike a launch, which only adds the selected model, sync replaces each
-    provider entry (base URL, API key ref, display name) and its full model
-    list so the file matches the aweswitch config — models removed from the
-    config disappear from opencode too. Providers the config doesn't know
-    about are left alone. All profiles are validated before anything is
-    written. Returns a list of (profile, status, model_count) tuples.
+    Each spec is (name, base_url, api_key_ref, models, display_name,
+    responses_models). Pure: reads the aweswitch config, touches no files, so
+    a dry run can preview the exact list a sync would write.
     """
     profiles = kind_group(config, "api").get("opencode", {})
     if not isinstance(profiles, dict):
@@ -483,6 +480,20 @@ def sync_opencode_profiles(config, names=None):
             profile_env.get("OPENCODE_NAME") or name,
             responses_models,
         ))
+    return specs
+
+
+def sync_opencode_profiles(config, names=None):
+    """Write every (or the named) opencode profile into opencode.json.
+
+    Unlike a launch, which only adds the selected model, sync replaces each
+    provider entry (base URL, API key ref, display name) and its full model
+    list so the file matches the aweswitch config — models removed from the
+    config disappear from opencode too. Providers the config doesn't know
+    about are left alone. All profiles are validated before anything is
+    written. Returns a list of (profile, status, model_count) tuples.
+    """
+    specs = build_opencode_specs(config, names)
     if specs:
         load_opencode_config()
         load_managed_opencode_providers()
@@ -519,31 +530,151 @@ def find_orphan_opencode_providers(config):
     return orphans
 
 
-def prune_or_warn_opencode_orphans(config, prune):
-    """Report (or delete with prune) orphaned aweswitch providers after a sync."""
+def warn_opencode_orphans(config):
+    """Report aweswitch-written providers no profile backs (renamed or deleted)."""
     orphans = find_orphan_opencode_providers(config)
     if not orphans:
         return
-    if not prune:
-        for name, entry in sorted(orphans.items()):
-            models = ", ".join(sorted(entry.get("models") or {})) or "no models"
-            click.echo(
-                f"warning: orphaned aweswitch provider '{name}' in opencode.json ({models})",
-                err=True,
-            )
+    for name, entry in sorted(orphans.items()):
+        models = ", ".join(sorted(entry.get("models") or {})) or "no models"
         click.echo(
-            "  No aweswitch profile backs it (renamed or deleted?); old sessions pinned to its\n"
-            "  models keep using them. Prune with: aweswitch apply --opencode --prune-orphans",
+            f"warning: orphaned aweswitch provider '{name}' in opencode.json ({models})",
             err=True,
         )
-        return
+    click.echo(
+        "  No aweswitch profile backs it (renamed or deleted?); old sessions pinned to its\n"
+        "  models keep using them. Prune with: aweswitch apply --opencode --prune-orphans",
+        err=True,
+    )
+
+
+# --prune-providers' bare form: the flag was given without provider names.
+PRUNE_PROVIDERS_ALL = "*"
+
+
+def _parse_prune_provider_names(raw):
+    """Split a --prune-providers value into a de-duplicated provider-name list."""
+    names = [name.strip() for name in raw.split(",") if name.strip()]
+    if not names:
+        die(f"--prune-providers needs at least one provider name, got: {raw!r}")
+    return list(dict.fromkeys(names))
+
+
+def plan_opencode_prune(config, prune_providers, prune_orphans):
+    """Resolve apply's prune flags into a {name: entry} deletion set. No writes.
+
+    --prune-orphans contributes tracked providers no profile backs. A bare
+    --prune-providers adds every unbacked provider, hand-written ones included
+    — explicit opt-in to full alignment. A named --prune-providers adds
+    exactly those entries; they must exist and must not be profile-backed (a
+    sync would recreate them otherwise).
+    """
+    if prune_providers is None and not prune_orphans:
+        return {}
+    backed = kind_group(config, "api").get("opencode") or {}
+    providers = load_opencode_config()["provider"]
+    targets = {}
+    if prune_orphans:
+        targets.update(find_orphan_opencode_providers(config))
+    if prune_providers is None:
+        return targets
+    if prune_providers == PRUNE_PROVIDERS_ALL:
+        if not backed:
+            die(
+                "--prune-providers with no names would delete every provider, but the "
+                "aweswitch config has no opencode profiles.\n"
+                "  Add a profile first, or name the providers to prune."
+            )
+        for name, entry in providers.items():
+            if name not in backed and isinstance(entry, dict):
+                targets[name] = entry
+        return targets
+    for name in _parse_prune_provider_names(prune_providers):
+        entry = providers.get(name)
+        if not isinstance(entry, dict):
+            available = ", ".join(sorted(providers)) or "(none)"
+            die(
+                f"--prune-providers: no provider '{name}' in {opencode_config_path()}\n"
+                f"  Available providers: {available}"
+            )
+        if name in backed:
+            die(
+                f"--prune-providers: '{name}' is backed by the aweswitch profile of the "
+                "same name; remove that profile from the config instead."
+            )
+        targets[name] = entry
+    return targets
+
+
+def _describe_provider_models(entry):
+    return ", ".join(sorted(entry.get("models") or {})) or "no models"
+
+
+def default_model_repair_target(config, model, provider_keys):
+    """Return what a dangling top-level `model` should become, or None.
+
+    A prune may delete the provider the default model points at; this repair
+    keeps the pointer usable. The part before the first "/" names the
+    provider. A pointer at a provider that still exists (hand-written ones
+    included), a bare model id without "/", or a missing field is left alone.
+    With several profiles the alphabetically-first one's first configured
+    model (the same no-arg launch default) becomes the target.
+    """
+    if not isinstance(model, str) or "/" not in model:
+        return None
+    if model.split("/", 1)[0] in provider_keys:
+        return None
+    backed = kind_group(config, "api").get("opencode") or {}
+    if not backed:
+        click.echo(
+            f"warning: default model '{model}' points at a missing provider and the "
+            "aweswitch config has no opencode profile to repoint it to; leaving it unchanged",
+            err=True,
+        )
+        return None
+    profile = sorted(backed)[0]
+    profile_env = backed.get(profile, {}).get("env", {})
+    models, _ = _merge_opencode_models(
+        profile_env.get("OPENCODE_MODEL"),
+        profile_env.get("OPENCODE_RESPONSES_MODEL"), profile)
+    return f"{profile}/{next(iter(models))}"
+
+
+def preview_opencode_prune(specs, targets, config):
+    """Print what a dry-run apply would sync and prune; write nothing."""
+    click.echo("Dry run: nothing will be written.")
+    for name, _base_url, _api_key_ref, models, _display_name, _responses in specs:
+        click.echo(f"{name}: would sync ({len(models)} models)")
+    for name in sorted(targets):
+        click.echo(f"Would prune provider '{name}' ({_describe_provider_models(targets[name])})")
+    if not targets:
+        click.echo("Nothing to prune.")
     oc_config = load_opencode_config()
-    providers = oc_config["provider"]
-    for name in sorted(orphans):
-        del providers[name]
-        click.echo(f"Pruned orphaned provider '{name}' from {opencode_config_path()}")
+    new_model = default_model_repair_target(
+        config, oc_config.get("model"),
+        set(oc_config["provider"]) - set(targets),
+    )
+    if new_model is not None:
+        click.echo(f"Default model: {oc_config.get('model')} -> {new_model}")
+
+
+def execute_opencode_prune(config, targets):
+    """Delete the planned providers, then keep the default model usable."""
+    oc_config = load_opencode_config()
+    for name in sorted(targets):
+        if oc_config["provider"].pop(name, None) is None:
+            continue
+        click.echo(
+            f"Pruned provider '{name}' from {opencode_config_path()} "
+            f"({_describe_provider_models(targets[name])})"
+        )
+    new_model = default_model_repair_target(
+        config, oc_config.get("model"), set(oc_config["provider"]))
+    if new_model is not None:
+        click.echo(f"Default model: {oc_config.get('model')} -> {new_model}")
+        oc_config["model"] = new_model
     write_opencode_config(oc_config)
-    write_managed_opencode_providers(load_managed_opencode_providers() - set(orphans))
+    write_managed_opencode_providers(load_managed_opencode_providers() - set(targets))
 
 
 def zcode_config_path():
@@ -2235,7 +2366,17 @@ def preflight_apply(config, resolved):
 @click.option("--prune-orphans", is_flag=True,
               help="Also remove providers no aweswitch profile backs "
                    "(opencode.json or zcode config, depending on context).")
-def apply_command(profiles, force, opencode, zcode, prune_orphans):
+@click.option("--prune-providers", "prune_providers",
+              is_flag=False, flag_value=PRUNE_PROVIDERS_ALL, default=None,
+              metavar="[NAME[,NAME...]]",
+              help="Remove OpenCode provider entries: with names, exactly "
+                   "those; bare, every provider no aweswitch profile backs "
+                   "(hand-written ones included).")
+@click.option("--dry-run", is_flag=True,
+              help="Preview the OpenCode sync and prune plan without "
+                   "writing (requires a prune flag).")
+def apply_command(profiles, force, opencode, zcode, prune_orphans,
+                  prune_providers, dry_run):
     """Apply profiles as persistent defaults in each agent's config.
 
     Claude -> env in ~/.claude/settings.json. Codex -> provider and model in
@@ -2247,6 +2388,11 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans):
     Claude and Codex keep a single active default, so at most one profile of
     each may be applied per call; OpenCode and zcode profiles coexist, so
     several may be applied at once — or all of them via --opencode / --zcode.
+
+    OpenCode prunes are opt-in: --prune-orphans removes tracked providers no
+    profile backs, --prune-providers removes named or (bare) all unbacked
+    entries; --dry-run previews the plan. A prune never leaves the default
+    model pointing at a deleted provider.
     """
     config = load_config(config_path())
     names = list(profiles)
@@ -2261,15 +2407,32 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans):
             "nothing to apply\n"
             "run: aweswitch apply <profile> ... | --opencode | --zcode"
         )
+    prune_requested = prune_orphans or prune_providers is not None
+    if dry_run and not prune_requested:
+        die("--dry-run previews pruning; add --prune-orphans or --prune-providers")
+    if dry_run and zcode:
+        die("--dry-run previews OpenCode pruning only (this run has no OpenCode part)")
+    if prune_providers is not None and zcode:
+        die("--prune-providers only applies to OpenCode providers")
 
     if opencode:
+        targets = plan_opencode_prune(config, prune_providers, prune_orphans)
+        if dry_run:
+            specs = build_opencode_specs(config)
+            if not specs:
+                die("no opencode profiles found\nrun: aweswitch apply <profile>")
+            preview_opencode_prune(specs, targets, config)
+            return
         results = sync_opencode_profiles(config)
         if not results:
             die("no opencode profiles found\nrun: aweswitch apply <profile>")
         for name, status, model_count in results:
             click.echo(f"{name}: {status} ({model_count} models)")
         click.echo(f"Synced to {opencode_config_path()}")
-        prune_or_warn_opencode_orphans(config, prune_orphans)
+        if targets:
+            execute_opencode_prune(config, targets)
+        elif not prune_requested:
+            warn_opencode_orphans(config)
         return
 
     if zcode:
@@ -2287,6 +2450,17 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans):
         die("apply one claude profile at a time (settings.json holds a single active profile)")
     if sum(1 for _, provider, kind, _ in resolved if (provider, kind) == ("codex", "api")) > 1:
         die("apply one codex profile at a time (config.toml holds a single active provider)")
+    oc_names = [name for name, provider, _, _ in resolved if provider == "opencode"]
+    if prune_providers is not None and not oc_names:
+        die("--prune-providers only applies to OpenCode providers")
+    if dry_run and not oc_names:
+        die("--dry-run previews OpenCode pruning only (this run has no OpenCode profile)")
+    if dry_run:
+        preview_opencode_prune(
+            build_opencode_specs(config, oc_names),
+            plan_opencode_prune(config, prune_providers, prune_orphans),
+            config)
+        return
     prepared = preflight_apply(config, resolved)
     applied_opencode = False
     applied_zcode = False
@@ -2306,7 +2480,11 @@ def apply_command(profiles, force, opencode, zcode, prune_orphans):
         else:
             die(f"unsupported provider for {name}: {provider}")
     if applied_opencode:
-        prune_or_warn_opencode_orphans(config, prune_orphans)
+        targets = plan_opencode_prune(config, prune_providers, prune_orphans)
+        if targets:
+            execute_opencode_prune(config, targets)
+        elif not prune_requested:
+            warn_opencode_orphans(config)
     if applied_zcode:
         prune_or_warn_zcode_orphans(config, prune_orphans)
 

@@ -305,9 +305,11 @@ Write the profile into the agent's own config so it becomes the persistent defau
 ```bash
 aweswitch apply <profile-name>      # one profile (any provider)
 aweswitch apply --opencode          # every OpenCode profile at once
+aweswitch apply --opencode --prune-providers          # also remove OpenCode providers no profile backs (hand-written included)
+aweswitch apply --opencode --prune-providers a,b --dry-run  # preview named removals, write nothing
 ```
 
-Claude and Codex keep a single active default (one profile of each per call); OpenCode profiles coexist and accept bulk.
+Claude and Codex keep a single active default (one profile of each per call); OpenCode profiles coexist and accept bulk. A prune repoints `opencode.json`'s top-level `model` when the provider it references was deleted, so the default never dangles.
 
 Then restart the session (Claude: or use `/model`) to pick the new model.
 

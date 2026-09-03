@@ -3105,7 +3105,7 @@ class AweSwitchTests(unittest.TestCase):
                                           self._make_apply_config(), tmp)
 
             self.assertEqual(result.exit_code, 0, result.output)
-            self.assertIn("Pruned orphaned provider 'oc-old'", result.output)
+            self.assertIn("Pruned provider 'oc-old'", result.output)
             providers = json.loads(oc_path.read_text())["provider"]
             self.assertNotIn("oc-old", providers)
             self.assertIn("oc-test", providers)
@@ -3135,6 +3135,217 @@ class AweSwitchTests(unittest.TestCase):
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("invalid managed-provider JSON", result.output)
             self.assertEqual(json.loads(oc_path.read_text()), original)
+
+    def _write_oc_aweshare_leftovers(self, oc_path):
+        """opencode.json as it looks after hand-written aweshare wiring: stale
+        aweshare* entries, one unrelated hand-written provider, and the default
+        model pointing into the stale one."""
+        def entry(models):
+            prov = aweswitch.build_opencode_provider_entry("https://hub.test/v1", "sk-old")
+            prov["models"] = {mid: {"name": mid} for mid in models}
+            return prov
+
+        data = {
+            "model": "aweshare-peng/peng1/gpt-5.6-luna",
+            "provider": {
+                "aweshare": entry(["glm-5.1"]),
+                "aweshare2": entry(["glm-5.2"]),
+                "aweshare-peng": entry(["peng1/gpt-5.6-luna", "peng1/gpt-5.6-terra"]),
+                "aweshare-deepseek": entry(["deepseek-v4"]),
+                "aweshare-code": entry(["coder-x"]),
+                "mine": entry(["own-m"]),
+            },
+        }
+        oc_path.write_text(json.dumps(data, indent=2) + "\n")
+        return data
+
+    def test_apply_prune_providers_named_removes_handwritten_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+
+            result, oc_path = self._apply(
+                ["apply", "--opencode", "--prune-providers",
+                 "aweshare,aweshare2,aweshare-peng,aweshare-deepseek,aweshare-code"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            for name in ("aweshare", "aweshare2", "aweshare-peng",
+                         "aweshare-deepseek", "aweshare-code"):
+                self.assertIn(f"Pruned provider '{name}'", result.output)
+            data = json.loads(oc_path.read_text())
+            self.assertEqual(sorted(data["provider"]), ["mine", "oc-test"])
+            # the default model pointed at a deleted provider -> repaired
+            self.assertEqual(data["model"], "oc-test/m1")
+            managed = json.loads(
+                oc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )["providers"]
+            self.assertEqual(managed, ["oc-test"])
+
+    def test_apply_prune_providers_unknown_name_dies_before_any_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            before = oc_path.read_text()
+
+            result, _ = self._apply(
+                ["apply", "--opencode", "--prune-providers", "aweshare,nope"],
+                self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no provider 'nope'", result.output)
+            self.assertIn(
+                "Available providers: aweshare, aweshare-code, "
+                "aweshare-deepseek, aweshare-peng, aweshare2, mine",
+                result.output,
+            )
+            self.assertEqual(oc_path.read_text(), before)  # guards fire before the sync writes
+
+    def test_apply_prune_providers_backed_profile_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            data = json.loads(oc_path.read_text())
+            data["provider"]["oc-test"] = aweswitch.build_opencode_provider_entry(
+                "https://example.com/v1", "{env:OC_KEY}")
+            oc_path.write_text(json.dumps(data))
+            before = oc_path.read_text()
+
+            result, _ = self._apply(
+                ["apply", "--opencode", "--prune-providers", "oc-test"],
+                self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("remove that profile from the config", result.output)
+            self.assertEqual(oc_path.read_text(), before)
+
+    def test_apply_prune_providers_bare_removes_all_unbacked_and_repairs_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+
+            result, oc_path = self._apply(
+                ["apply", "--opencode", "--prune-providers"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            for name in ("aweshare", "aweshare2", "aweshare-peng",
+                         "aweshare-deepseek", "aweshare-code", "mine"):
+                self.assertIn(f"Pruned provider '{name}'", result.output)
+            data = json.loads(oc_path.read_text())
+            self.assertEqual(list(data["provider"]), ["oc-test"])
+            self.assertEqual(data["model"], "oc-test/m1")
+            managed = json.loads(
+                oc_path.with_name(".aweswitch-managed-providers.json").read_text()
+            )["providers"]
+            self.assertEqual(managed, ["oc-test"])
+
+    def test_apply_prune_providers_bare_without_profiles_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            before = oc_path.read_text()
+            config = self._make_apply_config()
+            del config["profiles"]["api"]["opencode"]
+
+            result, _ = self._apply(
+                ["apply", "--opencode", "--prune-providers"], config, tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("would delete every provider", result.output)
+            self.assertEqual(oc_path.read_text(), before)
+
+    def test_apply_prune_providers_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            before = oc_path.read_text()
+
+            result, oc_path = self._apply(
+                ["apply", "--opencode", "--prune-providers", "--dry-run"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Dry run: nothing will be written.", result.output)
+            self.assertIn("oc-test: would sync (2 models)", result.output)
+            self.assertIn(
+                "Would prune provider 'aweshare-peng' (peng1/gpt-5.6-luna, peng1/gpt-5.6-terra)",
+                result.output,
+            )
+            self.assertIn("Would prune provider 'mine' (own-m)", result.output)
+            self.assertIn(
+                "Default model: aweshare-peng/peng1/gpt-5.6-luna -> oc-test/m1",
+                result.output,
+            )
+            self.assertEqual(oc_path.read_text(), before)
+            self.assertFalse(oc_path.with_name(".aweswitch-managed-providers.json").exists())
+
+    def test_apply_dry_run_requires_prune_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = self._apply(
+                ["apply", "--opencode", "--dry-run"],
+                self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("--dry-run previews pruning", result.output)
+
+    def test_apply_prune_orphans_repairs_dangling_default_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_with_orphans(oc_path)
+            data = json.loads(oc_path.read_text())
+            data["model"] = "oc-old/peng1/x"
+            oc_path.write_text(json.dumps(data))
+
+            result, oc_path = self._apply(
+                ["apply", "--opencode", "--prune-orphans"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned provider 'oc-old'", result.output)
+            self.assertEqual(json.loads(oc_path.read_text())["model"], "oc-test/m1")
+
+    def test_apply_prune_keeps_default_model_pointing_at_live_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+            data = json.loads(oc_path.read_text())
+            data["model"] = "mine/own-m"
+            oc_path.write_text(json.dumps(data))
+
+            result, oc_path = self._apply(
+                ["apply", "--opencode", "--prune-providers", "aweshare,aweshare2"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertNotIn("Default model:", result.output)
+            self.assertEqual(json.loads(oc_path.read_text())["model"], "mine/own-m")
+
+    def test_apply_prune_providers_single_profile_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            self._write_oc_aweshare_leftovers(oc_path)
+
+            result, oc_path = self._apply(
+                ["apply", "oc-test", "--prune-providers", "aweshare"],
+                self._make_apply_config(), tmp)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned provider 'aweshare'", result.output)
+            providers = json.loads(oc_path.read_text())["provider"]
+            self.assertNotIn("aweshare", providers)
+            self.assertIn("mine", providers)
+            self.assertIn("oc-test", providers)
+
+    def test_apply_prune_providers_rejected_for_zcode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, oc_path = self._apply(
+                ["apply", "--zcode", "--prune-providers", "x"],
+                self._make_apply_config(), tmp)
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("only applies to OpenCode", result.output)
+            self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})
 
     def test_ensure_opencode_provider_displays_namespaced_ids_in_full(self):
         with tempfile.TemporaryDirectory() as tmp:
