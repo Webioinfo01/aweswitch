@@ -162,11 +162,11 @@ aweswitch add
             "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
             "ZCODE_API_KEY": "${GLM_ANTHROPIC_AUTH_TOKEN}",
             "ZCODE_NAME": "BigModel - Coding Plan",
-            "ZCODE_KIND": "anthropic",
             "ZCODE_MODEL": {
               "GLM-5.3-Flash": "GLM-5.3-Flash",
               "GLM-5-Turbo": "GLM-5-Turbo"
-            }
+            },
+            "ZCODE_RESPONSES_MODEL": ["GLM-4.6"]
           }
         }
       }

@@ -1,5 +1,22 @@
 # change log
 
+## v0.5.8
+
+zcode profile model configuration is now split by API mode, matching OpenCode. `ZCODE_KIND` (the provider-level `anthropic` / `openai` / `openai-compatible` setting) is removed; each model declares its own transport kind.
+
+### Per-model kind for zcode
+
+zcode profiles use `ZCODE_MODEL` for chat models and `ZCODE_RESPONSES_MODEL` for Responses-API models. The merged models map onto per-model `kind` entries in `~/.zcode/v2/config.json`: models in `ZCODE_MODEL` get `kind: "openai-compatible"`, models in `ZCODE_RESPONSES_MODEL` get `kind: "openai"`. At least one of the two fields is required; a model may not appear in both — duplicate model IDs error out instead of silently overriding. `ZCODE_MODEL` leads the model order (and the label shown by `aweswitch list`); responses-only models are appended after it. A profile that still declares `ZCODE_KIND` is rejected with instructions to migrate to the model fields.
+
+<details><summary>Highlights</summary>
+
+- `ZCODE_KIND` removed; `ZCODE_MODEL` / `ZCODE_RESPONSES_MODEL` define each model's kind
+- Duplicate model IDs across the two zcode fields are rejected
+- OpenCode `OPENCODE_MODEL` and `OPENCODE_RESPONSES_MODEL` now also reject overlapping model IDs
+- Stale model-level kinds are pruned on the next sync when a model stops being Responses-only
+
+</details>
+
 ## v0.5.7
 
 `--prune-orphans` and `--prune-providers` are replaced by a single `--prune` flag on `aweswitch apply`. It takes a value instead of being a bare switch: `--prune orphans` removes tracked leftovers no profile backs, `--prune all` removes every unbacked provider (hand-written ones included), and `--prune name1,name2` removes exactly those named entries. The flag works for both OpenCode and zcode — previously `--prune-providers` was OpenCode-only and zcode cleanup required the separate `--prune-orphans` switch.

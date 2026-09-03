@@ -27,7 +27,7 @@ Writes profiles into each agent's own config as the persistent default:
 - Codex → provider + model in `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
 - OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); `aweswitch apply --opencode` does every OpenCode profile. Managed provider keys are recorded in `.aweswitch-managed-providers.json`; after renaming/deleting a tracked profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs), and `aweswitch apply --opencode --prune orphans` removes it. Ownership is never inferred from provider shape, so hand-written entries are not pruned. Every managed model gets `"modalities": {"input": ["text", "image"], "output": ["text"]}` + `"attachment": true` unless the entry already declares them — opencode defaults these capabilities to false when absent, which hides the image-paste/attach affordances; a text-only model that receives an image anyway errors visibly upstream. To keep a model text-only, hand-set `input: ["text"]`.
 
-- zcode → provider entry + full model list upserted into `~/.zcode/v2/config.json` (apply-only; zcode is a desktop GUI app); `aweswitch apply --zcode` does every zcode profile. API keys are written as `{env:VAR_NAME}` references when the profile uses `${VAR_NAME}`. Managed provider keys are recorded in `.aweswitch-managed-providers.json`; orphan entries warn by default and are removed only with `--prune` (`orphans` / `all` / names).
+- zcode → provider entry + full model list upserted into `~/.zcode/v2/config.json` (apply-only; zcode is a desktop GUI app); `aweswitch apply --zcode` does every zcode profile. API keys are written as `{env:VAR_NAME}` references when the profile uses `${VAR_NAME}`. Each model gets a per-model `kind`: models in `ZCODE_MODEL` are `openai-compatible`, models in `ZCODE_RESPONSES_MODEL` are `openai` (a model may not appear in both). Managed provider keys are recorded in `.aweswitch-managed-providers.json`; orphan entries warn by default and are removed only with `--prune` (`orphans` / `all` / names).
 At most one Claude and one Codex profile per call (each holds a single active default); OpenCode and zcode profiles coexist and accept bulk.
 
 ### When to recommend which
@@ -147,8 +147,8 @@ Profiles split by kind first, then by provider. `api` holds env-based profiles; 
             "ZCODE_BASE_URL": "<url>",
             "ZCODE_API_KEY": "${ENV_VAR_NAME}",
             "ZCODE_NAME": "<optional display-name>",
-            "ZCODE_KIND": "anthropic | openai | openai-compatible",
-            "ZCODE_MODEL": "<model-id-or-list>"
+            "ZCODE_MODEL": "<chat-model-id-or-list>",
+            "ZCODE_RESPONSES_MODEL": "<response-model-id-or-list>"
           }
         }
       }
@@ -173,7 +173,7 @@ Names must be unique across the whole `profiles` tree (api and accounts) and can
 |-------|--------|-------|----------|-------|
 | Base URL | `ANTHROPIC_BASE_URL` | `OPENAI_BASE_URL` | `OPENCODE_BASE_URL` | `ZCODE_BASE_URL` |
 | Auth token | `ANTHROPIC_AUTH_TOKEN` | `OPENAI_API_KEY` | `OPENCODE_API_KEY` | `ZCODE_API_KEY` |
-| Model | `ANTHROPIC_MODEL` | `OPENAI_MODEL` (list/dict/string, optional) | `OPENCODE_MODEL` or `OPENCODE_RESPONSES_MODEL` (at least one required) | `ZCODE_MODEL` (list/dict/string) |
+| Model | `ANTHROPIC_MODEL` | `OPENAI_MODEL` (list/dict/string, optional) | `OPENCODE_MODEL` or `OPENCODE_RESPONSES_MODEL` (at least one required) | `ZCODE_MODEL` or `ZCODE_RESPONSES_MODEL` (at least one required) |
 | Injection | `--settings` temp file | `-c` flag + env var | writes to `~/.config/opencode/opencode.json` via `{env:VAR}` | writes to `~/.zcode/v2/config.json` via `{env:VAR}` |
 
 ### Naming convention
