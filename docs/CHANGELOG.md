@@ -1,6 +1,6 @@
 # change log
 
-## v0.5.10
+## v0.6.0
 
 A bare `aweswitch apply` used to refuse with "nothing to apply" and demand profile names or a bulk flag. It now defaults to the both-agents bulk sync: every OpenCode profile, then every zcode profile.
 
