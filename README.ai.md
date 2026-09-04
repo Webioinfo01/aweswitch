@@ -205,7 +205,7 @@ Edit the config file directly (do not run `aweswitch add` — it is interactive 
 
 Steps:
 1. Read the current config first.
-2. Add the new profile under `profiles.api.<provider>`.
+2. Scan the shell config for API-key variables the user already exports (see "Discover existing keys first" below in Step 5) and reuse them — reference existing variables with `${VAR_NAME}` instead of asking the user to set anything new.
 3. Use `${ENV_VAR_NAME}` syntax for token values — never hardcode secrets.
 4. Ensure names are unique across the whole `profiles` tree (api and accounts), do not use a top-level aweswitch command name, and keep account names to one path component (no `/`, `\\`, `.` or `..`).
 
@@ -214,6 +214,20 @@ Steps:
 ## Step 5: Set up environment variables
 
 Token values in profiles use `${VAR_NAME}` references that expand from the shell environment. These must be set before launching a profile.
+
+### Discover existing keys first
+
+Before asking the user for any key, scan what already exists — most users already export API keys somewhere:
+
+- bash/zsh: read `~/.zshrc`, `~/.bashrc`, and `~/.bash_profile`, looking for `export <NAME>=...` lines where `NAME` looks like a key or token (`OPENAI_API_KEY`, `GLM_ANTHROPIC_AUTH_TOKEN`, `XIAOMI_ANTHROPIC_AUTH_TOKEN`, `AIHUBMIX_OPENAI_KEY`, or anything matching `*_API_KEY` / `*_AUTH_TOKEN` / `*_TOKEN`).
+- Windows: read the user environment for the same names, e.g. `[Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")` in PowerShell.
+- The environment of the agent process itself also counts — check what is already visible.
+
+Then:
+
+1. Report the variable **names** you found. Never print their values.
+2. Write profiles that reference the existing variables directly (e.g. `"OPENAI_API_KEY": "${OPENAI_API_KEY}"`), so the profile works with zero further setup.
+3. Only when the provider the user wants has no usable variable yet, ask for the key and persist it with the platform-appropriate method below.
 
 ### Where to put them
 
@@ -370,6 +384,7 @@ aweswitch config restore [file]    # restore settings.json from default or expli
 - **Do not run `aweswitch <profile>` inside the agent.** It launches an interactive sub-agent. Tell the user to run it in their own terminal.
 - Read the existing config before modifying it. Do not overwrite profiles the user already has.
 - Never hardcode API keys or tokens in the config. Always use `${VAR_NAME}` references.
+- When scanning shell configs or the environment for keys, report variable names only — never print key values.
 - Before setting env vars, check for existing values first to avoid duplicates — in the shell config file (`~/.zshrc`, `~/.bashrc`) or, on Windows, the user environment (`setx` target, readable via `[Environment]::GetEnvironmentVariable("VAR", "User")`).
 - If the user's config already has profiles, ask before adding or renaming anything.
 - If any command fails, report the exact command and error message. Do not silently retry.

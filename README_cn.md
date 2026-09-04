@@ -36,82 +36,62 @@
 
 它刻意保持小而直接。目前支持 Claude Code、Codex、OpenCode 和 zcode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
-## 支持工具
+## 快速开始
 
-aweswitch 由三个配套工具驱动：
+`aweswitch` 和 awesome 家族其他工具走同一条路：把引导交给 agent 跑一次，装完就有一份可用的第一配置，之后日常操作用自然语言驱动。第 1 步覆盖安装引导和直接上手；第 2、3 步是更复杂的操作——装上管理 skill 和各日常场景的细节。这个工具有一条特殊规则——agent 不会替你启动 profile，因为那会导致 agent 嵌套。应用 profile、管理配置交给 agent；启动留在你自己的终端里。
 
-- **[aweskill](https://github.com/Webioinfo01/aweskill)** — 面向 AI agent 的 CLI skill 包管理器。负责 skill 的安装、更新和投影，支持 47+ 编程 agent。
-- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Claude Code 和 Codex 的会话 bookmark 管理器。可以保存、分类和恢复会话，支持 aweswitch profile。
-- **[awerouter](https://github.com/mugpeng/awerouter)** — 智能 LLM 路由器：按结构信号把 agent 请求分给 flash（便宜）或 pro（强力）模型。
+### 1. 安装和使用 aweswitch
 
-aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。搭配 awerouter 也一样丝滑：把 profile 的 `BASE_URL` 指向 awerouter daemon（`ANTHROPIC_MODEL=auto`），启动的每个会话都走它的 flash/pro 智能分流。
+如果你正在 Claude Code、Codex、Cursor 等编码 agent 里工作，直接把安装整个交给它——agent 会安装 CLI、初始化配置、装上 aweswitch skill，并直接把第一个 profile 写好：它会主动读取 shell 配置（`~/.zshrc`、`~/.bashrc` 或 Windows 用户环境变量）里已有的 API key 并直接引用，缺什么才问你什么。单靠这条自然语言引导，装完就有一份可用的配置。装完调用 skills（Claude Code 输入 `/`，Codex 输入 `$`）确认新 skill 已出现；没出现的话重启 agent 即可。
 
-## 安装与使用
-
-### 让 AI agent 安装和配置
-
-如果你在 Claude Code、Codex、Cursor 等 coding agent 中工作，直接告诉它：
+可以直接对 agent 说：
 
 ```text
 Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
 ```
 
-Agent 会安装 aweswitch、初始化配置、添加 profile，并帮你写入 settings。后续管理也可以通过 [aweskill](https://aweskill.webioinfo.top/) 安装 aweswitch skill。
+引导完成后就可以直接用了。使用一个 profile 有两种方式：
 
-**配置完成后你可以这样告诉 agent：**
+**写入（apply）**——把 profile 写入 agent 自己的配置，成为持久默认，之后正常打开的会话都用它。可以直接对 agent 说：
 
-> "把 cc-glm 写入 settings，这样我可以用 /model 切换。"
-> "列出所有 aweswitch profile。"
-> "添加一个 AiHubMix 的 codex profile。"
-> "把 cc-glm 的 model 改成 glm-5.2。"
+```text
+添加一个 GLM 的 claude profile，然后把 cc-glm 写入 Claude settings。
+```
 
-Agent 可以直接运行 `aweswitch apply`、`aweswitch config backup` 和 `aweswitch config restore`。
-
-<details>
-<summary>示例：查看已配置的 profile</summary>
-
-![image-20260622102235441](assets/images/image-20260622102235441.png)
-
-</details>
-
-<details>
-<summary>示例：应用 profile 并切换模型</summary>
-
-![image-20260622102200567](assets/images/image-20260622102200567.png)
-
-</details>
-
-
-
-但不会运行 `aweswitch <profile>`（启动模式）— 那会导致 agent 嵌套。如果要启动 profile，在你自己的终端运行：
+**启动（launch）**——不改任何全局配置，直接启动一个带独立 API 和模型的临时会话，不同终端可以并行跑不同 profile。想这样用时，在你自己的终端运行（agent 不会替你启动，那会嵌套 agent）：
 
 ```bash
 aweswitch cc-glm
 ```
 
-### 手动安装和使用
+不在编码 agent 里、想自己动手的话，从 PyPI 安装、创建默认配置，再交互式添加第一个 profile 或直接编辑配置文件——命令和参考配置收在下面的折叠块里。
 
-从 PyPI 安装：
+包主页：[pypi.org/project/aweswitch](https://pypi.org/project/aweswitch/)
+
+<details>
+<summary>安装与引导的 CLI 命令</summary>
 
 ```bash
+# 从 PyPI 安装
 pip3 install aweswitch
 aweswitch --help
-```
 
-创建默认配置并编辑：
-
-```bash
+# 创建默认配置，再按真实 provider 调整
 aweswitch config init
 aweswitch config edit
-```
 
-或者用交互方式添加 profile / 官方帐号：
-
-```bash
+# 或者交互式添加 profile / 官方帐号（api 或 official）
 aweswitch add
+
+# 验证已配置的 profile（密钥已脱敏）
+aweswitch list
+aweswitch show cc-glm
 ```
 
-第一步选择类型：`api`（依次询问 provider、profile 名和各 provider 字段）或 `official`（交互式 OAuth 登录或导入 Claude Code / Codex 官方帐号）。
+</details>
+
+<details>
+<summary>参考配置与 token 环境变量</summary>
 
 默认配置先按类型分组（`api` 为基于 env 的 API profile，`accounts` 为官方登录帐号），再按 provider 分组。以下是可以直接修改的参考配置：
 
@@ -193,61 +173,151 @@ export ZCODE_API_KEY="..."
 
 如果希望每次打开终端都可用，可以把这些变量放进你的 shell 配置文件：macOS 用 `~/.zshrc`，bash 用 `~/.bashrc` 或 `~/.bash_profile`，PowerShell 用 `$PROFILE`。
 
-验证：
+</details>
 
-```bash
-aweswitch list
-aweswitch show cc-glm
+<details>
+<summary>示例：查看已配置的 profile</summary>
+
+![image-20260622102235441](assets/images/image-20260622102235441.png)
+
+</details>
+
+<details>
+<summary>示例：应用 profile 并切换模型</summary>
+
+![image-20260622100567](assets/images/image-20260622100567.png)
+
+</details>
+
+### 2. 给 agent 装上管理能力
+
+第 1 步的引导 prompt 通常会顺带把 `aweswitch` skill 装好（`README.ai.md` 把它作为自己的第 2 步），所以大多数人走到这里已经具备管理能力。如果你是手动安装的，或者 skill 缺失，投影一次即可——它教会 agent 列出、查看、添加、编辑、删除 profile，把 profile 写入 settings（`aweswitch apply`）、从备份恢复（`aweswitch config restore`），并在写 profile 时主动读取 shell 配置里已有的 API key。
+
+可以直接对 agent 说：
+
+```text
+把 aweswitch skill 装进当前 agent，之后你可以用自然语言帮我管理 profile。
 ```
 
-#### aweswitch skill
-
-通过 [aweskill](https://aweskill.webioinfo.top/) 安装 [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md)，可以让 AI agent 用自然语言帮你管理 profile：
-
-- 列出、查看、添加、编辑、删除 profile
-- 将 profile 写入 settings（`aweswitch apply`）或恢复备份（`aweswitch config restore`）
-- 引导配置环境变量（如 `~/.zshrc`、`~/.bashrc` 或 PowerShell 的 `$PROFILE` 中的 token）
-
-安装后你可以直接告诉 agent："添加一个 AiHubMix 的 codex profile"、"把 cc-glm 的 model 改成 glm-5.2"、"列出所有 profile"，agent 会读取配置文件、做修改、验证结果。
-
-#### 启动模式 — 隔离会话
-
-每次调用启动一个带独立 env 的新 agent 会话。不同终端可以同时跑不同 profile。
+<details>
+<summary>等价的 CLI 命令</summary>
 
 ```bash
-aweswitch cc-glm                      # 启动 Claude Code profile
-aweswitch cx-openai                   # 启动 Codex profile
-aweswitch oc-glm                      # 启动 OpenCode profile（默认第一个模型）
-aweswitch oc-glm glm-5.2              # 指定模型
-aweswitch cxo-work                    # 启动 Codex 官方帐号（见下文）
-aweswitch cc-glm --dangerously-skip-permissions   # 传递额外参数
-aweswitch oc-glm glm-5.1 --mini       # OpenCode 传递额外参数
-aweswitch cc-glm -c backend -t "Fix auth bug"     # 配合 aweshelf 自动 bookmark
+# 通过 aweskill（推荐）：从 GitHub 安装并投影给当前 agent
+aweskill install Webioinfo01/aweswitch
+aweskill agent add skill aweswitch --global --agent codex
+aweskill agent list --global --agent codex   # 期望 aweswitch 显示为 linked
+
+# 不用 aweskill：把 SKILL.md 直接拷进 agent 的 skill 目录
+mkdir -p ~/.claude/skills/aweswitch
+curl -fsSL https://raw.githubusercontent.com/Webioinfo01/aweswitch/main/resources/skills/aweswitch/SKILL.md -o ~/.claude/skills/aweswitch/SKILL.md
 ```
 
-#### 写入模式 — 持久默认配置
+</details>
 
-`aweswitch apply` 把 profile 写入 agent 自己的配置文件，成为持久默认：
+### 3. 开始用自然语言管理 profile
+
+到此为止，日常管理不需要记命令：把意图直接告诉 agent，它会读取配置、做修改、验证结果。`aweswitch apply`、`aweswitch config backup`、`aweswitch config restore` 它都可以直接执行；唯一不会做的是启动 profile（那会嵌套 agent）。下面几个场景覆盖日常使用；想手动执行 CLI 或核对具体行为时，再展开等价的命令。
+
+用哪种模式是人的决定：
+
+| 场景 | 模式 |
+|---|---|
+| 多个 profile 并行运行 | 启动（你的终端） |
+| 在会话内用 `/model` 切换模型 | 写入（agent 可以执行） |
+| 快速试用不同 API | 启动 |
+| 设置持久默认 profile | 写入 |
+| 把改过的 OpenCode profile 推送到 opencode.json | 写入（`aweswitch apply`） |
+| 把改过的 zcode profile 推送到 zcode config.json | 写入（`aweswitch apply`） |
+
+> **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
+
+#### 查看与检查 profile
+
+所有 profile 都在一个本地配置文件里，查看类命令自动脱敏。改动之前，先让 agent 报告现状。
+
+可以直接对 agent 说：
+
+```text
+列出我所有的 aweswitch profile，再看看 cc-glm 指向什么。
+```
+
+<details>
+<summary>等价的 CLI 命令</summary>
+
+```bash
+aweswitch list                        # 列出所有 profile（含 api/account 类型）
+aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
+aweswitch config path                 # 查看配置文件路径
+aweswitch config show                 # 查看完整配置（密钥已脱敏）
+aweswitch config edit                 # 编辑配置文件
+```
+
+</details>
+
+#### 新增或修改 profile
+
+新增 profile 就是在 `profiles.api.<provider>` 下加一个用 `${VAR_NAME}` 引用 token 的条目。agent 会先读当前配置，再扫描 shell 配置（`~/.zshrc`、`~/.bashrc` 或 Windows 用户环境变量）里已导出的 API key，直接引用它们把 profile 写好——只有缺失的 key 才需要你提供，agent 还能顺手帮你持久化进 shell 配置。修改同理：重命名 profile、把 `cc-glm` 的模型改成 `glm-5.2`、或给后台任务加一个更轻的 haiku 档模型。
+
+可以直接对 agent 说：
+
+```text
+添加一个 AiHubMix 的 codex profile，名字叫 cx-aihubmix；API key 优先用我 shell 里已有的，缺了再问我。
+```
+
+<details>
+<summary>等价的 CLI 命令</summary>
+
+```bash
+aweswitch add                         # 交互式添加 profile 或官方帐号
+# Provider: codex
+# Profile name: cx-myprovider
+# OPENAI_BASE_URL: https://myprovider.com/v1
+# OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+
+aweswitch config edit                 # 或者直接编辑 ~/.config/aweswitch/config.json
+```
+
+各 provider 的 env 键、模型格式和命名规则见 [Profile 规则](#profile-规则)。
+
+</details>
+
+#### 设置持久默认 profile
+
+`aweswitch apply <profile>` 把 profile 写入 agent 自己的配置，成为持久默认——Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode 和 zcode 的 provider+模型列表写入各自配置文件。Claude 和 Codex 同一时间只有一个活跃默认；OpenCode 和 zcode 的 profile 天然并存，裸 `aweswitch apply` 会批量同步两侧。首次写入会自动备份，Claude 的改动可以用 `aweswitch config restore` 撤销。
+
+可以直接对 agent 说：
+
+```text
+把 cc-glm 写入 Claude settings，这样我可以用 /model 切换模型。
+```
+
+<details>
+<summary>等价的 CLI 命令</summary>
 
 ```bash
 aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
-  aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
-  aweswitch apply zc-glm                # zcode：provider+模型列表 -> ~/.zcode/v2/config.json
-  aweswitch apply                       # 批量：先同步全部 OpenCode profile，再同步全部 zcode profile
-  aweswitch apply --opencode            # 只批量 OpenCode
-  aweswitch apply --zcode               # 只批量 zcode
-aweswitch apply --prune orphans              # 批量同步两个 agent，并清理没有 profile 对应的已登记 provider
-aweswitch apply --opencode --prune all       # 再清理所有没有 profile 对应的 provider（含手写条目）
-aweswitch apply --opencode --prune old-a,old-b --dry-run  # 预览点名清理，不写入任何文件
-aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
+aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
+aweswitch apply zc-glm                # zcode：provider+模型列表 -> ~/.zcode/v2/config.json
+aweswitch apply                       # 批量：先同步全部 OpenCode profile，再同步全部 zcode profile
+aweswitch apply --opencode            # 只批量 OpenCode
+aweswitch apply --zcode               # 只批量 zcode
+aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令多个 agent 各写一个
 aweswitch apply cc-glm --force        # 覆盖已有备份
-aweswitch config backup               # 手动备份 Claude settings，输出备份路径
+
+# 清理没有 profile 对应的受管 OpenCode / zcode provider
+aweswitch apply --prune orphans             # 批量同步两个 agent，并清理没有 profile 对应的已登记 provider
+aweswitch apply --opencode --prune all      # 再清理所有没有 profile 对应的 provider（含手写条目）
+aweswitch apply --opencode --prune old-a,old-b --dry-run  # 预览点名清理，不写入任何文件
+
+# 备份与恢复 Claude settings
+aweswitch config backup               # 手动备份并输出备份路径
 aweswitch config restore              # 从默认备份恢复 settings
 aweswitch config restore <file>       # 从指定备份文件恢复 settings
 ```
 
-各 agent 的语义：
+各 agent 的写入语义：
 
 - **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
@@ -256,33 +326,50 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 
 Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 和 zcode 的 provider 天然并存，可以一次应用多个——裸 `aweswitch apply` 会批量同步两侧全部 profile（某一侧没有 profile 时跳过并提示），`--opencode` / `--zcode` 把批量收窄到单个 agent。
 
-#### 什么时候用哪种模式
+</details>
 
-| 场景 | 模式 |
-|---|---|
-| 多个 profile 并行运行 | 启动 |
-| 在会话内用 `/model` 切换模型 | 写入 |
-| 快速试用不同 API | 启动 |
-| 设置持久默认 profile | 写入 |
-| 把改过的 OpenCode profile 推送到 opencode.json | 写入（`aweswitch apply`） |
-| 把改过的 zcode profile 推送到 zcode config.json | 写入（`aweswitch apply`） |
+#### 并行启动不同 profile
 
-> **注意：** 两种模式互不影响。`aweswitch cc-glm` 不会读取或修改 settings.json。`aweswitch apply cc-glm` 不会影响正在运行的会话。
+启动是唯一留在你手里的动作：agent 不会运行 `aweswitch <profile>`，因为那会导致 agent 嵌套。每次启动都是一个新的会话，env 在启动时冻结，所以不同终端可以同时跑不同 profile，互不改写全局 agent 配置。
 
-#### 配置管理
+在你自己的终端运行：
 
 ```bash
-aweswitch add                         # 交互式添加 profile 或官方帐号
-aweswitch list                        # 列出所有 profile（含 api/account 类型）
-aweswitch show cc-glm                 # 查看单个 profile（密钥已脱敏）
-aweswitch config path                 # 查看配置文件路径
-aweswitch config show                 # 查看完整配置（密钥已脱敏）
-aweswitch config edit                 # 编辑配置文件
+aweswitch cc-glm                      # 启动 Claude Code profile
+aweswitch cx-openai                   # 启动 Codex profile
+aweswitch oc-glm glm-5.2              # 启动 OpenCode profile 并指定模型
+aweswitch cxo-work                    # 启动 Codex 官方帐号（见下文）
 ```
 
-#### 官方帐号 — 多个 Claude Code / Codex 登录并行
+<details>
+<summary>额外参数与自动 bookmark</summary>
 
-官方帐号登录（OAuth）以 account 形式保存，启动时走独立的 per-account 配置目录，多个官方帐号可以并行使用，完全不碰全局的 `~/.claude` 或 `~/.codex`：
+```bash
+# 把额外参数透传给 agent
+aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
+aweswitch oc-glm glm-5.1 --mini
+
+# 配合 aweshelf 在启动时自动 bookmark
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+详见 [aweshelf 集成](#aweshelf-集成)。
+
+</details>
+
+#### 多个官方帐号并行使用
+
+官方帐号登录（OAuth）以 account 形式保存，启动时走独立的 per-account 配置目录，多个 Claude Code / Codex 登录可以并行使用，完全不碰全局的 `~/.claude` 或 `~/.codex`。OAuth 登录流程是交互式的，要在你的终端里跑；导入当前登录、回写刷新 token 则可以交给 agent。
+
+可以直接对 agent 说：
+
+```text
+把我当前登录的 Claude 帐号导入为 team-a。
+```
+
+<details>
+<summary>帐号命令与工作方式</summary>
 
 ```bash
 aweswitch account login codex work    # 运行 codex login 并捕获为帐号 work
@@ -301,29 +388,32 @@ aweswitch account remove codex work --purge
 - macOS 上 Claude Code 默认把登录存在 Keychain；`account login` 和帐号启动都会强制凭据走帐号目录内的文件，保证帐号隔离。`account add` 读取的是 `~/.claude/.credentials.json`，该文件不存在时会失败 — macOS 上建议直接用 `account login`。
 - 帐号只支持启动模式，不参与 `apply`。
 
+</details>
 
+## 支持工具
+
+aweswitch 由三个配套工具驱动：
+
+- **[aweskill](https://github.com/Webioinfo01/aweskill)** — 面向 AI agent 的 CLI skill 包管理器。负责 skill 的安装、更新和投影，支持 47+ 编程 agent。
+- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Claude Code 和 Codex 的会话 bookmark 管理器。可以保存、分类和恢复会话，支持 aweswitch profile。
+- **[awerouter](https://github.com/mugpeng/awerouter)** — 智能 LLM 路由器：按结构信号把 agent 请求分给 flash（便宜）或 pro（强力）模型。
+
+aweswitch 管**启动**会话，aweshelf 管**记住**会话。用 `aweswitch -c` 在启动时自动 bookmark，用 `aweshelf resume` 恢复时会带上相同的 profile。搭配 awerouter 也一样丝滑：把 profile 的 `BASE_URL` 指向 awerouter daemon（`ANTHROPIC_MODEL=auto`），启动的每个会话都走它的 flash/pro 智能分流。
 
 ## 自动更新
 
 aweswitch 每次运行时会在后台检查 PyPI 是否有新版本。如果有更新，会在会话结束后在 stderr 输出提醒。
 
-手动更新：
+<details>
+<summary>self-update 命令</summary>
 
 ```bash
-aweswitch self-update
+aweswitch self-update                 # 手动更新
+aweswitch self-update --check         # 仅检查不更新
+export AWESWITCH_NO_UPDATE_CHECK=1    # 禁用后台检查
 ```
 
-仅检查不更新：
-
-```bash
-aweswitch self-update --check
-```
-
-禁用后台检查：
-
-```bash
-export AWESWITCH_NO_UPDATE_CHECK=1
-```
+</details>
 
 ## aweshelf 集成
 
@@ -352,7 +442,8 @@ aweswitch cc-glm -c backend -t "Fix auth bug"
 pip3 install aweshelf
 ```
 
-
+<details>
+<summary>aweshelf 独立使用</summary>
 
 即使不使用 aweswitch 的 `-c`/`-t` 参数，aweshelf 也可以独立使用：
 
@@ -364,6 +455,8 @@ aweshelf search "auth"          # 全文搜索 bookmark
 aweshelf resume BOOKMARK_ID     # 恢复已保存的会话
 aweshelf browse                 # 交互式 TUI 浏览器
 ```
+
+</details>
 
 完整文档见 [aweshelf README](https://github.com/Webioinfo01/aweshelf)。
 
@@ -380,6 +473,9 @@ aweshelf browse                 # 交互式 TUI 浏览器
 - **不修改全局 agent 配置**：已经打开的 agent 会话继续使用启动时的配置
 - **token 引用**：来自 shell 环境变量或 `~/.claude/settings.json`
 - **可读 JSON**：`profiles.api`（基于 env 的 profile）和 `profiles.accounts`（官方登录）分组
+
+<details>
+<summary>更多 FAQ</summary>
 
 ### aweswitch 把 profile 存在哪里？
 
@@ -411,11 +507,13 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 
 ### aweswitch 支持官方（OAuth）登录吗？
 
-支持 — Claude Code 和 Codex 的官方帐号通过 `aweswitch account login` 保存（或用 `account add` 导入当前登录），之后像 profile 一样启动：`aweswitch <帐号名>`。每个帐号运行在自己的配置目录（`CODEX_HOME` / `CLAUDE_CONFIG_DIR`）中，多个官方帐号可以并行。详见[官方帐号](#官方帐号--多个-claude-code--codex-登录并行)。
+支持 — Claude Code 和 Codex 的官方帐号通过 `aweswitch account login` 保存（或用 `account add` 导入当前登录），之后像 profile 一样启动：`aweswitch <帐号名>`。每个帐号运行在自己的配置目录（`CODEX_HOME` / `CLAUDE_CONFIG_DIR`）中，多个官方帐号可以并行。详见[官方帐号](#多个官方帐号并行使用)。
 
 ### aweswitch 支持 Hermes 吗？
 
 暂时不支持。配置格式已经按 provider 分组，后续可以自然扩展。
+
+</details>
 
 ## 同类工具
 
@@ -444,6 +542,9 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL` 默认都不配置。如果你希望 Claude Code 对轻量任务或后台任务使用更轻的模型，可以给 profile 增加 `ANTHROPIC_DEFAULT_HAIKU_MODEL`：
 
+<details>
+<summary>Claude profile 示例 JSON</summary>
+
 ```json
 {
   "profiles": {
@@ -463,6 +564,8 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 }
 ```
 
+</details>
+
 这样主模型仍然使用 `mimo-v2.5-pro`，同时允许 Claude Code 在轻量任务中使用 `mimo-v2.5`。
 
 ### Codex Profile
@@ -473,6 +576,9 @@ Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型�
 - 额外参数透传给 `codex` CLI。
 
 Codex profile 只切换 API 源（base URL + API key），不切换模型。实际体验来看，Codex 配合 OpenAI 自身模型效果最好——常见用法是通过第三方 provider 中转，而不是换用完全不同的模型。
+
+<details>
+<summary>Codex profile 示例 JSON</summary>
 
 ```json
 {
@@ -490,6 +596,8 @@ Codex profile 只切换 API 源（base URL + API key），不切换模型。实�
   }
 }
 ```
+
+</details>
 
 aweswitch 不会写入 `~/.codex/`。base URL 通过 Codex 的 `-c` 参数传入，API key 通过环境变量传入。你的全局 Codex 配置不会被修改。
 
@@ -513,6 +621,9 @@ aweswitch add
 - 额外参数透传给 `opencode` CLI。
 - API key 以 `{env:VAR}` 格式写入 opencode.json — 实际 key 不落盘。
 
+<details>
+<summary>OpenCode profile 示例 JSON</summary>
+
 ```json
 {
   "profiles": {
@@ -534,6 +645,8 @@ aweswitch add
   }
 }
 ```
+
+</details>
 
 `OPENCODE_MODEL` 格式（设置了 `OPENCODE_RESPONSES_MODEL` 时可省略——两者至少需要其一）：
 

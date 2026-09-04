@@ -36,83 +36,62 @@
 
 It is intentionally small. Today it supports Claude Code, Codex, OpenCode, and zcode profiles, plus official-login accounts (Claude Code / Codex OAuth).
 
-## Support Tools
+## Quick Start
 
-aweswitch is powered by three companion tools:
+`aweswitch` follows the same loop as the rest of the awesome family: hand the bootstrap to an agent once and you land with a working first profile, then manage day-to-day work in natural language. Step 1 covers that bootstrap and gets you using aweswitch right away; steps 2 and 3 are the more advanced operations — equipping the management skill and the daily scenarios in detail. One rule is specific to this tool — the agent never launches a profile for you, because that would nest an agent inside an agent. Applying profiles and managing the config go through the agent; launching stays in your own terminal.
 
-- **[aweskill](https://github.com/Webioinfo01/aweskill)** — CLI skill package manager for AI agents. Handles skill installation, updates, and projection across 47+ coding agents.
-- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Session bookmark manager for Claude Code and Codex. Bookmark, categorize, and restore sessions with aweswitch profiles.
-- **[awerouter](https://github.com/mugpeng/awerouter)** — Smart LLM router: routes agent requests to flash (cheap) or pro (strong) providers based on structural signals.
+### 1. Install and use aweswitch
 
-aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later. And awerouter pairs just as smoothly: point a profile's `BASE_URL` at the awerouter daemon (`ANTHROPIC_MODEL=auto`), and every session you launch goes through its flash/pro routing.
+If you are working in Claude Code, Codex, Cursor, or another coding agent, hand the whole job to it — the agent installs the CLI, initializes the config, installs the aweswitch skill, and writes your first profile for you: it reads API keys already exported in your shell config (`~/.zshrc`, `~/.bashrc`, or the Windows user environment) and references them directly, asking only for what is missing. The natural-language path alone leaves a working first config. Invoke skills (`/` in Claude Code, `$` in Codex) afterwards to confirm the new skill appears; if not, restart the agent first.
 
-## Install & Usage
-
-### Let AI agent install and configure
-
-If you are working in Claude Code, Codex, Cursor, or other coding agents, tell it:
+You can tell your agent:
 
 ```text
 Read https://github.com/Webioinfo01/aweswitch/blob/main/README.ai.md and follow it to install and configure aweswitch.
 ```
 
-The agent will install the `aweswitch` CLI, set up config, and help you add profiles. For ongoing profile management, it can also install the aweswitch skill via [aweskill](https://aweskill.webioinfo.top/).
+Once the bootstrap finishes, aweswitch is ready to use. There are two ways to use a profile:
 
-**After setup, you can tell the agent things like:**
+**Write (apply)** — writes a profile into the agent's own config as the persistent default, so every session you open normally uses it from then on. You can tell your agent:
 
-> "Write cc-glm to settings so I can switch with /model."
-> "List all aweswitch profiles."
-> "Add an AiHubMix codex profile."
-> "Change the model in cc-glm to glm-5.2."
+```text
+Add a GLM Claude profile, then write cc-glm into Claude settings.
+```
 
-The agent can run `aweswitch apply`, `aweswitch config backup`, and `aweswitch config restore` directly, but will not run `aweswitch <profile>` (launch mode) — that would nest agents. To launch a profile, run it in your own terminal:
+**Launch** — touches no global config: it starts a one-off session with its own API endpoint and model, and different terminals can run different profiles side by side. Run it in your own terminal (the agent will not launch it for you — that would nest an agent):
 
 ```bash
 aweswitch cc-glm
 ```
 
-<details>
-<summary>Example: list configured profiles</summary>
+Working outside a coding agent and prefer to do it yourself? Install from PyPI, create the default config, then add your first profile interactively or edit the config directly — the commands and a reference config are in the folded blocks below.
 
-![image-20260622102235441](assets/images/image-20260622102235441.png)
-
-</details>
+Package page: [pypi.org/project/aweswitch](https://pypi.org/project/aweswitch/)
 
 <details>
-<summary>Example: apply profile and switch model</summary>
-
-![image-20260622102200567](assets/images/image-20260622102200567.png)
-
-</details>
-
-### Manual install and usage
-
-Install from PyPI:
+<summary>Install and bootstrap CLI commands</summary>
 
 ```bash
+# Install from PyPI
 pip3 install aweswitch
 aweswitch --help
-```
 
-Create the default config:
-
-```bash
+# Create the default config, then align it with your real providers
 aweswitch config init
-```
-
-Then open the config and align it with your real providers, models, and token variable names:
-
-```bash
 aweswitch config edit
-```
 
-Or add a new profile interactively:
-
-```bash
+# Or add a profile / official account interactively (api or official)
 aweswitch add
+
+# Verify the configured profiles (secrets redacted)
+aweswitch list
+aweswitch show cc-glm
 ```
 
-This prompts for a type — `api` (provider, profile name, and provider-specific fields) or `official` (interactive OAuth login / import of a Claude Code or Codex official account).
+</details>
+
+<details>
+<summary>Reference config and token variables</summary>
 
 The default config shape splits profiles by kind (`api` for env-based API profiles, `accounts` for official logins) and then by provider. This is a reference config you can adapt:
 
@@ -170,8 +149,6 @@ The default config shape splits profiles by kind (`api` for env-based API profil
           }
         }
       }
-        }
-      }
     },
     "accounts": {}
   }
@@ -196,91 +173,151 @@ export ZCODE_API_KEY="..."
 
 Put long-lived variables in your shell config file if you want them available in every shell — `~/.zshrc` on macOS, `~/.bashrc` or `~/.bash_profile` on bash, or `$PROFILE` on PowerShell.
 
-Verify the configured profiles:
+</details>
 
-```bash
-aweswitch list
-aweswitch show cc-glm
+<details>
+<summary>Example: list configured profiles</summary>
+
+![image-20260622102235441](assets/images/image-20260622102235441.png)
+
+</details>
+
+<details>
+<summary>Example: apply profile and switch model</summary>
+
+![image-20260622100567](assets/images/image-20260622100567.png)
+
+</details>
+
+### 2. Equip your agent
+
+The bootstrap prompt in step 1 usually installs the `aweswitch` skill along the way (`README.ai.md` installs it as its own step 2), so most users arrive already equipped. If you installed by hand or the skill is missing, project it once — it teaches the agent to list, inspect, add, edit, and delete profiles, apply them to settings (`aweswitch apply`), restore from backup (`aweswitch config restore`), and read existing API keys from your shell config when writing profiles.
+
+You can tell your agent:
+
+```text
+Install the aweswitch skill into this agent so you can manage my aweswitch profiles in natural language.
 ```
 
-Run a profile:
+<details>
+<summary>Equivalent CLI commands</summary>
 
 ```bash
-aweswitch cc-glm                      # Claude Code
-aweswitch cx-openai                   # Codex
-aweswitch oc-glm                      # OpenCode (default: first model)
-aweswitch oc-glm glm-5.2              # OpenCode (specific model)
-aweswitch cxo-work                    # Codex official account (see below)
+# Via aweskill (recommended): install from GitHub and project into this agent
+aweskill install Webioinfo01/aweswitch
+aweskill agent add skill aweswitch --global --agent codex
+aweskill agent list --global --agent codex   # expect aweswitch shown as linked
+
+# Without aweskill: copy SKILL.md directly into the agent's skill directory
+mkdir -p ~/.claude/skills/aweswitch
+curl -fsSL https://raw.githubusercontent.com/Webioinfo01/aweswitch/main/resources/skills/aweswitch/SKILL.md -o ~/.claude/skills/aweswitch/SKILL.md
 ```
 
-Pass extra arguments through to the agent:
+</details>
+
+### 3. Manage profiles through natural language
+
+From here on, profile management needs no memorized commands: state the intent and the agent reads the config, makes the change, and verifies the result. It can run `aweswitch apply`, `aweswitch config backup`, and `aweswitch config restore` directly; the one thing it will not do is launch a profile (that would nest an agent). The scenarios below cover day-to-day use; expand the folded blocks to run the CLI by hand or verify exactly what happens.
+
+Which mode you need stays a human decision:
+
+| Scenario | Mode |
+|---|---|
+| Run multiple profiles side by side | Launch (your terminal) |
+| Switch model with `/model` inside a session | Write (agent can run it) |
+| Quickly try different APIs | Launch |
+| Set a persistent default profile | Write |
+| Push edited OpenCode profiles into opencode.json | Write (`aweswitch apply`) |
+| Push edited zcode profiles into zcode config.json | Write (`aweswitch apply`) |
+
+> **Note:** The two modes do not interfere with each other. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
+
+#### List and inspect profiles
+
+Profiles live in one local config file, and the inspection commands redact secrets. Ask the agent what exists before changing anything.
+
+You can tell your agent:
+
+```text
+List all my aweswitch profiles and show what cc-glm points to.
+```
+
+<details>
+<summary>Equivalent CLI commands</summary>
 
 ```bash
-aweswitch cc-glm --dangerously-skip-permissions
-aweswitch cx-openai --model o3
-aweswitch oc-glm glm-5.1 --mini
+aweswitch list                        # list all profiles (api + account kinds)
+aweswitch show cc-glm                 # inspect one profile (secrets redacted)
+aweswitch config path                 # print config file path
+aweswitch config show                 # full config (secrets redacted)
+aweswitch config edit                 # open the config in an editor
 ```
 
-Auto-bookmark sessions with [aweshelf](https://github.com/Webioinfo01/aweshelf):
+</details>
+
+#### Add or edit a profile
+
+Adding a profile means one entry under `profiles.api.<provider>` with `${VAR_NAME}` token references. The agent reads the current config first, then scans your shell config (`~/.zshrc`, `~/.bashrc`, or the Windows user environment) for API keys you already export and writes the profile referencing them directly — only a missing key needs your input, and the agent can persist it into your shell config for you. Editing works the same way: rename a profile, change the model in `cc-glm` to `glm-5.2`, or add a lighter haiku-tier model for background tasks.
+
+You can tell your agent:
+
+```text
+Add an AiHubMix codex profile named cx-aihubmix; reuse the API key I already have in my shell, and ask me only if it is missing.
+```
+
+<details>
+<summary>Equivalent CLI commands</summary>
 
 ```bash
-aweswitch cc-glm -c backend -t "Fix auth bug"
+aweswitch add                         # add a profile or official account interactively
+# Provider: codex
+# Profile name: cx-myprovider
+# OPENAI_BASE_URL: https://myprovider.com/v1
+# OPENAI_API_KEY env var name: MY_PROVIDER_KEY
+
+aweswitch config edit                 # or edit ~/.config/aweswitch/config.json directly
 ```
 
-See [aweshelf Integration](#aweshelf-integration) for details.
+Per-provider env keys, model formats, and naming rules are summarized in [Profile Rules](#profile-rules).
 
-Useful config commands:
+</details>
 
-```bash
-aweswitch config path
-aweswitch config show
-aweswitch config edit
+#### Set a persistent default profile
+
+`aweswitch apply <profile>` writes a profile into the agent's own config so it becomes the persistent default — Claude env into `~/.claude/settings.json`, Codex provider+model into `~/.codex/config.toml`, OpenCode and zcode provider+model lists into their config files. Claude and Codex keep one active default at a time; OpenCode and zcode profiles coexist, so a bare `aweswitch apply` bulk-syncs both sides. First writes back up the originals, and `aweswitch config restore` undoes Claude changes.
+
+You can tell your agent:
+
+```text
+Write cc-glm into Claude settings so I can switch models with /model.
 ```
 
-#### aweswitch skill
-
-Install the [aweswitch skill](https://github.com/Webioinfo01/aweswitch/blob/main/resources/skills/aweswitch/SKILL.md) via [aweskill](https://aweskill.webioinfo.top/) to let AI agents manage profiles with natural language:
-
-- List, inspect, add, edit, and delete profiles
-- Apply profiles to settings (`aweswitch apply`) or restore from backup (`aweswitch config restore`)
-- Guide environment variable setup (e.g. adding tokens to `~/.zshrc` on macOS, `~/.bashrc` on bash, or `$PROFILE` on PowerShell)
-
-After install, you can tell the agent things like "Add an AiHubMix codex profile", "Change the model in cc-glm to glm-5.2", or "List all profiles". The agent reads the config, makes changes, and verifies the result.
-
-#### Launch mode — isolated sessions
-
-Each invocation starts a new agent session with its own env. Different terminals can run different profiles at the same time.
-
-```bash
-aweswitch cc-glm                      # launch Claude Code profile
-aweswitch cx-openai                   # launch Codex profile
-aweswitch cc-glm --dangerously-skip-permissions   # pass extra arguments
-aweswitch cc-glm -c backend -t "Fix auth bug"     # auto-bookmark with aweshelf
-```
-
-#### Write mode — persistent defaults
-
-`aweswitch apply` writes a profile into the agent's own config so it becomes the persistent default:
+<details>
+<summary>Equivalent CLI commands</summary>
 
 ```bash
 aweswitch apply cc-glm                # Claude: env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex: provider+model -> ~/.codex/config.toml
-  aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
-  aweswitch apply zc-glm                # zcode: provider+models -> ~/.zcode/v2/config.json
-  aweswitch apply                       # bulk: every OpenCode profile, then every zcode profile
-  aweswitch apply --opencode            # OpenCode bulk only
-  aweswitch apply --zcode               # zcode bulk only
-aweswitch apply --prune orphans              # bulk both agents and remove tracked providers no profile backs
-aweswitch apply --opencode --prune all       # also remove every provider no profile backs (hand-written included)
-aweswitch apply --opencode --prune old-a,old-b --dry-run  # preview named removals, write nothing
+aweswitch apply oc-glm                # OpenCode: provider+models -> ~/.config/opencode/opencode.json
+aweswitch apply zc-glm                # zcode: provider+models -> ~/.zcode/v2/config.json
+aweswitch apply                       # bulk: every OpenCode profile, then every zcode profile
+aweswitch apply --opencode            # OpenCode bulk only
+aweswitch apply --zcode               # zcode bulk only
 aweswitch apply cc-glm cx-glm oc-glm  # mixed: one per agent in a single call
 aweswitch apply cc-glm --force        # overwrite existing backup
-aweswitch config backup               # back up Claude settings on demand and print the backup path
+
+# Prune managed OpenCode / zcode providers left without a backing profile
+aweswitch apply --prune orphans             # bulk both agents, remove tracked providers no profile backs
+aweswitch apply --opencode --prune all      # also remove every provider no profile backs (hand-written included)
+aweswitch apply --opencode --prune old-a,old-b --dry-run  # preview named removals, write nothing
+
+# Back up and restore Claude settings
+aweswitch config backup               # back up on demand and print the backup path
 aweswitch config restore              # restore settings from default backup
 aweswitch config restore <file>       # restore settings from an explicit backup file
 ```
 
-Per-agent semantics:
+Per-agent write semantics:
 
 - **Claude** — env is merged into `~/.claude/settings.json`; unrelated settings are preserved, while a stale `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` alternative is removed when the new profile does not declare it. Restart the session or use `/model` to pick the new model.
 - **Codex** — the provider table and default model are written into `~/.codex/config.toml` (existing content like `mcp_servers` is preserved; first apply creates a `.toml.bak` backup). The API key stays in the environment: `env_key` points at the `${VAR_NAME}` the profile references, so codex reads the key from your shell.
@@ -289,32 +326,50 @@ Per-agent semantics:
 
 Claude and Codex keep a single active default, so at most one profile of each may be applied per call. OpenCode and zcode profiles coexist side by side, so several can be applied at once — a bare `aweswitch apply` bulk-syncs all of them (an agent with no profiles on one side is skipped with a note), and `--opencode` / `--zcode` narrow the bulk to one agent.
 
-#### When to use which mode
+</details>
 
-| Scenario | Mode |
-|---|---|
-| Run multiple profiles side by side | Launch |
-| Switch model with `/model` inside a session | Write |
-| Quickly try different APIs | Launch |
-| Set a persistent default profile | Write |
-| Push edited OpenCode profiles into opencode.json | Write (`aweswitch apply`) |
-| Push edited zcode profiles into zcode config.json | Write (`aweswitch apply`) |
+#### Launch profiles side by side
 
-> **Note:** The two modes do not interfere with each other. `aweswitch cc-glm` does not read or modify settings.json. `aweswitch apply cc-glm` does not affect running sessions.
+Launching is the one action that stays yours: an agent refuses to run `aweswitch <profile>` because it would nest an agent inside an agent. Each launch starts a fresh session with its own frozen env, so different terminals can run different profiles at the same time without rewriting global agent config.
 
-#### Config management
+Run it in your own terminal:
 
 ```bash
-aweswitch add                         # add a profile or official account interactively
-aweswitch list                        # list all profiles (api + account kinds)
-aweswitch show cc-glm                 # inspect one profile (secrets redacted)
-aweswitch config show                 # full config (secrets redacted)
-aweswitch config edit                 # open config in editor
+aweswitch cc-glm                      # launch Claude Code profile
+aweswitch cx-openai                   # launch Codex profile
+aweswitch oc-glm glm-5.2              # launch OpenCode profile with a specific model
+aweswitch cxo-work                    # launch Codex official account (see below)
 ```
 
-#### Official accounts — multiple Claude Code / Codex logins
+<details>
+<summary>Extra arguments and auto-bookmark</summary>
 
-Official-login accounts (OAuth) are saved as accounts and launched through a private per-account config dir, so several official accounts can run side by side without touching your global `~/.claude` or `~/.codex`:
+```bash
+# Pass extra arguments through to the agent
+aweswitch cc-glm --dangerously-skip-permissions
+aweswitch cx-openai --model o3
+aweswitch oc-glm glm-5.1 --mini
+
+# Auto-bookmark the session with aweshelf
+aweswitch cc-glm -c backend -t "Fix auth bug"
+```
+
+See [aweshelf Integration](#aweshelf-integration) for details.
+
+</details>
+
+#### Run multiple official accounts side by side
+
+Official-login accounts (OAuth) are saved as accounts and launched through a private per-account config dir, so several Claude Code or Codex logins run side by side without touching your global `~/.claude` or `~/.codex`. The OAuth login flow is interactive and runs in your terminal; importing the current login and syncing refreshed tokens back can go through the agent.
+
+You can tell your agent:
+
+```text
+Import the Claude account I am currently logged in with as an account named team-a.
+```
+
+<details>
+<summary>Account CLI commands and how they work</summary>
 
 ```bash
 aweswitch account login codex work    # run codex login and capture it as account "work"
@@ -333,27 +388,32 @@ How it works:
 - On macOS, Claude Code keeps its login in the Keychain by default; `account login` / launches force file-based credentials inside the account dir so accounts stay isolated. `account add` reads `~/.claude/.credentials.json` and only works when that file exists — prefer `account login` on macOS.
 - Accounts are launch-only: they don't participate in `apply` mode.
 
+</details>
+
+## Support Tools
+
+aweswitch is powered by three companion tools:
+
+- **[aweskill](https://github.com/Webioinfo01/aweskill)** — CLI skill package manager for AI agents. Handles skill installation, updates, and projection across 47+ coding agents.
+- **[aweshelf](https://github.com/Webioinfo01/aweshelf)** — Session bookmark manager for Claude Code and Codex. Bookmark, categorize, and restore sessions with aweswitch profiles.
+- **[awerouter](https://github.com/mugpeng/awerouter)** — Smart LLM router: routes agent requests to flash (cheap) or pro (strong) providers based on structural signals.
+
+aweswitch manages how you **launch** sessions; aweshelf manages how you **remember** them. Use `aweswitch -c` to auto-bookmark at launch, and `aweshelf resume` to restore with the same profile later. And awerouter pairs just as smoothly: point a profile's `BASE_URL` at the awerouter daemon (`ANTHROPIC_MODEL=auto`), and every session you launch goes through its flash/pro routing.
+
 ## Self-Update
 
 aweswitch checks PyPI for newer versions in the background on each run. If an update is available, a reminder is printed to stderr after the session ends.
 
-To update manually:
+<details>
+<summary>self-update commands</summary>
 
 ```bash
-aweswitch self-update
+aweswitch self-update                 # update manually
+aweswitch self-update --check         # check without updating
+export AWESWITCH_NO_UPDATE_CHECK=1    # disable the background check
 ```
 
-To check without updating:
-
-```bash
-aweswitch self-update --check
-```
-
-To disable the background check:
-
-```bash
-export AWESWITCH_NO_UPDATE_CHECK=1
-```
+</details>
 
 ## aweshelf Integration
 
@@ -382,7 +442,8 @@ Both options require aweshelf to be installed. If aweshelf is not found, they ar
 pip3 install aweshelf
 ```
 
-### What aweshelf does on its own
+<details>
+<summary>What aweshelf does on its own</summary>
 
 Even without aweswitch's `-c`/`-t` flags, aweshelf is useful independently:
 
@@ -394,6 +455,8 @@ aweshelf search "auth"          # full-text search across bookmarks
 aweshelf resume BOOKMARK_ID     # resume a saved session
 aweshelf browse                 # interactive TUI browser
 ```
+
+</details>
 
 See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full documentation.
 
@@ -410,6 +473,9 @@ See the [aweshelf README](https://github.com/Webioinfo01/aweshelf) for full docu
 - **No mutation of global agent config**, so already-open agent sessions keep working with the settings they started with
 - **Token references** through shell variables or `~/.claude/settings.json`
 - **Readable JSON** with `profiles.api` (env-based profiles) and `profiles.accounts` (official logins) grouping
+
+<details>
+<summary>More FAQ</summary>
 
 ### Where does aweswitch store profiles?
 
@@ -441,11 +507,13 @@ Resuming a session (`-s <session-id>`) restores the model that session last used
 
 ### Does aweswitch support official (OAuth) logins?
 
-Yes — Claude Code and Codex official accounts are saved via `aweswitch account login` (or `account add` to import the current login) and launched like profiles: `aweswitch <account-name>`. Each account runs in its own config dir (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`), so multiple official accounts work side by side. See [Official accounts](#official-accounts--multiple-claude-code--codex-logins).
+Yes — Claude Code and Codex official accounts are saved via `aweswitch account login` (or `account add` to import the current login) and launched like profiles: `aweswitch <account-name>`. Each account runs in its own config dir (`CODEX_HOME` / `CLAUDE_CONFIG_DIR`), so multiple official accounts work side by side. See [Official accounts](#run-multiple-official-accounts-side-by-side).
 
 ### Does aweswitch support Hermes?
 
 Not yet. The config format groups profiles by provider so future support can fit naturally.
+
+</details>
 
 ## Similar Tools
 
@@ -474,6 +542,9 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_OPUS_MODEL` are not configured by default. If you want Claude Code to use a lighter model for lightweight or background tasks, add `ANTHROPIC_DEFAULT_HAIKU_MODEL` to the profile:
 
+<details>
+<summary>Example Claude profile JSON</summary>
+
 ```json
 {
   "profiles": {
@@ -493,6 +564,8 @@ The key difference is that `aweswitch` avoids global config mutation. Many switc
 }
 ```
 
+</details>
+
 This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `mimo-v2.5` for lighter work.
 
 ### Codex Profiles
@@ -504,6 +577,9 @@ This keeps the main model on `mimo-v2.5-pro` while allowing Claude Code to use `
 - Extra arguments are passed through to the `codex` CLI.
 
 Note that Codex has no model-tier system like Claude's OPUS/SONNET/HAIKU slots — only one model is active at a time, and `OPENAI_MODEL` selects it per launch. In practice, Codex works best with OpenAI's own models — using third-party providers as a relay is the common use case, while switching to entirely different model providers tends to give a poor experience.
+
+<details>
+<summary>Example Codex profile JSON</summary>
 
 ```json
 {
@@ -521,6 +597,8 @@ Note that Codex has no model-tier system like Claude's OPUS/SONNET/HAIKU slots �
   }
 }
 ```
+
+</details>
 
 aweswitch does not write to `~/.codex/`. The base URL is passed via Codex's `-c` flag and the API key via environment variable. This keeps your global Codex config untouched.
 
@@ -544,6 +622,9 @@ aweswitch add
 - Extra arguments are passed through to the `opencode` CLI.
 - API key is written to `opencode.json` as `{env:VAR}` — the actual key is never stored on disk.
 
+<details>
+<summary>Example OpenCode profile JSON</summary>
+
 ```json
 {
   "profiles": {
@@ -565,6 +646,8 @@ aweswitch add
   }
 }
 ```
+
+</details>
 
 `OPENCODE_MODEL` formats (optional when `OPENCODE_RESPONSES_MODEL` is set — at least one of the two is required):
 

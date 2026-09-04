@@ -69,7 +69,7 @@ You may also run these commands (they modify files but are non-interactive):
 
 | User intent | Domain | Approach |
 |---|---|---|
-| "Add a new profile", "add a codex provider" | Add Profile | Edit config file. |
+| "Add a new profile", "add a codex provider" | Add Profile | Edit config file; scan the shell config for existing keys first and reuse them (see Add a Profile). |
 | "Add an opencode profile" | Add Profile | Edit config file; use `opencode` provider group. |
 | "Add a zcode profile" | Add Profile | Edit config file; use `zcode` provider group. |
 | "Save my official login", "添加官方帐号" | Add Account | Run `aweswitch account add <provider> <name>` (imports current login), or tell user to run `account login`. The interactive `aweswitch add` → `official` covers both paths for the user. |
@@ -202,10 +202,11 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 ### Add a Profile
 
 1. Read the config file
-2. Add the new profile under `profiles.api.<provider>` (`claude`, `codex`, `opencode`, or `zcode`)
-3. Use `${ENV_VAR_NAME}` for token values
-4. Ensure the name is unique across the whole `profiles` tree (api and accounts)
-5. Validate the JSON is well-formed
+2. Scan the user's shell config for API-key variables that already exist (see "Discover existing keys first" under Set Up Environment Variables)
+3. Add the new profile under `profiles.api.<provider>` (`claude`, `codex`, `opencode`, or `zcode`), using `${ENV_VAR_NAME}` for token values — reference the discovered variables directly so the profile works with zero further setup
+4. If the provider has no usable variable yet, ask the user for the key and persist it first (see Set Up Environment Variables)
+5. Ensure the name is unique across the whole `profiles` tree (api and accounts)
+6. Validate the JSON is well-formed
 
 #### OpenCode profile fields
 
@@ -251,6 +252,10 @@ Never hardcode secrets. Always use `${VAR_NAME}` references in the aweswitch con
 ### Set Up Environment Variables
 
 Token values reference shell variables that must be defined before launching a profile.
+
+#### Discover existing keys first
+
+Before asking the user for a key, scan what already exists: read `~/.zshrc`, `~/.bashrc`, and `~/.bash_profile` for `export <NAME>=...` lines where `NAME` looks like a key or token (`OPENAI_API_KEY`, `GLM_ANTHROPIC_AUTH_TOKEN`, or anything matching `*_API_KEY` / `*_AUTH_TOKEN` / `*_TOKEN`), read the Windows user environment for the same names, and check the current process env. Report variable **names** only — never print values. When adding a profile, reference the discovered variables with `${VAR_NAME}` directly; only a provider with no usable variable needs the user to supply a key, which you then persist as below.
 
 Where to persist them:
 
