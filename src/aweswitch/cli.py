@@ -197,6 +197,7 @@ def record_managed_opencode_provider(provider_name):
 # tracked separately; these package names alone are never used as proof.
 OPENCODE_NPM_CHAT = "@ai-sdk/openai-compatible"
 OPENCODE_NPM_RESPONSES = "@ai-sdk/openai"
+OPENCODE_REASONING_VARIANTS = ("low", "medium", "high", "xhigh", "max")
 
 
 def build_opencode_provider_entry(base_url, api_key, name="aweswitch"):
@@ -378,6 +379,32 @@ def _stamp_opencode_model_defaults(models_dict, model_ids):
     return changed
 
 
+def _stamp_opencode_reasoning_variants(models_dict, model_ids):
+    """Add default reasoning-effort variants to the named models.
+
+    Each of low/medium/high/xhigh/max is filled only when its key is absent;
+    hand-set variants always win, and existing variant keys are never removed.
+    Only iterates model_ids (the set this call manages). Returns True when
+    anything changed.
+    """
+    changed = False
+    for model_id in model_ids:
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        if "variants" not in entry:
+            entry["variants"] = {}
+            changed = True
+        variants = entry["variants"]
+        if not isinstance(variants, dict):
+            continue
+        for effort in OPENCODE_REASONING_VARIANTS:
+            if effort not in variants:
+                variants[effort] = {"reasoningEffort": effort}
+                changed = True
+    return changed
+
+
 def opencode_model_display_name(model_id, model_name):
     """Namespaced model IDs (producer/model, e.g. hub/x) display as the full ID.
 
@@ -449,6 +476,8 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
                 status = "updated"
         if _stamp_opencode_model_defaults(models_dict, models):
             status = "updated"
+        if _stamp_opencode_reasoning_variants(models_dict, models):
+            status = "updated"
         if _stamp_opencode_responses_models(models_dict, models, responses_models):
             status = "updated"
         if prune:
@@ -464,6 +493,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
             for model_id, model_name in models.items()
         }
         _stamp_opencode_model_defaults(entry["models"], models)
+        _stamp_opencode_reasoning_variants(entry["models"], models)
         _stamp_opencode_responses_models(entry["models"], models, responses_models)
         providers[provider_name] = entry
         write_opencode_config(oc_config)

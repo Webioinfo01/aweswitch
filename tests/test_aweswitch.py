@@ -1267,6 +1267,10 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["models"]["doubao-1"]["attachment"], True)
             self.assertEqual(prov["models"]["doubao-1"]["modalities"],
                              {"input": ["text", "image"], "output": ["text"]})
+            self.assertEqual(prov["models"]["doubao-1"]["variants"], {
+                effort: {"reasoningEffort": effort}
+                for effort in ("low", "medium", "high", "xhigh", "max")
+            })
             managed = json.loads(
                 oc_path.with_name(".aweswitch-managed-providers.json").read_text()
             )
@@ -1299,16 +1303,67 @@ class AweSwitchTests(unittest.TestCase):
 
             self.assertEqual(status, "updated")
             models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            variants = {
+                effort: {"reasoningEffort": effort}
+                for effort in ("low", "medium", "high", "xhigh", "max")
+            }
             self.assertEqual(models["glm-5.1"], {
                 "name": "glm-5.1",
                 "attachment": True,
                 "modalities": {"input": ["text", "image"], "output": ["text"]},
+                "variants": variants,
             })
             self.assertEqual(models["glm-text"], {
                 "name": "GLM Text",
                 "attachment": False,
                 "modalities": {"input": ["text"], "output": ["text"]},
+                "variants": variants,
             })
+
+    def test_ensure_opencode_provider_backfills_reasoning_variants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "oc-glm",
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {"glm-5.1": {"name": "glm-5.1", "variants": {
+                        "low": {"reasoningEffort": "minimal"},
+                        "turbo": {"reasoningEffort": "high"},
+                    }}}
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider(
+                    "https://zhipu.com/v1", "{env:GLM_KEY}", "oc-glm",
+                    {"glm-5.1": "glm-5.1"})
+
+            self.assertEqual(status, "updated")
+            variants = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]["glm-5.1"]["variants"]
+            self.assertEqual(variants["low"], {"reasoningEffort": "minimal"})
+            self.assertEqual(variants["turbo"], {"reasoningEffort": "high"})
+            self.assertEqual(set(variants), {"low", "medium", "high", "xhigh", "max", "turbo"})
+            for effort in ("medium", "high", "xhigh", "max"):
+                self.assertEqual(variants[effort], {"reasoningEffort": effort})
+
+    def test_ensure_opencode_provider_variants_only_touch_managed_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            foreign = {"name": "foreign", "variants": {"custom": {"reasoningEffort": "high"}}}
+            oc_path.write_text(json.dumps({"provider": {"oc-glm": {
+                "name": "oc-glm",
+                "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}"},
+                "models": {"managed": {"name": "managed"}, "foreign": foreign},
+            }}}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider(
+                    "https://x/v1", "{env:KEY}", "oc-glm", {"managed": "managed"})
+
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertIn("variants", models["managed"])
+            self.assertEqual(models["foreign"], foreign)
 
     def test_ensure_opencode_provider_adds_model_to_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1333,7 +1388,11 @@ class AweSwitchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             declared = {"name": "glm-5.1", "attachment": True,
-                        "modalities": {"input": ["text", "image"], "output": ["text"]}}
+                        "modalities": {"input": ["text", "image"], "output": ["text"]},
+                        "variants": {
+                            effort: {"reasoningEffort": effort}
+                            for effort in ("low", "medium", "high", "xhigh", "max")
+                        }}
             original = {"provider": {
                 "oc-glm": {
                     "name": "oc-glm",
@@ -1416,6 +1475,10 @@ class AweSwitchTests(unittest.TestCase):
                 "name": "GLM-5.1",
                 "attachment": True,
                 "modalities": {"input": ["text", "image"], "output": ["text"]},
+                "variants": {
+                    effort: {"reasoningEffort": effort}
+                    for effort in ("low", "medium", "high", "xhigh", "max")
+                },
             })
             self.assertEqual(prov["models"]["keep"], {"name": "Keep"})
 
@@ -1461,7 +1524,11 @@ class AweSwitchTests(unittest.TestCase):
                     "npm": "@ai-sdk/anthropic",
                     "options": {"baseURL": "https://x/v1", "apiKey": "{env:KEY}"},
                     "models": {"m-1": {"name": "m-1", "attachment": True,
-                                       "modalities": {"input": ["text", "image"], "output": ["text"]}}},
+                                       "modalities": {"input": ["text", "image"], "output": ["text"]},
+                                       "variants": {
+                                           effort: {"reasoningEffort": effort}
+                                           for effort in ("low", "medium", "high", "xhigh", "max")
+                                       }}},
                 }
             }}))
 
@@ -1568,7 +1635,11 @@ class AweSwitchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             declared = {"attachment": True,
-                        "modalities": {"input": ["text", "image"], "output": ["text"]}}
+                        "modalities": {"input": ["text", "image"], "output": ["text"]},
+                        "variants": {
+                            effort: {"reasoningEffort": effort}
+                            for effort in ("low", "medium", "high", "xhigh", "max")
+                        }}
             oc_path.write_text(json.dumps({"provider": {
                 "oc-mix": {
                     "name": "oc-mix",

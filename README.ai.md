@@ -314,7 +314,7 @@ Write the profile into the agent's own config so it becomes the persistent defau
 
 - Claude: env -> `~/.claude/settings.json`; switch models within a session via `/model`
 - Codex: provider + model -> `~/.codex/config.toml` (first apply creates a `.toml.bak` backup; the API key stays in the environment via `env_key`)
-- OpenCode: provider entry + full model list -> `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing)
+- OpenCode: provider entry + full model list -> `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); every managed model gets `low` / `medium` / `high` / `xhigh` / `max` reasoning-strength variants, switchable with `ctrl+t` (if OpenAI's official Responses endpoint rejects `max`, switch back to a valid variant)
 
 ```bash
 aweswitch apply <profile-name>      # one profile (any provider)

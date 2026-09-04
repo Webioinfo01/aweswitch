@@ -1,5 +1,22 @@
 # change log
 
+## v0.6.1
+
+OpenCode models managed by aweswitch now receive fill-only `low`, `medium`, `high`, `xhigh`, and `max` reasoning-strength variants. Switch variants with `ctrl+t` in OpenCode; hand-written variants remain unchanged. OpenAI's official Responses endpoint may reject `max`, in which case switch back to a valid variant.
+
+### Fill-only reasoning-strength variants for OpenCode models
+
+Every managed OpenCode model gets `low`, `medium`, `high`, `xhigh`, and `max` reasoning-effort variants by default. Each variant is stamped as `{"reasoningEffort": effort}` and is fill-only: existing variant keys are never removed or overridden, so hand-written variants always win. The variants appear in OpenCode's model picker and can be switched with `ctrl+t`. OpenAI's official Responses endpoint may reject `max`; if that happens, switch back to a valid variant.
+
+<details><summary>Highlights</summary>
+
+- Every managed OpenCode model receives `low` / `medium` / `high` / `xhigh` / `max` reasoning-strength variants
+- Fill-only: existing variant keys are never removed or overridden
+- Variants switchable with `ctrl+t` in OpenCode
+- OpenAI Responses endpoint may reject `max`; switch back to a valid variant
+
+</details>
+
 ## v0.6.0
 
 A bare `aweswitch apply` used to refuse with "nothing to apply" and demand profile names or a bulk flag. It now defaults to the both-agents bulk sync: every OpenCode profile, then every zcode profile.
