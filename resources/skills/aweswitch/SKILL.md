@@ -28,7 +28,7 @@ Writes profiles into each agent's own config as the persistent default:
 - OpenCode → provider entry + full model list upserted into `~/.config/opencode/opencode.json` (overwritten if the provider exists, added if missing); `aweswitch apply --opencode` does every OpenCode profile. Managed provider keys are recorded in `.aweswitch-managed-providers.json`; after renaming/deleting a tracked profile, apply warns about its leftover provider entry (old sessions stay pinned to those model IDs), and `aweswitch apply --opencode --prune orphans` removes it. Ownership is never inferred from provider shape, so hand-written entries are not pruned. Every managed model gets `"modalities": {"input": ["text", "image"], "output": ["text"]}` + `"attachment": true` unless the entry already declares them — opencode defaults these capabilities to false when absent, which hides the image-paste/attach affordances; a text-only model that receives an image anyway errors visibly upstream. To keep a model text-only, hand-set `input: ["text"]`.
 
 - zcode → provider entry + full model list upserted into `~/.zcode/v2/config.json` (apply-only; zcode is a desktop GUI app); `aweswitch apply --zcode` does every zcode profile. API keys are written as `{env:VAR_NAME}` references when the profile uses `${VAR_NAME}`. zcode supports one API format per provider: a profile takes `ZCODE_CHAT_MODEL` (provider `kind: openai-compatible`) or `ZCODE_RESPONSES_MODEL` (provider `kind: openai`), never both. Managed provider keys are recorded in `.aweswitch-managed-providers.json`; orphan entries warn by default and are removed only with `--prune` (`orphans` / `all` / names).
-At most one Claude and one Codex profile per call (each holds a single active default); OpenCode and zcode profiles coexist and accept bulk.
+At most one Claude and one Codex profile per call (each holds a single active default); OpenCode and zcode profiles coexist and accept bulk — a bare `aweswitch apply` bulk-syncs every OpenCode profile then every zcode profile (an agent with no profiles on one side is skipped with a note), and `--opencode` / `--zcode` narrow the bulk to one agent.
 
 ### When to recommend which
 
@@ -37,7 +37,7 @@ At most one Claude and one Codex profile per call (each holds a single active de
 | Switch models within a session via `/model` | Apply | Run `aweswitch apply <cc-profile>` directly |
 | A persistent default profile | Apply | Run `aweswitch apply <profile>` directly |
 | Push edited opencode profiles into opencode.json | Apply | Run `aweswitch apply [oc-profiles...]` directly |
-| Push edited zcode profiles into zcode config.json | Apply | Run `aweswitch apply [zc-profiles...]` directly |
+| Push edited zcode profiles into zcode config.json | Apply | Run `aweswitch apply [zc-profiles...]` or bare `aweswitch apply` (opencode+zcode bulk) directly |
 | Run multiple profiles side by side | Launch | Tell user to run in their terminal |
 | Try a different API quickly | Launch | Tell user to run in their terminal |
 | Use OpenCode with a profile in a fresh session | Launch | Tell user to run in their terminal |
@@ -59,7 +59,7 @@ You may run these read-only commands:
 - `aweswitch config show`
 
 You may also run these commands (they modify files but are non-interactive):
-- `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json / zcode config.json; `--opencode` or `--zcode` = all profiles for that provider)
+- `aweswitch apply [profiles...]` — write profiles into each agent's own config (claude settings.json / codex config.toml / opencode opencode.json / zcode config.json; a bare `apply` bulk-syncs every opencode+zcode profile, `--opencode` or `--zcode` narrows the bulk to that provider)
 - `aweswitch config restore [file]` — restore Claude settings from the default or an explicit backup
 - `setx VAR_NAME "value"` (Windows only) — persist a user environment variable so both cmd and PowerShell see it
 
@@ -88,8 +88,8 @@ You may also run these commands (they modify files but are non-interactive):
 | "Launch codex profile" | Launch | Tell user to run `aweswitch cx-<name> [model]` in their terminal. |
 | "Use /model to switch", "在session里切换模型" | Apply | `aweswitch apply <cc-profile>` (Claude). |
 | "Apply profile X to settings", "写入settings" | Apply | `aweswitch apply <profile>` (per-provider: claude→settings.json, codex→config.toml, opencode→opencode.json). |
-| "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (`--opencode` = all). |
-| "Sync zcode profiles", "同步zcode配置" | Apply zcode | Run `aweswitch apply [zc-profiles...]` after editing zcode profiles (`--zcode` = all). |
+| "Sync opencode profiles", "同步opencode配置" | Apply OpenCode | Run `aweswitch apply [oc-profiles...]` after editing opencode profiles (`--opencode` = opencode bulk; bare `apply` = opencode+zcode bulk). |
+| "Sync zcode profiles", "同步zcode配置" | Apply zcode | Run `aweswitch apply [zc-profiles...]` after editing zcode profiles (`--zcode` = zcode bulk; bare `apply` = opencode+zcode bulk). |
 | "Old session errors after profile rename", "改名的旧session报错" | Prune Orphan | Run `aweswitch apply --opencode --prune orphans` to drop the leftover provider; tell user to switch models inside old sessions (Tab). |
 | "Restore settings from backup", "恢复settings" | Restore | `aweswitch config restore [file]` |
 | "Run two profiles at the same time" | Launch | Explain: use Launch mode, different terminals. Apply mode can't do this. |

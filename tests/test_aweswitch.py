@@ -2121,7 +2121,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertNotIn("kind", prov["models"]["chat1"])
             self.assertNotIn("kind", prov["models"]["chat2"])
 
-    def test_sync_zcode_profiles_keeps_api_key_as_env_reference(self):
+    def test_sync_zcode_profiles_expands_api_key_reference(self):
         config = {
             "profiles": {
                 "api": {
@@ -2146,8 +2146,7 @@ class AweSwitchTests(unittest.TestCase):
                 aweswitch.sync_zcode_profiles(config)
 
             provider = json.loads(zc_path.read_text())["provider"]["zc-secret"]
-            self.assertEqual(provider["options"]["apiKey"], "{env:ZCODE_TOKEN}")
-            self.assertNotIn("super-secret", zc_path.read_text())
+            self.assertEqual(provider["options"]["apiKey"], "super-secret")
 
     def test_sync_zcode_rejects_non_zcode_profile(self):
         config = self._make_apply_config()
@@ -2590,6 +2589,58 @@ class AweSwitchTests(unittest.TestCase):
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("no provider 'nope'", result.output)
+            self.assertEqual(oc_path.read_text(), oc_before)
+            self.assertEqual(zc_path.read_text(), zc_before)
+
+    def test_apply_without_arguments_bulk_applies_both_agents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path, zc_path, env = self._mixed_apply_env(tmp)
+
+            result = CliRunner().invoke(aweswitch.cli, ["apply"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("oc-test: created (1 models)", result.output)
+            self.assertIn("zc-test: created (1 models)", result.output)
+            self.assertEqual(sorted(json.loads(oc_path.read_text())["provider"]), ["oc-test"])
+            self.assertEqual(sorted(json.loads(zc_path.read_text())["provider"]), ["zc-test"])
+
+    def test_apply_both_flags_run_both_agents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path, zc_path, env = self._mixed_apply_env(tmp)
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--opencode", "--zcode"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(sorted(json.loads(oc_path.read_text())["provider"]), ["oc-test"])
+            self.assertEqual(sorted(json.loads(zc_path.read_text())["provider"]), ["zc-test"])
+
+    def test_apply_bare_prune_name_resolves_in_either_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path, zc_path, env = self._mixed_apply_env(
+                tmp, oc_providers={"stale-oc": {"name": "stale-oc", "models": {}}})
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--prune", "stale-oc"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned provider 'stale-oc'", result.output)
+            self.assertNotIn("stale-oc", json.loads(oc_path.read_text())["provider"])
+            self.assertEqual(sorted(json.loads(zc_path.read_text())["provider"]), ["zc-test"])
+
+    def test_apply_bare_dry_run_previews_opencode_and_notes_zcode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path, zc_path, env = self._mixed_apply_env(
+                tmp, oc_providers={"stale-oc": {"name": "stale-oc", "models": {}}})
+            oc_before, zc_before = oc_path.read_text(), zc_path.read_text()
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--dry-run", "--prune", "stale-oc"], env=env)
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Dry run: nothing will be written.", result.output)
+            self.assertIn("Would prune provider 'stale-oc'", result.output)
+            self.assertIn("no zcode prune preview", result.output)
             self.assertEqual(oc_path.read_text(), oc_before)
             self.assertEqual(zc_path.read_text(), zc_before)
 
@@ -3329,11 +3380,31 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn("oc-test: created (2 models)", result.output)
             self.assertIn("Synced to", result.output)
 
-    def test_apply_without_arguments_or_flag_errors_with_hint(self):
+    def test_apply_without_arguments_applies_opencode_and_skips_empty_zcode(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result, oc_path = self._apply(["apply"], self._make_apply_config(), tmp)
+            zc_path = Path(tmp) / "zcode.json"
+            result, oc_path = self._apply(
+                ["apply"], self._make_apply_config(), tmp,
+                extra_env={"ZCODE_CONFIG": str(zc_path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("oc-test: created (2 models)", result.output)
+            self.assertIn("Synced to", result.output)
+            self.assertIn("no zcode profiles found, skipping", result.output)
+            self.assertIn("oc-test", json.loads(oc_path.read_text())["provider"])
+            # the skipped side was never written
+            self.assertFalse(zc_path.exists())
+
+    def test_apply_without_arguments_and_no_bulk_profiles_errors_with_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_apply_config()
+            del config["profiles"]["api"]["opencode"]
+            result, oc_path = self._apply(
+                ["apply"], config, tmp,
+                extra_env={"ZCODE_CONFIG": str(Path(tmp) / "zcode.json")})
 
             self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("nothing to apply", result.output)
             self.assertIn("--opencode", result.output)
             # nothing was written
             self.assertEqual(json.loads(oc_path.read_text()), {"provider": {}})

@@ -237,23 +237,26 @@ def _opencode_api_key_ref(raw):
 
 
 def _zcode_api_key_ref(raw):
-    """Return zcode's env-ref syntax without persisting an expanded secret."""
+    """Expand a ${VAR} API key for zcode — its config has no env-ref syntax.
+
+    zcode stores provider keys as plain strings, so the reference is resolved
+    from the shell env at apply time and the resolved key lands in the config.
+    """
     if not isinstance(raw, str):
         click.echo(
-            "  tip: ZCODE_API_KEY is not a string — consider ${VAR_NAME} to keep the key out of the config file\n"
+            "  tip: ZCODE_API_KEY is not a string — use a plain value or a ${VAR_NAME} reference\n"
             "  Example: \"ZCODE_API_KEY\": \"${MY_API_KEY}\"",
             err=True,
         )
         return str(raw)
-    m = ENV_REF_RE.fullmatch(raw)
-    if not m:
-        click.echo(
-            "  tip: ZCODE_API_KEY is a plain value — consider ${VAR_NAME} to keep the key out of the config file\n"
-            "  Example: \"ZCODE_API_KEY\": \"${MY_API_KEY}\"",
-            err=True,
-        )
-        return raw
-    return f"{{env:{m.group(1)}}}"
+    if ENV_REF_RE.fullmatch(raw):
+        return expand_value(raw, dict(os.environ))
+    click.echo(
+        "  tip: ZCODE_API_KEY is a plain value — consider ${VAR_NAME} so the key lives in your\n"
+        "  shell config instead of the aweswitch config",
+        err=True,
+    )
+    return raw
 
 
 def _parse_responses_models(raw, profile_name, key):
@@ -2038,7 +2041,7 @@ class ProfileGroup(click.Group):
     cls=ProfileGroup,
     name="aweswitch",
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode, zcode. Official accounts\n(claude/codex OAuth logins) are managed with `aweswitch account` and launch\nthrough private per-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json / zcode config.json); use --opencode or --zcode for bulk sync.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
+    help="Agent profile switcher for launching isolated runtime configs.\n\nSupported providers: claude, codex, opencode, zcode. Official accounts\n(claude/codex OAuth logins) are managed with `aweswitch account` and launch\nthrough private per-account config dirs.\n\nLaunch: aweswitch <profile> [-c CATEGORY] [-t TITLE] [extra args...]\n\nApply: aweswitch apply [profiles...] writes persistent defaults into each\nagent's own config (claude settings.json / codex config.toml / opencode\nopencode.json / zcode config.json). A bare `aweswitch apply` bulk-syncs\nevery opencode and zcode profile; --opencode / --zcode narrow it to one.\n\nBookmark (requires aweshelf): -c tags the session with a category and -t sets\na custom title. A background process auto-bookmarks the session once it starts.\nInstall aweshelf: pip3 install aweshelf. If aweshelf is not installed,\n-c and -t are ignored with a warning.",
 )
 @click.version_option(__version__, "-v", "--version", message="%(version)s")
 def cli():
@@ -2449,6 +2452,7 @@ def preflight_apply(config, resolved):
                 profile_env.get("ZCODE_RESPONSES_MODEL"), name,
             )
             expand_value(base_url, dict(os.environ))
+            expand_value(api_key, dict(os.environ))
             has_zcode = True
 
     if has_opencode:
@@ -2488,66 +2492,94 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
 
     Claude and Codex keep a single active default, so at most one profile of
     each may be applied per call; OpenCode and zcode profiles coexist, so
-    several may be applied at once — or all of them via --opencode / --zcode.
+    several may be applied at once — or every one of them in one bulk sync:
+    a bare `aweswitch apply` does every OpenCode profile then every zcode
+    profile, and --opencode / --zcode narrow the bulk to one agent.
 
     OpenCode/zcode prunes are opt-in via --prune: 'orphans' removes tracked
     providers no profile backs, 'all' removes every unbacked provider
     (hand-written ones included), or a name list removes exactly those;
-    --dry-run previews the plan. A prune never leaves the default model
-    pointing at a deleted provider.
+    --dry-run previews the plan (OpenCode side only). A prune never leaves
+    the default model pointing at a deleted provider.
     """
     config = load_config(config_path())
     names = list(profiles)
 
-    flag_count = sum(1 for f in [opencode, zcode] if f)
-    if flag_count > 1:
-        die("pick one: --opencode or --zcode (they are mutually exclusive)")
-    if flag_count == 1 and names:
+    # A bare `apply` defaults to the both-agents bulk sync: every OpenCode
+    # profile, then every zcode profile.
+    if not names and not opencode and not zcode:
+        opencode = zcode = True
+    if (opencode or zcode) and names:
         die("pick one: --opencode/--zcode (bulk) or explicit profile names, not both")
-    if not names and flag_count == 0:
-        die(
-            "nothing to apply\n"
-            "run: aweswitch apply <profile> ... | --opencode | --zcode"
-        )
     prune = _parse_prune(prune_raw)
     prune_requested = prune is not None
     if dry_run and not prune_requested:
         die("--dry-run previews pruning; add --prune orphans|all|NAME,...")
-    if dry_run and zcode:
+    if dry_run and zcode and not opencode:
         die("--dry-run previews OpenCode pruning only (this run has no OpenCode part)")
 
-    if opencode:
-        targets = plan_opencode_prune(config, prune)
-        if dry_run:
-            specs = build_opencode_specs(config)
-            if not specs:
-                die("no opencode profiles found\nrun: aweswitch apply <profile>")
-            preview_opencode_prune(specs, targets, config)
-            return
-        results = sync_opencode_profiles(config)
-        if not results:
-            die("no opencode profiles found\nrun: aweswitch apply <profile>")
-        for name, status, model_count in results:
-            click.echo(f"{name}: {status} ({model_count} models)")
-        click.echo(f"Synced to {opencode_config_path()}")
-        if targets:
-            execute_opencode_prune(config, targets)
-        elif not prune_requested:
-            warn_opencode_orphans(config)
-        return
+    if opencode or zcode:
+        # Bulk sync. Plan every prune before the first write so a bad --prune
+        # name dies with nothing on disk changed; in a both-agents run a name
+        # may live in either config, so each plan skips names the other one
+        # owns. An empty side dies in a one-agent run but is skipped with a
+        # note in a both-agents run; nothing at all on either side dies here.
+        both = opencode and zcode
+        oc_profiles = kind_group(config, "api").get("opencode", {})
+        zc_profiles = kind_group(config, "api").get("zcode", {})
+        if both and not oc_profiles and not zc_profiles:
+            die(
+                "nothing to apply\n"
+                "run: aweswitch apply <profile> ... | --opencode | --zcode"
+            )
+        oc_targets = {}
+        zc_targets = {}
+        if opencode:
+            oc_targets = plan_opencode_prune(
+                config, prune,
+                elsewhere=load_zcode_config()["provider"] if zcode else None)
+        if zcode:
+            zc_targets = plan_zcode_prune(
+                config, prune,
+                elsewhere=load_opencode_config()["provider"] if opencode else None)
 
-    if zcode:
-        targets = plan_zcode_prune(config, prune)
-        results = sync_zcode_profiles(config)
-        if not results:
-            die("no zcode profiles found\nrun: aweswitch apply <profile>")
-        for name, status, model_count in results:
-            click.echo(f"{name}: {status} ({model_count} models)")
-        click.echo(f"Synced to {zcode_config_path()}")
-        if targets:
-            execute_zcode_prune(targets)
-        elif not prune_requested:
-            warn_zcode_orphans(config)
+        if opencode:
+            if not oc_profiles:
+                if not both:
+                    die("no opencode profiles found\nrun: aweswitch apply <profile>")
+                click.echo("no opencode profiles found, skipping")
+            elif dry_run:
+                preview_opencode_prune(build_opencode_specs(config), oc_targets, config)
+            else:
+                for name, status, model_count in sync_opencode_profiles(config):
+                    click.echo(f"{name}: {status} ({model_count} models)")
+                click.echo(f"Synced to {opencode_config_path()}")
+                if oc_targets:
+                    execute_opencode_prune(config, oc_targets)
+                elif not prune_requested:
+                    warn_opencode_orphans(config)
+
+        if zcode:
+            if dry_run:
+                # Reached only in a both-agents run (a lone --zcode --dry-run
+                # died above): the prune plan was validated, but the preview
+                # renderer is OpenCode-only.
+                if zc_profiles:
+                    click.echo("no zcode prune preview; run without --dry-run to prune zcode")
+                else:
+                    click.echo("no zcode profiles found, skipping")
+            elif not zc_profiles:
+                if not both:
+                    die("no zcode profiles found\nrun: aweswitch apply <profile>")
+                click.echo("no zcode profiles found, skipping")
+            else:
+                for name, status, model_count in sync_zcode_profiles(config):
+                    click.echo(f"{name}: {status} ({model_count} models)")
+                click.echo(f"Synced to {zcode_config_path()}")
+                if zc_targets:
+                    execute_zcode_prune(zc_targets)
+                elif not prune_requested:
+                    warn_zcode_orphans(config)
         return
 
     resolved = [(name, *profile_for(config, name)) for name in names]

@@ -304,12 +304,13 @@ Write the profile into the agent's own config so it becomes the persistent defau
 
 ```bash
 aweswitch apply <profile-name>      # one profile (any provider)
-aweswitch apply --opencode          # every OpenCode profile at once
+aweswitch apply                     # bulk: every OpenCode profile, then every zcode profile
+aweswitch apply --opencode          # OpenCode bulk only (--zcode = zcode bulk only)
 aweswitch apply --opencode --prune all       # also remove OpenCode providers no profile backs (hand-written included)
 aweswitch apply --opencode --prune a,b --dry-run  # preview named removals, write nothing
 ```
 
-Claude and Codex keep a single active default (one profile of each per call); OpenCode profiles coexist and accept bulk. A prune repoints `opencode.json`'s top-level `model` when the provider it references was deleted, so the default never dangles.
+Claude and Codex keep a single active default (one profile of each per call); OpenCode and zcode profiles coexist and accept bulk — a bare `aweswitch apply` syncs both agents (an empty side is skipped with a note). A prune repoints `opencode.json`'s top-level `model` when the provider it references was deleted, so the default never dangles.
 
 Then restart the session (Claude: or use `/model`) to pick the new model.
 
@@ -357,7 +358,7 @@ aweswitch <profile> [extra args]  # pass extra args through to the agent
 Apply commands (safe to run in agent):
 
 ```bash
-aweswitch apply [profiles...]      # write into the agent's own config (all providers; --opencode = all opencode profiles)
+aweswitch apply [profiles...]      # write into the agent's own config (all providers; bare apply = bulk opencode+zcode)
 aweswitch config backup            # back up Claude settings.json on demand
 aweswitch config restore [file]    # restore settings.json from default or explicit backup
 ```

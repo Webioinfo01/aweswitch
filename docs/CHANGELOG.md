@@ -1,5 +1,22 @@
 # change log
 
+## v0.5.10
+
+A bare `aweswitch apply` used to refuse with "nothing to apply" and demand profile names or a bulk flag. It now defaults to the both-agents bulk sync: every OpenCode profile, then every zcode profile.
+
+### Bare `apply` bulk-syncs OpenCode and zcode
+
+`aweswitch apply` with no arguments and no flags syncs all OpenCode profiles into `opencode.json` and all zcode profiles into zcode's `config.json` in one run. An agent with no profiles on one side is skipped with a note instead of aborting the run; only a config with no OpenCode and no zcode profiles at all keeps the "nothing to apply" error. `--opencode` / `--zcode` still narrow the bulk to one agent, and giving both flags is now equivalent to the bare default (the flags are no longer mutually exclusive). `--prune` applies to both sides of a both-agents run, with a name list resolving across the two configs — a leftover only ever lives in one of them, so a mixed run can name it once, and every prune is planned before the first write. `--dry-run` still previews the OpenCode side only; the zcode side prints a note that it has no preview.
+
+<details><summary>Highlights</summary>
+
+- Bare `aweswitch apply` = OpenCode bulk then zcode bulk; empty side skipped with a note
+- `--opencode --zcode` accepted (same as the bare default); flag + explicit names still rejected
+- `--prune` name lists resolve across both agent configs in one run
+- Docs, READMEs and the aweswitch skill updated for the new default
+
+</details>
+
 ## v0.5.9
 
 v0.5.8 wrote per-model `kind` keys and deleted the provider-level kind — but zcode ignores a model-level kind entirely: the desktop app resolves one transport kind per provider (from the provider's own `kind` field), so every model in a mixed profile actually went out over the same protocol. The kind is now provider-level again, set by which model field the profile declares.

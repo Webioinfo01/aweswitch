@@ -32,7 +32,7 @@
 `aweswitch` 从 `~/.config/aweswitch/config.json` 读取 profile，提供两种模式：
 
 - **启动模式**（`aweswitch <profile>`）— 启动一个带独立 env 的新 agent 会话。每个会话有自己的 API endpoint、token 和模型。不同终端可以同时跑不同 profile。env 在启动时冻结。
-- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`，zcode provider+模型写入 `~/.zcode/v2/config.json`。`aweswitch apply --opencode` / `aweswitch apply --zcode` 可一次应用对应 agent 的全部 profile。Claude 和 Codex 同一时间只有一个活跃默认。
+- **写入模式**（`aweswitch apply <profile>`）— 把 profile 写入 agent 自己的配置成为持久默认：Claude env 写入 `~/.claude/settings.json`，Codex provider+model 写入 `~/.codex/config.toml`，OpenCode provider+模型列表写入 `~/.config/opencode/opencode.json`，zcode provider+模型写入 `~/.zcode/v2/config.json`。裸 `aweswitch apply` 会批量同步全部 OpenCode 和 zcode profile；`--opencode` / `--zcode` 把批量收窄到单个 agent。Claude 和 Codex 同一时间只有一个活跃默认。
 
 它刻意保持小而直接。目前支持 Claude Code、Codex、OpenCode 和 zcode profile，以及官方帐号登录（Claude Code / Codex OAuth）。
 
@@ -234,9 +234,10 @@ aweswitch apply cc-glm                # Claude：env -> ~/.claude/settings.json
 aweswitch apply cx-glm                # Codex：provider+model -> ~/.codex/config.toml
   aweswitch apply oc-glm                # OpenCode：provider+模型列表 -> ~/.config/opencode/opencode.json
   aweswitch apply zc-glm                # zcode：provider+模型列表 -> ~/.zcode/v2/config.json
-  aweswitch apply --opencode            # 一次应用全部 OpenCode profile（只有 OpenCode 支持批量）
-  aweswitch apply --zcode               # 一次应用全部 zcode profile
-aweswitch apply --opencode --prune orphans   # 全量应用，并清理没有 profile 对应的已登记 provider
+  aweswitch apply                       # 批量：先同步全部 OpenCode profile，再同步全部 zcode profile
+  aweswitch apply --opencode            # 只批量 OpenCode
+  aweswitch apply --zcode               # 只批量 zcode
+aweswitch apply --prune orphans              # 批量同步两个 agent，并清理没有 profile 对应的已登记 provider
 aweswitch apply --opencode --prune all       # 再清理所有没有 profile 对应的 provider（含手写条目）
 aweswitch apply --opencode --prune old-a,old-b --dry-run  # 预览点名清理，不写入任何文件
 aweswitch apply cc-glm cx-glm oc-glm  # 混合：一条命令三个 agent 各写一个
@@ -250,10 +251,10 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 
 - **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
-- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune orphans` 可将其删除。该模式下的所有权从不根据配置形状猜测，手写条目默认不动，除非显式选择：`--prune old-a,old-b` 只删除点名条目（必须存在、且不能有同名 profile 背书）；`--prune all` 删除所有没有 profile 对应的 provider——即完全对齐，手写条目也会被删；`--prune orphans` 只清理已登记的残留条目；config 里一个 OpenCode profile 都没有时会拒绝执行。任何 prune 都不会让文件顶层 `model` 悬空：若其指向的 provider 被删，会重指到按字母序第一个 profile 的第一个配置模型。`--dry-run` 可零写入预览 sync 与清理计划。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
-- **zcode** — provider 条目（base URL、环境变量 key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.zcode/v2/config.json`。zcode 的一个 provider 只支持一种 API 格式，因此 profile 只能声明 `ZCODE_CHAT_MODEL`（chat completions，provider `kind: openai-compatible`）**或** `ZCODE_RESPONSES_MODEL`（Responses API，provider `kind: openai`），二者互斥——需要两种格式就拆成两个 profile。zcode 是桌面 GUI 应用，因此 zcode profile 只支持 apply，不支持启动。`--zcode` 会同步全部 zcode profile；aweswitch 用 `.aweswitch-managed-providers.json` 登记自己管理的 provider，默认只警告孤儿条目，显式加 `--prune`（`orphans` / `all` / 点名）才清理。
+- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。启动 profile 只会增量写入当次模型；apply 一次性全量推送。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune orphans` 可将其删除。该模式下的所有权从不根据配置形状猜测，手写条目默认不动，除非显式选择：`--prune old-a,old-b` 只删除点名条目（必须存在、且不能有同名 profile 背书）；`--prune all` 删除所有没有 profile 对应的 provider——即完全对齐，手写条目也会被删；`--prune orphans` 只清理已登记的残留条目；config 里一个 OpenCode profile 都没有时会拒绝执行。任何 prune 都不会让文件顶层 `model` 悬空：若其指向的 provider 被删，会重指到按字母序第一个 profile 的第一个配置模型。`--dry-run` 可零写入预览 sync 与清理计划（双 agent 批量时只预览 OpenCode 侧，zcode 侧清理没有预览）。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
+- **zcode** — provider 条目（base URL、环境变量 key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.zcode/v2/config.json`。zcode 的一个 provider 只支持一种 API 格式，因此 profile 只能声明 `ZCODE_CHAT_MODEL`（chat completions，provider `kind: openai-compatible`）**或** `ZCODE_RESPONSES_MODEL`（Responses API，provider `kind: openai`），二者互斥——需要两种格式就拆成两个 profile。zcode 是桌面 GUI 应用，因此 zcode profile 只支持 apply，不支持启动。`--zcode` 会同步全部 zcode profile；aweswitch 用 `.aweswitch-managed-providers.json` 登记自己管理的 provider，默认只警告孤儿条目，显式加 `--prune`（`orphans` / `all` / 点名）才清理；`--dry-run` 没有 zcode 侧预览。
 
-Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 和 zcode 的 provider 天然并存，可以一次应用多个（或用 `--opencode` / `--zcode` 一次应用全部）。
+Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 和 zcode 的 provider 天然并存，可以一次应用多个——裸 `aweswitch apply` 会批量同步两侧全部 profile（某一侧没有 profile 时跳过并提示），`--opencode` / `--zcode` 把批量收窄到单个 agent。
 
 #### 什么时候用哪种模式
 
