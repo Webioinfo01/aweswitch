@@ -610,6 +610,7 @@ def warn_opencode_orphans(config):
 # --prune accepts a mode keyword or a provider-name list.
 PRUNE_ORPHANS = "orphans"
 PRUNE_ALL = "all"
+ZCODE_BUILTIN_PROVIDER_PREFIX = "builtin:"
 
 
 def _parse_prune(raw):
@@ -1086,16 +1087,28 @@ def plan_zcode_prune(config, prune, elsewhere=None):
     """
     if prune is None:
         return {}
+    if isinstance(prune, list):
+        protected = [name for name in prune if name.startswith(ZCODE_BUILTIN_PROVIDER_PREFIX)]
+        if protected:
+            die(
+                "--prune cannot remove zcode built-in providers: "
+                + ", ".join(protected)
+            )
     if prune == PRUNE_ORPHANS:
-        return find_orphan_zcode_providers(config)
-    return _plan_provider_prune(
-        prune,
-        providers=load_zcode_config()["provider"],
-        backed=kind_group(config, "api").get("zcode") or {},
-        path=zcode_config_path(),
-        label="zcode",
-        elsewhere=elsewhere,
-    )
+        targets = find_orphan_zcode_providers(config)
+    else:
+        targets = _plan_provider_prune(
+            prune,
+            providers=load_zcode_config()["provider"],
+            backed=kind_group(config, "api").get("zcode") or {},
+            path=zcode_config_path(),
+            label="zcode",
+            elsewhere=elsewhere,
+        )
+    for name in sorted(name for name in targets if name.startswith(ZCODE_BUILTIN_PROVIDER_PREFIX)):
+        targets.pop(name)
+        click.echo(f"Skipping protected zcode built-in provider '{name}'", err=True)
+    return targets
 
 
 def warn_zcode_orphans(config):
@@ -1126,6 +1139,23 @@ def execute_zcode_prune(targets):
         click.echo(f"Pruned provider '{name}' from {zcode_config_path()}")
     write_zcode_config(zc_config)
     write_managed_zcode_providers(load_managed_zcode_providers() - set(targets))
+
+
+def confirm_provider_prune(opencode_targets, zcode_targets):
+    """Show every planned provider deletion and require explicit approval."""
+    if not opencode_targets and not zcode_targets:
+        return
+    for name in sorted(opencode_targets):
+        click.echo(
+            f"Will prune provider '{name}' from {opencode_config_path()} "
+            f"({_describe_provider_models(opencode_targets[name])})"
+        )
+    for name in sorted(zcode_targets):
+        click.echo(
+            f"Will prune provider '{name}' from {zcode_config_path()} "
+            f"({_describe_provider_models(zcode_targets[name])})"
+        )
+    click.confirm("Continue pruning?", default=False, abort=True)
 
 
 def opencode_data_path():
@@ -2573,6 +2603,9 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
                 config, prune,
                 elsewhere=load_opencode_config()["provider"] if opencode else None)
 
+        if not dry_run:
+            confirm_provider_prune(oc_targets, zc_targets)
+
         if opencode:
             if not oc_profiles:
                 if not both:
@@ -2640,6 +2673,7 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
             opencode_prune_targets,
             config)
         return
+    confirm_provider_prune(opencode_prune_targets, zcode_prune_targets)
     prepared = preflight_apply(config, resolved)
     applied_opencode = False
     applied_zcode = False

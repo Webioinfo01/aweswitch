@@ -1,5 +1,9 @@
 # change log
 
+## Unreleased
+
+- `--prune` now lists every provider it would remove and requires explicit confirmation before writing. zcode `builtin:*` providers are protected from `orphans`, `all`, and named prune requests.
+
 ## v0.6.1
 
 OpenCode models managed by aweswitch now receive fill-only `low`, `medium`, `high`, `xhigh`, and `max` reasoning-strength variants. Switch variants with `ctrl+t` in OpenCode; hand-written variants remain unchanged. OpenAI's official Responses endpoint may reject `max`, in which case switch back to a valid variant.

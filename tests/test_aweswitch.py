@@ -2482,7 +2482,7 @@ class AweSwitchTests(unittest.TestCase):
             }
             (Path(tmp) / "aweswitch-config.json").write_text(json.dumps(config) + "\n")
             result = CliRunner().invoke(
-                aweswitch.cli, ["apply", "--zcode", "--prune", "orphans"], env=env
+                aweswitch.cli, ["apply", "--zcode", "--prune", "orphans"], env=env, input="y\n"
             )
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -2496,6 +2496,110 @@ class AweSwitchTests(unittest.TestCase):
             )["providers"]
             self.assertNotIn("zc-old", managed)
             self.assertIn("zc-test", managed)
+
+    def test_apply_zcode_prune_requires_confirmation_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            original = {"provider": {"zc-old": {
+                "name": "zc-old", "kind": "openai-compatible",
+                "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"},
+            }}}
+            zc_path.write_text(json.dumps(original))
+            zc_path.with_name(".aweswitch-managed-providers.json").write_text(
+                json.dumps({"providers": ["zc-old"]}) + "\n")
+            config = {"profiles": {"api": {"zcode": {"zc-test": {"env": {
+                "ZCODE_BASE_URL": "https://example.test/v1",
+                "ZCODE_API_KEY": "${TOKEN}",
+                "ZCODE_CHAT_MODEL": "m1",
+            }}}}}}
+            config_path = Path(tmp) / "aweswitch-config.json"
+            config_path.write_text(json.dumps(config) + "\n")
+
+            result = CliRunner().invoke(
+                aweswitch.cli, ["apply", "--zcode", "--prune", "orphans"],
+                env={
+                    "AWESWITCH_CONFIG": str(config_path),
+                    "ZCODE_CONFIG": str(zc_path),
+                    "TOKEN": "secret",
+                },
+                input="n\n",
+            )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Will prune provider 'zc-old'", result.output)
+            self.assertIn("Continue pruning? [y/N]", result.output)
+            self.assertEqual(json.loads(zc_path.read_text()), original)
+
+    def test_apply_zcode_prune_all_keeps_builtin_providers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "zcode.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "builtin:bigmodel": {"name": "BigModel"},
+                "zc-old": {"name": "zc-old", "kind": "openai-compatible",
+                           "options": {"baseURL": "https://old.com/v1", "apiKey": "sk-old"}},
+            }}))
+            config = self._make_apply_config()
+            config["profiles"]["api"]["zcode"] = {"zc-test": {"env": {
+                "ZCODE_BASE_URL": "https://example.test/v1",
+                "ZCODE_API_KEY": "${TOKEN}",
+                "ZCODE_CHAT_MODEL": "m1",
+            }}}
+
+            result, _ = self._apply(
+                ["apply", "--zcode", "--prune", "all"], config, tmp,
+                extra_env={"ZCODE_CONFIG": str(zc_path)}, input="y\n")
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Pruned provider 'zc-old'", result.output)
+            self.assertNotIn("Pruned provider 'builtin:bigmodel'", result.output)
+            self.assertEqual(
+                set(json.loads(zc_path.read_text())["provider"]),
+                {"builtin:bigmodel", "zc-test"},
+            )
+
+    def test_apply_zcode_prune_orphans_keeps_builtin_providers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "zcode.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "builtin:bigmodel": {"name": "BigModel"},
+            }}))
+            zc_path.with_name(".aweswitch-managed-providers.json").write_text(
+                json.dumps({"providers": ["builtin:bigmodel"]}) + "\n")
+            config = self._make_apply_config()
+            config["profiles"]["api"]["zcode"] = {"zc-test": {"env": {
+                "ZCODE_BASE_URL": "https://example.test/v1",
+                "ZCODE_API_KEY": "${TOKEN}",
+                "ZCODE_CHAT_MODEL": "m1",
+            }}}
+
+            result, _ = self._apply(
+                ["apply", "--zcode", "--prune", "orphans"], config, tmp,
+                extra_env={"ZCODE_CONFIG": str(zc_path)})
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("Skipping protected zcode built-in provider", result.output)
+            self.assertIn(
+                "builtin:bigmodel", json.loads(zc_path.read_text())["provider"])
+
+    def test_apply_zcode_prune_refuses_named_builtin_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "zcode.json"
+            original = {"provider": {"builtin:bigmodel": {"name": "BigModel"}}}
+            zc_path.write_text(json.dumps(original))
+            config = self._make_apply_config()
+            config["profiles"]["api"]["zcode"] = {"zc-test": {"env": {
+                "ZCODE_BASE_URL": "https://example.test/v1",
+                "ZCODE_API_KEY": "${TOKEN}",
+                "ZCODE_CHAT_MODEL": "m1",
+            }}}
+
+            result, _ = self._apply(
+                ["apply", "--zcode", "--prune", "builtin:bigmodel"], config, tmp,
+                extra_env={"ZCODE_CONFIG": str(zc_path)})
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("cannot remove zcode built-in providers", result.output)
+            self.assertEqual(json.loads(zc_path.read_text()), original)
 
     def test_apply_zcode_prune_refuses_invalid_managed_provider_registry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2611,7 +2715,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(
                 aweswitch.cli,
-                ["apply", "oc-test", "zc-test", "--prune", "stale-oc"], env=env)
+                ["apply", "oc-test", "zc-test", "--prune", "stale-oc"], env=env, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'stale-oc'", result.output)
@@ -2626,7 +2730,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(
                 aweswitch.cli,
-                ["apply", "oc-test", "zc-test", "--prune", "stale-zc"], env=env)
+                ["apply", "oc-test", "zc-test", "--prune", "stale-zc"], env=env, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'stale-zc'", result.output)
@@ -2643,7 +2747,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result = CliRunner().invoke(
                 aweswitch.cli,
-                ["apply", "oc-test", "zc-test", "--prune", "leftover"], env=env)
+                ["apply", "oc-test", "zc-test", "--prune", "leftover"], env=env, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertNotIn("leftover", json.loads(oc_path.read_text())["provider"])
@@ -2692,7 +2796,7 @@ class AweSwitchTests(unittest.TestCase):
                 tmp, oc_providers={"stale-oc": {"name": "stale-oc", "models": {}}})
 
             result = CliRunner().invoke(
-                aweswitch.cli, ["apply", "--prune", "stale-oc"], env=env)
+                aweswitch.cli, ["apply", "--prune", "stale-oc"], env=env, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'stale-oc'", result.output)
@@ -3375,7 +3479,7 @@ class AweSwitchTests(unittest.TestCase):
             }
         }
 
-    def _apply(self, args, config, tmp, extra_env=None):
+    def _apply(self, args, config, tmp, extra_env=None, input=None):
         oc_path = Path(tmp) / "opencode.json"
         if not oc_path.exists():
             oc_path.write_text(json.dumps({"provider": {}}))
@@ -3387,7 +3491,7 @@ class AweSwitchTests(unittest.TestCase):
             **(extra_env or {}),
         }
         (Path(tmp) / "config.json").write_text(json.dumps(config) + "\n")
-        result = CliRunner().invoke(aweswitch.cli, args, env=env)
+        result = CliRunner().invoke(aweswitch.cli, args, env=env, input=input)
         return result, oc_path
 
     def test_apply_codex_profile_writes_config_and_backup(self):
@@ -3520,7 +3624,7 @@ class AweSwitchTests(unittest.TestCase):
             self._write_oc_with_orphans(oc_path)
 
             result, oc_path = self._apply(["apply", "--opencode", "--prune", "orphans"],
-                                          self._make_apply_config(), tmp)
+                                           self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'oc-old'", result.output)
@@ -3585,7 +3689,7 @@ class AweSwitchTests(unittest.TestCase):
             result, oc_path = self._apply(
                 ["apply", "--opencode", "--prune",
                  "aweshare,aweshare2,aweshare-peng,aweshare-deepseek,aweshare-code"],
-                self._make_apply_config(), tmp)
+                self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             for name in ("aweshare", "aweshare2", "aweshare-peng",
@@ -3658,7 +3762,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result, oc_path = self._apply(
                 ["apply", "--opencode", "--prune", "all"],
-                self._make_apply_config(), tmp)
+                self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             for name in ("aweshare", "aweshare2", "aweshare-peng",
@@ -3731,7 +3835,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result, oc_path = self._apply(
                 ["apply", "--opencode", "--prune", "orphans"],
-                self._make_apply_config(), tmp)
+                self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'oc-old'", result.output)
@@ -3747,7 +3851,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result, oc_path = self._apply(
                 ["apply", "--opencode", "--prune", "aweshare,aweshare2"],
-                self._make_apply_config(), tmp)
+                self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertNotIn("Default model:", result.output)
@@ -3760,7 +3864,7 @@ class AweSwitchTests(unittest.TestCase):
 
             result, oc_path = self._apply(
                 ["apply", "oc-test", "--prune", "aweshare"],
-                self._make_apply_config(), tmp)
+                self._make_apply_config(), tmp, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'aweshare'", result.output)
@@ -3788,7 +3892,7 @@ class AweSwitchTests(unittest.TestCase):
             }
             result, oc_path = self._apply(
                 ["apply", "--zcode", "--prune", "all"],
-                config, tmp, extra_env={"ZCODE_CONFIG": str(zc_path)})
+                config, tmp, extra_env={"ZCODE_CONFIG": str(zc_path)}, input="y\n")
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("Pruned provider 'zc-old'", result.output)

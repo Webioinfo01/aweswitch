@@ -317,6 +317,8 @@ aweswitch config restore              # restore settings from default backup
 aweswitch config restore <file>       # restore settings from an explicit backup file
 ```
 
+Every non-dry-run prune prints its targets and requires a `y` confirmation before any config is written. zcode's `builtin:*` providers are always protected, including with `--prune all`; aweswitch refuses named requests for them.
+
 Per-agent write semantics:
 
 - **Claude** — env is merged into `~/.claude/settings.json`; unrelated settings are preserved, while a stale `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` alternative is removed when the new profile does not declare it. Restart the session or use `/model` to pick the new model.

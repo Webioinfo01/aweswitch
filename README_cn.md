@@ -317,6 +317,8 @@ aweswitch config restore              # 从默认备份恢复 settings
 aweswitch config restore <file>       # 从指定备份文件恢复 settings
 ```
 
+除 `--dry-run` 外，每次 prune 都会先打印目标，并要求输入 `y` 确认后才写入配置。zcode 的 `builtin:*` 预设 provider 永远受保护，`--prune all` 也不会删除；点名清理它们会被直接拒绝。
+
 各 agent 的写入语义：
 
 - **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
