@@ -330,6 +330,37 @@ Claude and Codex keep a single active default, so at most one profile of each ma
 
 </details>
 
+#### Pin subagent models per profile
+
+Subagents (OpenCode `task` agents, zcode's built-in Explore / general-purpose) normally inherit the primary model, so they already follow the profile you launch or apply. Two optional fields pin them to a different model instead — the typical case is a cheap model for read-only scouting while the primary stays on a pro model:
+
+```json
+"oc-glm": {
+  "env": {
+    "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "OPENCODE_API_KEY": "${GLM_API_KEY}",
+    "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"},
+    "OPENCODE_SUBAGENT_MODEL": {"explore": "glm-5.1-flash"}
+  }
+},
+"zc-bigmodel": {
+  "env": {
+    "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "ZCODE_API_KEY": "${GLM_API_KEY}",
+    "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"},
+    "ZCODE_SUBAGENT_MODEL": "GLM-5.3-Flash"
+  }
+}
+```
+
+- `OPENCODE_SUBAGENT_MODEL` — a `{agent-name: model}` object. Keys must name agent markdown files in `~/.config/opencode/agents/`; apply rewrites only their frontmatter `model:` line (the prompt body is never touched). Agents are a single global slot, so at most one OpenCode profile may define the field.
+- `ZCODE_SUBAGENT_MODEL` — a single model ID written into zcode's built-in agent overrides (`general-purpose` + `Explore` in `~/.zcode/v2/agents-state.json`). Applying a profile without the field releases the previous pin on both agents, falling back to inheriting the session model.
+- Values are bare model IDs from the profile's own model list, or `"@profile/model"` to borrow another profile's provider — e.g. `"explore": "@oc-step/step-3.7-flash"` keeps the primary on GLM while the scout runs on StepFun. Cross-profile references are ensured as sync dependencies, so the borrowed provider always exists after the apply.
+- **Claude** needs no field: set `ANTHROPIC_DEFAULT_HAIKU_MODEL` (or any OPUS/SONNET/HAIKU/FABLE tier var) in the profile env and write `model: haiku` in the agent frontmatter — Claude Code maps the tier to that model, and aweswitch already passes profile tier vars through.
+- **Codex** has no subagent system, so there is nothing to configure.
+
+Switching to a profile without the field releases every pin aweswitch owns (the agent then inherits the primary model — valid under any provider); agent files aweswitch never pinned are never touched, and apply warns about user-pinned agents whose provider no longer exists.
+
 #### Launch profiles side by side
 
 Launching is the one action that stays yours: an agent refuses to run `aweswitch <profile>` because it would nest an agent inside an agent. Each launch starts a fresh session with its own frozen env, so different terminals can run different profiles at the same time without rewriting global agent config.

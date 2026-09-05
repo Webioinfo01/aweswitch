@@ -145,23 +145,30 @@ def write_opencode_config(data):
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def load_managed_opencode_providers():
-    path = managed_opencode_path()
+def _read_managed_sidecar(path):
+    """Read the managed sidecar, or {} when absent; dies on malformed data."""
     if not path.exists():
-        return set()
+        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         die(f"invalid managed-provider JSON at {path}: {exc}\n  Fix or remove the file, then retry.")
-    providers = data.get("providers") if isinstance(data, dict) else None
-    if not isinstance(providers, list) or not all(isinstance(name, str) and name for name in providers):
-        die(f"invalid managed-provider data at {path}: expected a providers string list")
-    return set(providers)
+    if not isinstance(data, dict):
+        die(f"invalid managed-provider data at {path}: expected an object")
+    return data
 
 
-def write_managed_opencode_providers(providers):
-    """Atomically persist the provider keys aweswitch owns."""
-    path = managed_opencode_path()
+def _managed_string_list(data, key, path):
+    values = data.get(key)
+    if values is None:
+        return []
+    if not isinstance(values, list) or not all(isinstance(name, str) and name for name in values):
+        die(f"invalid managed-provider data at {path}: expected a {key} string list")
+    return values
+
+
+def _atomic_write_json(path, data):
+    """Atomically persist a small JSON state file with 0600 permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temp_path = Path(temp_name)
@@ -169,7 +176,7 @@ def write_managed_opencode_providers(providers):
         if os.name != "nt":
             os.chmod(temp_path, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"providers": sorted(providers)}, f, indent=2)
+            json.dump(data, f, indent=2)
             f.write("\n")
         os.replace(temp_path, path)
     except BaseException:
@@ -184,11 +191,164 @@ def write_managed_opencode_providers(providers):
         raise
 
 
+def load_managed_opencode_providers():
+    path = managed_opencode_path()
+    return set(_managed_string_list(_read_managed_sidecar(path), "providers", path))
+
+
+def set_managed_opencode_providers(providers):
+    """Rewrite the managed provider list, preserving other sidecar keys."""
+    path = managed_opencode_path()
+    data = _read_managed_sidecar(path)
+    if data.get("providers") == sorted(providers):
+        return
+    data["providers"] = sorted(providers)
+    _atomic_write_json(path, data)
+
+
+def load_managed_opencode_agents():
+    """Agent names whose frontmatter model line aweswitch owns."""
+    path = managed_opencode_path()
+    return set(_managed_string_list(_read_managed_sidecar(path), "agents", path))
+
+
+def set_managed_opencode_agents(agents):
+    path = managed_opencode_path()
+    data = _read_managed_sidecar(path)
+    if data.get("agents") == sorted(agents):
+        return
+    data["agents"] = sorted(agents)
+    _atomic_write_json(path, data)
+
+
 def record_managed_opencode_provider(provider_name):
-    providers = load_managed_opencode_providers()
-    if provider_name not in providers:
-        providers.add(provider_name)
-        write_managed_opencode_providers(providers)
+    set_managed_opencode_providers(load_managed_opencode_providers() | {provider_name})
+
+
+def opencode_agents_dir():
+    """Global agent markdown dir, sibling of opencode.json (follows OPENCODE_CONFIG)."""
+    return opencode_config_path().parent / "agents"
+
+
+def _frontmatter_end(lines):
+    """Index of the closing `---` of a frontmatter block, or None."""
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip("\r\n") == "---":
+            return i
+    return None
+
+
+def _line_eol(line):
+    if line.endswith("\r\n"):
+        return "\r\n"
+    if line.endswith("\n"):
+        return "\n"
+    return ""
+
+
+def _edit_agent_model_line(path, new_value):
+    """Set or remove the frontmatter `model:` line of an agent markdown file.
+
+    A line-level edit: everything outside that one line keeps its exact
+    bytes, so a user-authored prompt body is never reformatted. A missing
+    line is inserted before the closing `---`; a missing frontmatter block is
+    created. new_value=None removes the line, which lets the agent fall back
+    to inheriting the primary model — valid under every provider. Returns
+    True when the file changed.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    lines = text.splitlines(keepends=True)
+    end = _frontmatter_end(lines)
+    model_idx = None
+    if end is not None:
+        for i in range(1, end):
+            if re.match(r"^model:[ \t]*", lines[i]):
+                model_idx = i
+                break
+    if new_value is None:
+        if model_idx is None:
+            return False
+        del lines[model_idx]
+    elif model_idx is not None:
+        lines[model_idx] = f"model: {new_value}{_line_eol(lines[model_idx])}"
+    elif end is not None:
+        lines.insert(end, f"model: {new_value}{_line_eol(lines[end]) or '\n'}")
+    else:
+        lines[0:0] = ["---\n", f"model: {new_value}\n", "---\n"]
+    new_text = "".join(lines)
+    if new_text == text:
+        return False
+    path.write_text(new_text, encoding="utf-8")
+    return True
+
+
+def ensure_opencode_agents(subagents):
+    """Sync agent-file model pins to the profile being applied.
+
+    subagents maps agent name -> (dep_profile_or_None, "provider/model").
+    Agents previously pinned by aweswitch (sidecar) but absent from this map
+    get their model line removed — the agent then inherits the primary
+    model. Files not named here are never touched. Returns change notes.
+    """
+    agents_dir = opencode_agents_dir()
+    # Validate every named agent file before the first edit so a typo dies
+    # with nothing half-written.
+    for agent in sorted(subagents):
+        if not (agents_dir / f"{agent}.md").exists():
+            available = ", ".join(sorted(p.stem for p in agents_dir.glob("*.md"))) or "(none)"
+            die(
+                f"OPENCODE_SUBAGENT_MODEL names agent '{agent}' but "
+                f"{agents_dir / (agent + '.md')} does not exist\n"
+                f"  Available agents: {available}"
+            )
+    owned = load_managed_opencode_agents()
+    changes = []
+    for agent in sorted(owned - set(subagents)):
+        if _edit_agent_model_line(agents_dir / f"{agent}.md", None):
+            changes.append(f"released agent '{agent}' (inherits primary model)")
+    for agent, (_dep, ref) in sorted(subagents.items()):
+        if _edit_agent_model_line(agents_dir / f"{agent}.md", ref):
+            changes.append(f"pinned agent '{agent}' -> {ref}")
+    set_managed_opencode_agents(set(subagents))
+    return changes
+
+
+def warn_opencode_stale_agents():
+    """Warn about agent files pinned to a provider missing from opencode.json.
+
+    Only user-maintained pins can end up here — aweswitch-owned pins are
+    released or repointed by ensure_opencode_agents on every apply — so this
+    reports and never repairs.
+    """
+    agents_dir = opencode_agents_dir()
+    if not agents_dir.is_dir():
+        return
+    providers = set(load_opencode_config()["provider"])
+    for md in sorted(agents_dir.glob("*.md")):
+        try:
+            lines = md.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        end = _frontmatter_end(lines)
+        if end is None:
+            continue
+        for i in range(1, end):
+            m = re.match(r"^model:[ \t]*(\S+)$", lines[i])
+            if m:
+                provider = m.group(1).split("/", 1)[0]
+                if provider not in providers:
+                    click.echo(
+                        f"warning: agent '{md.stem}' pins model '{m.group(1)}' but provider "
+                        f"'{provider}' is not in opencode.json; add OPENCODE_SUBAGENT_MODEL "
+                        f"to a profile to manage it",
+                        err=True,
+                    )
+                break
 
 
 # The two AI SDK packages aweswitch may write for an opencode provider:
@@ -323,6 +483,109 @@ def _resolve_zcode_models(chat_raw, responses_raw, profile_name):
     if chat:
         return dict(chat), "openai-compatible"
     return {model_id: model_id for model_id in resp}, "openai"
+
+
+def _split_subagent_ref(raw, profile_name, key):
+    """Split one subagent model reference into ("own", model) or ("dep", profile, model).
+
+    Two forms: a bare model ID from the profile's own model list, or
+    "@profile/model-id" naming another same-target aweswitch profile. The
+    explicit @ marker keeps slash-bearing model IDs (e.g. hub/x) unambiguous.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        die(f"{key} entries must be non-empty strings for {profile_name}")
+    ref = raw.strip()
+    if not ref.startswith("@"):
+        return ("own", ref)
+    profile, _, model = ref[1:].partition("/")
+    if not profile or not model:
+        die(f"{key} cross-profile references must be '@profile/model-id', got: {raw} (profile {profile_name})")
+    return ("dep", profile, model)
+
+
+def _resolve_subagent_ref(raw, profile_name, key, own_models, dep_models_fn):
+    """Validate one subagent reference; return (dep_profile_or_None, "provider/model").
+
+    The returned string is what lands in the agent config. When a dep profile
+    is set, the sync paths ensure that provider in the same apply, so the
+    reference can never point at a provider that does not exist.
+    """
+    form = _split_subagent_ref(raw, profile_name, key)
+    if form[0] == "own":
+        model = form[1]
+        if model not in own_models:
+            die(f"{key} model '{model}' is not in {profile_name}'s model list")
+        return None, f"{profile_name}/{model}"
+    _, dep, model = form
+    dep_models = dep_models_fn(dep)
+    if model not in dep_models:
+        die(f"{key} model '{model}' is not in profile {dep}'s model list")
+    return dep, f"{dep}/{model}"
+
+
+def _opencode_dep_models(group, dep, key, profile_name):
+    entry = group.get(dep)
+    if not isinstance(entry, dict) or not isinstance(entry.get("env"), dict):
+        die(f"{key} references '{dep}', which is not an opencode api profile (from {profile_name})")
+    models, _ = _merge_opencode_models(
+        entry["env"].get("OPENCODE_MODEL"),
+        entry["env"].get("OPENCODE_RESPONSES_MODEL"), dep)
+    return models
+
+
+def _parse_opencode_subagents(config, profile_name, profile_env, own_models):
+    """Parse OPENCODE_SUBAGENT_MODEL into {agent_name: (dep, "provider/model")}.
+
+    Keys name agent markdown files in the opencode agents dir; values are
+    bare same-profile model IDs or "@profile/model" cross-profile refs.
+    """
+    raw = profile_env.get("OPENCODE_SUBAGENT_MODEL")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or not raw:
+        die(
+            f"OPENCODE_SUBAGENT_MODEL must be a non-empty {{agent: model}} object for {profile_name}\n"
+            f"  Example: \"OPENCODE_SUBAGENT_MODEL\": {{\"explore\": \"glm-5.1-flash\"}}"
+        )
+    group = kind_group(config, "api").get("opencode", {})
+    if not isinstance(group, dict):
+        die("provider entries must be an object: api.opencode")
+    result = {}
+    for agent, ref in raw.items():
+        if not isinstance(agent, str) or not agent.strip():
+            die(f"OPENCODE_SUBAGENT_MODEL agent names must be non-empty strings for {profile_name}")
+        result[agent] = _resolve_subagent_ref(
+            ref, profile_name, "OPENCODE_SUBAGENT_MODEL", own_models,
+            lambda dep: _opencode_dep_models(group, dep, "OPENCODE_SUBAGENT_MODEL", profile_name))
+    return result
+
+
+def _zcode_dep_models(group, dep, key, profile_name):
+    entry = group.get(dep)
+    if not isinstance(entry, dict) or not isinstance(entry.get("env"), dict):
+        die(f"{key} references '{dep}', which is not a zcode api profile (from {profile_name})")
+    models, _ = _resolve_zcode_models(
+        entry["env"].get("ZCODE_CHAT_MODEL"),
+        entry["env"].get("ZCODE_RESPONSES_MODEL"), dep)
+    return models
+
+
+def _parse_zcode_subagent(config, profile_name, profile_env, own_models):
+    """Parse ZCODE_SUBAGENT_MODEL into (dep, "provider/model") or None.
+
+    A scalar rather than a per-agent dict: zcode's built-in override slot
+    covers exactly two agents (general-purpose, Explore) behind one global
+    value, so per-agent granularity would be false precision.
+    """
+    raw = profile_env.get("ZCODE_SUBAGENT_MODEL")
+    if raw is None or raw == "":
+        return None
+    group = kind_group(config, "api").get("zcode", {})
+    if not isinstance(group, dict):
+        die("provider entries must be an object: api.zcode")
+    return _resolve_subagent_ref(
+        raw, profile_name, "ZCODE_SUBAGENT_MODEL", own_models,
+        lambda dep: _zcode_dep_models(group, dep, "ZCODE_SUBAGENT_MODEL", profile_name))
 
 
 def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
@@ -510,8 +773,8 @@ def build_opencode_specs(config, names=None):
     """Validate and materialize the sync spec for every (or the named) profile.
 
     Each spec is (name, base_url, api_key_ref, models, display_name,
-    responses_models). Pure: reads the aweswitch config, touches no files, so
-    a dry run can preview the exact list a sync would write.
+    responses_models, subagents). Pure: reads the aweswitch config, touches
+    no files, so a dry run can preview the exact list a sync would write.
     """
     profiles = kind_group(config, "api").get("opencode", {})
     if not isinstance(profiles, dict):
@@ -538,6 +801,7 @@ def build_opencode_specs(config, names=None):
             models_dict,
             profile_env.get("OPENCODE_NAME") or name,
             responses_models,
+            _parse_opencode_subagents(config, name, profile_env, models_dict),
         ))
     return specs
 
@@ -550,21 +814,51 @@ def sync_opencode_profiles(config, names=None):
     list so the file matches the aweswitch config — models removed from the
     config disappear from opencode too. Providers the config doesn't know
     about are left alone. All profiles are validated before anything is
-    written. Returns a list of (profile, status, model_count) tuples.
+    written. Agent model pins are a single global slot: at most one synced
+    profile may define OPENCODE_SUBAGENT_MODEL, its pins are written after
+    the providers, and a sync where no profile defines any releases the
+    previously pinned agents. Returns (profile, status, model_count,
+    agent_notes) tuples.
     """
     specs = build_opencode_specs(config, names)
     if specs:
         load_opencode_config()
         load_managed_opencode_providers()
-    return [
-        (
+    defining = [name for name, *_rest, subagents in specs if subagents]
+    if len(defining) > 1:
+        die(
+            "agent model pins are a single slot, but several opencode profiles "
+            f"define OPENCODE_SUBAGENT_MODEL: {', '.join(sorted(defining))}\n"
+            "  Keep the field on one profile only"
+        )
+    # Cross-profile refs ("@profile/model") need that profile's provider to
+    # exist; ensure dependency providers before the pins reference them.
+    dep_names = sorted({
+        dep
+        for _name, *_rest, subagents in specs
+        for dep, _ref in subagents.values()
+        if dep
+    })
+    for name, base_url, api_key_ref, models, display_name, responses_models, _sub in \
+            build_opencode_specs(config, dep_names):
+        ensure_opencode_provider(base_url, api_key_ref, name, models,
+                                 display_name=display_name, prune=True,
+                                 responses_models=responses_models)
+    results = []
+    for name, base_url, api_key_ref, models, display_name, responses_models, subagents in specs:
+        results.append((
             name,
             ensure_opencode_provider(base_url, api_key_ref, name, models,
                                      display_name=display_name, prune=True,
                                      responses_models=responses_models),
             len(models),
-        )
-        for name, base_url, api_key_ref, models, display_name, responses_models in specs
+        ))
+    active_subagents = next((subagents for _n, *_r, subagents in specs if subagents), {})
+    agent_notes = ensure_opencode_agents(active_subagents)
+    pinning = defining[0] if defining else (results[0][0] if results else None)
+    return [
+        (name, status, model_count, agent_notes if name == pinning else [])
+        for name, status, model_count in results
     ]
 
 
@@ -737,7 +1031,7 @@ def default_model_repair_target(config, model, provider_keys):
 def preview_opencode_prune(specs, targets, config):
     """Print what a dry-run apply would sync and prune; write nothing."""
     click.echo("Dry run: nothing will be written.")
-    for name, _base_url, _api_key_ref, models, _display_name, _responses in specs:
+    for name, _base_url, _api_key_ref, models, _display_name, _responses, _subagents in specs:
         click.echo(f"{name}: would sync ({len(models)} models)")
     for name in sorted(targets):
         click.echo(f"Would prune provider '{name}' ({_describe_provider_models(targets[name])})")
@@ -768,7 +1062,7 @@ def execute_opencode_prune(config, targets):
         click.echo(f"Default model: {oc_config.get('model')} -> {new_model}")
         oc_config["model"] = new_model
     write_opencode_config(oc_config)
-    write_managed_opencode_providers(load_managed_opencode_providers() - set(targets))
+    set_managed_opencode_providers(load_managed_opencode_providers() - set(targets))
 
 
 def zcode_config_path():
@@ -809,48 +1103,139 @@ def write_zcode_config(data):
 
 def load_managed_zcode_providers():
     path = managed_zcode_path()
-    if not path.exists():
-        return set()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        die(f"invalid managed-provider JSON at {path}: {exc}\n  Fix or remove the file, then retry.")
-    providers = data.get("providers") if isinstance(data, dict) else None
-    if not isinstance(providers, list) or not all(isinstance(name, str) and name for name in providers):
-        die(f"invalid managed-provider data at {path}: expected a providers string list")
-    return set(providers)
+    return set(_managed_string_list(_read_managed_sidecar(path), "providers", path))
 
 
-def write_managed_zcode_providers(providers):
-    """Atomically persist the provider keys aweswitch owns."""
+def set_managed_zcode_providers(providers):
+    """Rewrite the managed provider list, preserving other sidecar keys."""
     path = managed_zcode_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temp_path = Path(temp_name)
-    try:
-        if os.name != "nt":
-            os.chmod(temp_path, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"providers": sorted(providers)}, f, indent=2)
-            f.write("\n")
-        os.replace(temp_path, path)
-    except BaseException:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            temp_path.unlink()
-        except OSError:
-            pass
-        raise
+    data = _read_managed_sidecar(path)
+    if data.get("providers") == sorted(providers):
+        return
+    data["providers"] = sorted(providers)
+    _atomic_write_json(path, data)
+
+
+def load_managed_zcode_agents():
+    """Built-in agent names whose model override aweswitch owns."""
+    path = managed_zcode_path()
+    return set(_managed_string_list(_read_managed_sidecar(path), "agents", path))
+
+
+def set_managed_zcode_agents(agents):
+    path = managed_zcode_path()
+    data = _read_managed_sidecar(path)
+    if data.get("agents") == sorted(agents):
+        return
+    data["agents"] = sorted(agents)
+    _atomic_write_json(path, data)
 
 
 def record_managed_zcode_provider(provider_name):
-    providers = load_managed_zcode_providers()
-    if provider_name not in providers:
-        providers.add(provider_name)
-        write_managed_zcode_providers(providers)
+    set_managed_zcode_providers(load_managed_zcode_providers() | {provider_name})
+
+
+# zcode's built-in agent overrides live in an undocumented app-state file; the
+# two names are the complete key space of builtInModelOverrides.
+ZCODE_OVERRIDE_AGENTS = ("general-purpose", "Explore")
+
+
+def zcode_agents_state_path():
+    """The desktop app's subagent-state file, sibling of v2/config.json."""
+    return zcode_config_path().with_name("agents-state.json")
+
+
+def load_zcode_agents_state():
+    """Read agents-state.json, or {} when absent; dies on a malformed shape.
+
+    The file's structure is undocumented (reverse-engineered from the app),
+    so anything unexpected dies instead of risking a write that corrupts app
+    state.
+    """
+    path = zcode_agents_state_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        die(f"invalid JSON in {path}: {exc}\n  Fix or remove the file, then retry.")
+    if not isinstance(data, dict):
+        die(f"unexpected JSON in {path}: expected an object at the top level")
+    overrides = data.get("builtInModelOverrides")
+    if overrides is not None and (
+            not isinstance(overrides, dict)
+            or not all(isinstance(k, str) and isinstance(v, str) for k, v in overrides.items())):
+        die(f"'builtInModelOverrides' in {path} must map agent names to model strings")
+    return data
+
+
+def write_zcode_agents_state(data):
+    """Atomic write that preserves keys aweswitch does not manage."""
+    _atomic_write_json(zcode_agents_state_path(), data)
+
+
+def zcode_app_running():
+    """Best-effort check for a running ZCode desktop app.
+
+    The app rewrites agents-state.json from its Settings UI; a write while
+    the Subagents page holds a stale snapshot is lost on save. Only used to
+    warn — a lost override self-heals on the next apply.
+    """
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq ZCode.exe"],
+                capture_output=True, text=True, timeout=5)
+            return "ZCode.exe" in (result.stdout or "")
+        result = subprocess.run(
+            ["pgrep", "-f", "ZCode.app/Contents/MacOS"],
+            capture_output=True, timeout=5)
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def ensure_zcode_agent_overrides(subagent):
+    """Set or release the built-in agent model overrides (one global slot).
+
+    subagent is (dep_profile_or_None, "provider/model") or None to release
+    everything aweswitch owns. Only the two built-in agent names are
+    written; overrides the user set in the app UI on other names are
+    preserved, and the sidecar records ownership so a later release never
+    deletes a hand-set value. Returns change notes.
+    """
+    owned = load_managed_zcode_agents()
+    if subagent is None:
+        if not owned:
+            return []
+        state = load_zcode_agents_state()
+        overrides = state.setdefault("builtInModelOverrides", {})
+        notes = []
+        for agent in sorted(owned):
+            if overrides.pop(agent, None) is not None:
+                notes.append(f"released built-in agent '{agent}' (inherits session model)")
+        if notes:
+            write_zcode_agents_state(state)
+        set_managed_zcode_agents(set())
+        return notes
+    _dep, ref = subagent
+    if zcode_app_running():
+        click.echo(
+            "warning: ZCode appears to be running; if the Settings -> Subagents page is open,\n"
+            "  saving there will overwrite this pin (re-run aweswitch apply to restore it)",
+            err=True,
+        )
+    state = load_zcode_agents_state()
+    overrides = state.setdefault("builtInModelOverrides", {})
+    notes = []
+    for agent in ZCODE_OVERRIDE_AGENTS:
+        if overrides.get(agent) != ref:
+            overrides[agent] = ref
+            notes.append(f"pinned built-in agent '{agent}' -> {ref}")
+    if notes:
+        write_zcode_agents_state(state)
+    set_managed_zcode_agents(set(ZCODE_OVERRIDE_AGENTS))
+    return notes
 
 
 # Default model limits stamped onto entries we manage when the user didn't
@@ -1006,14 +1391,11 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
     return status
 
 
-def sync_zcode_profiles(config, names=None):
-    """Write every (or the named) zcode profile into zcode config.json.
+def build_zcode_specs(config, names=None):
+    """Validate and materialize the zcode sync spec for every (or the named) profile.
 
-    Replaces each provider entry (base URL, key ref, kind, display name) and
-    its full model list so the file matches the aweswitch config — models
-    removed from the config disappear from zcode too. Providers the config
-    doesn't know about are left alone. All profiles are validated before
-    anything is written. Returns a list of (profile, status, model_count).
+    Pure: reads the aweswitch config, touches no files. Each spec is (name,
+    base_url, api_key_ref, kind, models, display_name, subagent).
     """
     profiles = kind_group(config, "api").get("zcode", {})
     if not isinstance(profiles, dict):
@@ -1043,18 +1425,61 @@ def sync_zcode_profiles(config, names=None):
             kind,
             list(models_dict),
             profile_env.get("ZCODE_NAME") or name,
+            _parse_zcode_subagent(config, name, profile_env, models_dict),
         ))
+    return specs
+
+
+def sync_zcode_profiles(config, names=None):
+    """Write every (or the named) zcode profile into zcode config.json.
+
+    Replaces each provider entry (base URL, key ref, kind, display name) and
+    its full model list so the file matches the aweswitch config — models
+    removed from the config disappear from zcode too. Providers the config
+    doesn't know about are left alone. All profiles are validated before
+    anything is written. The built-in agent override is a single global
+    slot: at most one synced profile may define ZCODE_SUBAGENT_MODEL, and a
+    sync where no profile defines it releases the previous override.
+    Returns (profile, status, model_count, agent_notes) tuples.
+    """
+    specs = build_zcode_specs(config, names)
     if specs:
         load_zcode_config()
         load_managed_zcode_providers()
-    return [
-        (
+    defining = [name for name, *_rest, subagent in specs if subagent]
+    if len(defining) > 1:
+        die(
+            "the built-in agent override is a single slot, but several zcode profiles "
+            f"define ZCODE_SUBAGENT_MODEL: {', '.join(sorted(defining))}\n"
+            "  Keep the field on one profile only"
+        )
+    # Cross-profile refs ("@profile/model") need that profile's provider to
+    # exist; ensure dependency providers before the override references them.
+    dep_names = sorted({
+        dep
+        for _name, *_rest, subagent in specs
+        if subagent
+        for dep in (subagent[0],)
+        if dep
+    })
+    for name, base_url, api_key_ref, kind, models, display_name, _sub in \
+            build_zcode_specs(config, dep_names):
+        ensure_zcode_provider(base_url, api_key_ref, name, kind, models,
+                              display_name=display_name, prune=True)
+    results = []
+    for name, base_url, api_key_ref, kind, models, display_name, _sub in specs:
+        results.append((
             name,
             ensure_zcode_provider(base_url, api_key_ref, name, kind, models,
                                   display_name=display_name, prune=True),
             len(models),
-        )
-        for name, base_url, api_key_ref, kind, models, display_name in specs
+        ))
+    active_subagent = next((subagent for _n, *_r, subagent in specs if subagent), None)
+    agent_notes = ensure_zcode_agent_overrides(active_subagent)
+    pinning = defining[0] if defining else (results[0][0] if results else None)
+    return [
+        (name, status, model_count, agent_notes if name == pinning else [])
+        for name, status, model_count in results
     ]
 
 
@@ -1138,7 +1563,7 @@ def execute_zcode_prune(targets):
             continue
         click.echo(f"Pruned provider '{name}' from {zcode_config_path()}")
     write_zcode_config(zc_config)
-    write_managed_zcode_providers(load_managed_zcode_providers() - set(targets))
+    set_managed_zcode_providers(load_managed_zcode_providers() - set(targets))
 
 
 def confirm_provider_prune(opencode_targets, zcode_targets):
@@ -1822,6 +2247,8 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         base_url = expand_value(base_url_raw, expansion_env)
         # Keep an env reference in opencode.json so the actual key is never written to disk.
         api_key_ref = _opencode_api_key_ref(api_key_raw)
+        subagents = _parse_opencode_subagents(config, profile_name, profile_env, models_dict)
+        dep_names = sorted({dep for dep, _ref in subagents.values() if dep})
         oc_write_info = {
             "base_url": base_url,
             "api_key_ref": api_key_ref,
@@ -1830,6 +2257,23 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
             "model_display_name": models_dict.get(model, model),
             "responses_models": list(responses_models),
+            "subagents": subagents,
+            # Cross-profile subagent refs need their provider present at
+            # launch; carry the full dep write specs so run_profile can
+            # ensure them before the pins are applied.
+            "deps": [
+                {
+                    "base_url": dep_base_url,
+                    "api_key_ref": dep_api_key_ref,
+                    "provider_name": dep_name,
+                    "models": dict(dep_models),
+                    "display_name": dep_display_name,
+                    "responses_models": list(dep_responses),
+                }
+                for dep_name, dep_base_url, dep_api_key_ref, dep_models,
+                    dep_display_name, dep_responses, _dep_sub
+                in (build_opencode_specs(config, dep_names) if dep_names else [])
+            ],
         }
         argv = ["opencode", "-m", f"{profile_name}/{model}"]
         argv += user_args
@@ -2490,10 +2934,11 @@ def preflight_apply(config, resolved):
                 die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
             if not api_key:
                 die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
-            _merge_opencode_models(
+            oc_models, _ = _merge_opencode_models(
                 profile_env.get("OPENCODE_MODEL"),
                 profile_env.get("OPENCODE_RESPONSES_MODEL"), name,
             )
+            _parse_opencode_subagents(config, name, profile_env, oc_models)
             expand_value(base_url, dict(os.environ))
             has_opencode = True
         else:
@@ -2507,10 +2952,11 @@ def preflight_apply(config, resolved):
                 die(f"ZCODE_KIND is no longer supported for {name}; use ZCODE_CHAT_MODEL or ZCODE_RESPONSES_MODEL")
             if "ZCODE_MODEL" in profile_env:
                 die(f"ZCODE_MODEL is no longer supported for {name}; rename it to ZCODE_CHAT_MODEL")
-            _resolve_zcode_models(
+            zc_models, _kind = _resolve_zcode_models(
                 profile_env.get("ZCODE_CHAT_MODEL"),
                 profile_env.get("ZCODE_RESPONSES_MODEL"), name,
             )
+            _parse_zcode_subagent(config, name, profile_env, zc_models)
             expand_value(base_url, dict(os.environ))
             expand_value(api_key, dict(os.environ))
             has_zcode = True
@@ -2561,6 +3007,11 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
     (hand-written ones included), or a name list removes exactly those;
     --dry-run previews the plan (OpenCode side only). A prune never leaves
     the default model pointing at a deleted provider.
+
+    Subagent model pins ride along with the sync: OPENCODE_SUBAGENT_MODEL
+    (opencode) and ZCODE_SUBAGENT_MODEL (zcode) rewrite the model line of the
+    named agents / the built-in agent override, and a profile without the
+    field releases whatever the previous apply pinned.
     """
     config = load_config(config_path())
     names = list(profiles)
@@ -2614,13 +3065,16 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
             elif dry_run:
                 preview_opencode_prune(build_opencode_specs(config), oc_targets, config)
             else:
-                for name, status, model_count in sync_opencode_profiles(config):
+                for name, status, model_count, agent_notes in sync_opencode_profiles(config):
                     click.echo(f"{name}: {status} ({model_count} models)")
+                    for note in agent_notes:
+                        click.echo(f"  {note}")
                 click.echo(f"Synced to {opencode_config_path()}")
                 if oc_targets:
                     execute_opencode_prune(config, oc_targets)
                 elif not prune_requested:
                     warn_opencode_orphans(config)
+                warn_opencode_stale_agents()
 
         if zcode:
             if dry_run:
@@ -2636,8 +3090,10 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
                     die("no zcode profiles found\nrun: aweswitch apply <profile>")
                 click.echo("no zcode profiles found, skipping")
             else:
-                for name, status, model_count in sync_zcode_profiles(config):
+                for name, status, model_count, agent_notes in sync_zcode_profiles(config):
                     click.echo(f"{name}: {status} ({model_count} models)")
+                    for note in agent_notes:
+                        click.echo(f"  {note}")
                 click.echo(f"Synced to {zcode_config_path()}")
                 if zc_targets:
                     execute_zcode_prune(zc_targets)
@@ -2683,12 +3139,16 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
         elif provider == "codex":
             apply_codex_profile(config, name, force)
         elif provider == "opencode":
-            _, status, model_count = sync_opencode_profiles(config, [name])[0]
+            _, status, model_count, agent_notes = sync_opencode_profiles(config, [name])[0]
             click.echo(f"{name}: {status} ({model_count} models) -> {opencode_config_path()}")
+            for note in agent_notes:
+                click.echo(f"  {note}")
             applied_opencode = True
         elif provider == "zcode":
-            _, status, model_count = sync_zcode_profiles(config, [name])[0]
+            _, status, model_count, agent_notes = sync_zcode_profiles(config, [name])[0]
             click.echo(f"{name}: {status} ({model_count} models) -> {zcode_config_path()}")
+            for note in agent_notes:
+                click.echo(f"  {note}")
             applied_zcode = True
         else:
             die(f"unsupported provider for {name}: {provider}")
@@ -2697,6 +3157,7 @@ def apply_command(profiles, force, opencode, zcode, prune_raw, dry_run):
             execute_opencode_prune(config, opencode_prune_targets)
         elif not prune_requested:
             warn_opencode_orphans(config)
+        warn_opencode_stale_agents()
     if applied_zcode:
         if zcode_prune_targets:
             execute_zcode_prune(zcode_prune_targets)
@@ -2872,6 +3333,15 @@ def run_profile(ctx, category, title):
             _auto_bookmark(category, profile_name, title=title)
     run_argv, run_env, oc_write_info, account_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
     if oc_write_info is not None:
+        for dep in oc_write_info.get("deps", []):
+            ensure_opencode_provider(
+                dep["base_url"],
+                dep["api_key_ref"],
+                dep["provider_name"],
+                dep["models"],
+                display_name=dep["display_name"],
+                responses_models=set(dep["responses_models"]),
+            )
         ensure_opencode_provider(
             oc_write_info["base_url"],
             oc_write_info["api_key_ref"],
@@ -2880,6 +3350,8 @@ def run_profile(ctx, category, title):
             display_name=oc_write_info["display_name"],
             responses_models=set(oc_write_info["responses_models"]),
         )
+        for note in ensure_opencode_agents(oc_write_info.get("subagents") or {}):
+            click.echo(note)
     if account_info is not None:
         ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])
     exec_agent(run_argv, run_env)

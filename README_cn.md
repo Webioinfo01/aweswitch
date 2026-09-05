@@ -330,6 +330,37 @@ Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各�
 
 </details>
 
+#### 按 profile 钉住 subagent 模型
+
+subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose）默认继承主模型，因此本来就会跟着你启动/apply 的 profile 走。两个可选字段可以把它们钉到另一个模型上——典型场景是主模型用 pro、只读侦查类 subagent 用便宜的 flash：
+
+```json
+"oc-glm": {
+  "env": {
+    "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "OPENCODE_API_KEY": "${GLM_API_KEY}",
+    "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"},
+    "OPENCODE_SUBAGENT_MODEL": {"explore": "glm-5.1-flash"}
+  }
+},
+"zc-bigmodel": {
+  "env": {
+    "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "ZCODE_API_KEY": "${GLM_API_KEY}",
+    "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"},
+    "ZCODE_SUBAGENT_MODEL": "GLM-5.3-Flash"
+  }
+}
+```
+
+- `OPENCODE_SUBAGENT_MODEL` — `{agent名: 模型}` 对象。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行，正文提示词永不触碰。agent 钉子是全局单槽位，因此最多一个 OpenCode profile 可以声明该字段。
+- `ZCODE_SUBAGENT_MODEL` — 单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）。apply 一个没有该字段的 profile 会释放上一次的钉子，两个内置 agent 落回继承会话模型。
+- 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
+- **Claude** 不需要新字段：在 profile env 里直接写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——Claude Code 会把 tier 映射到该模型，而 aweswitch 本来就会透传 profile 里的 tier 变量。
+- **Codex** 没有 subagent 体系，无可配置。
+
+切到没有该字段的 profile 会释放 aweswitch 拥有的所有钉子（agent 落回继承主模型——对任何 provider 都合法）；aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
+
 #### 并行启动不同 profile
 
 启动是唯一留在你手里的动作：agent 不会运行 `aweswitch <profile>`，因为那会导致 agent 嵌套。每次启动都是一个新的会话，env 在启动时冻结，所以不同终端可以同时跑不同 profile，互不改写全局 agent 配置。
