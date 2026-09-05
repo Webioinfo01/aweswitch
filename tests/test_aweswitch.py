@@ -1977,8 +1977,8 @@ class AweSwitchTests(unittest.TestCase):
             state = json.loads(state_path.read_text())
             self.assertEqual(state["builtInModelOverrides"], {
                 "custom-agent": "user/pin",
-                "Explore": "zc-a/m1",
-                "general-purpose": "zc-a/m1",
+                "Explore": "custom:zc-a:m1",
+                "general-purpose": "custom:zc-a:m1",
             })
             self.assertEqual(state["disabledAgentIds"], ["judge"])
 
@@ -1993,6 +1993,13 @@ class AweSwitchTests(unittest.TestCase):
             state = json.loads(state_path.read_text())
             self.assertEqual(state["builtInModelOverrides"], {"custom-agent": "user/pin"})
             self.assertEqual(state["disabledAgentIds"], ["judge"])
+
+    def test_zcode_override_value_encodes_like_the_app(self):
+        self.assertEqual(
+            aweswitch._zcode_override_value("zc-a/m1"), "custom:zc-a:m1")
+        self.assertEqual(
+            aweswitch._zcode_override_value("zc-a/hub/deepseek-v4-flash"),
+            "custom:zc-a:hub%2Fdeepseek-v4-flash")
 
     def test_sync_zcode_two_profiles_defining_pins_dies(self):
         config = self._make_zcode_subagent_config()

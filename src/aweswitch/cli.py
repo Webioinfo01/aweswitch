@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 from typing import NoReturn
+from urllib.parse import quote
 
 import click
 
@@ -1195,6 +1196,20 @@ def zcode_app_running():
         return False
 
 
+def _zcode_override_value(ref):
+    """Encode a "provider/model" reference the way zcode's settings UI does.
+
+    The app stores custom-provider model references as
+    "custom:<encoded-provider>:<encoded-model>" and decodes by splitting at
+    the first raw ":" after the prefix, so both parts are percent-encoded —
+    a slash-bearing model id (hub/x) becomes hub%2Fx. Profile names cannot
+    contain "/" (they are command names), so splitting the reference at its
+    first "/" is unambiguous.
+    """
+    provider, model = ref.split("/", 1)
+    return f"custom:{quote(provider, safe='')}:{quote(model, safe='')}"
+
+
 def ensure_zcode_agent_overrides(subagent):
     """Set or release the built-in agent model overrides (one global slot).
 
@@ -1227,10 +1242,11 @@ def ensure_zcode_agent_overrides(subagent):
         )
     state = load_zcode_agents_state()
     overrides = state.setdefault("builtInModelOverrides", {})
+    value = _zcode_override_value(ref)
     notes = []
     for agent in ZCODE_OVERRIDE_AGENTS:
-        if overrides.get(agent) != ref:
-            overrides[agent] = ref
+        if overrides.get(agent) != value:
+            overrides[agent] = value
             notes.append(f"pinned built-in agent '{agent}' -> {ref}")
     if notes:
         write_zcode_agents_state(state)
