@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-- `--prune` now lists every provider it would remove and requires explicit confirmation before writing. zcode `builtin:*` providers are protected from `orphans`, `all`, and named prune requests.
+## v0.6.2 - 2026-09-05
+
+### Features
+- Add per-profile subagent model pins for OpenCode and zcode, with `@profile/model` cross-profile references
+
+### Fixes
+- `--prune` now lists every provider it would remove and requires explicit confirmation; zcode `builtin:*` providers are protected
+- Encode zcode built-in agent override values with percent-encoding to match the app's settings UI
 
 ## v0.6.1
 
