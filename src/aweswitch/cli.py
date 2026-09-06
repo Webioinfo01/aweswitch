@@ -447,18 +447,22 @@ def _parse_responses_models(raw, profile_name, key):
     return list(dict.fromkeys(m.strip() for m in ids if m.strip()))
 
 
-def _merge_opencode_models(chat_raw, responses_raw, profile_name):
+def _merge_opencode_models(env, profile_name):
     """Merge OPENCODE_MODEL and OPENCODE_RESPONSES_MODEL into one {id: name} dict.
 
     At least one must be non-empty; the two fields have equal standing, so
-    either alone is a complete model list. OPENCODE_MODEL's order leads the
-    merged dict (a no-arg launch keeps defaulting to its first entry), and
-    responses models not in OPENCODE_MODEL are appended in configured order
-    with the ID as display name.
+    either alone is a complete model list. The merged key order is the
+    opencode model-picker order (a no-arg launch keeps defaulting to its
+    first entry): whichever field is written first in env leads, and within
+    each block the configured order is preserved — write
+    OPENCODE_RESPONSES_MODEL above OPENCODE_MODEL to list Responses models
+    first.
     """
-    chat = normalize_models_opt(chat_raw, profile_name, "OPENCODE_MODEL")
+    chat = normalize_models_opt(
+        env.get("OPENCODE_MODEL"), profile_name, "OPENCODE_MODEL")
     resp = _parse_responses_models(
-        responses_raw, profile_name, "OPENCODE_RESPONSES_MODEL")
+        env.get("OPENCODE_RESPONSES_MODEL"), profile_name,
+        "OPENCODE_RESPONSES_MODEL")
     if not chat and not resp:
         die(f"OPENCODE_MODEL or OPENCODE_RESPONSES_MODEL is required for {profile_name}")
     duplicate_models = set(chat) & set(resp)
@@ -466,9 +470,14 @@ def _merge_opencode_models(chat_raw, responses_raw, profile_name):
         die(f"models must not be listed in both OPENCODE_MODEL and "
             f"OPENCODE_RESPONSES_MODEL for {profile_name}: "
             f"{', '.join(sorted(duplicate_models))}")
-    merged = dict(chat)
-    for model_id in resp:
-        merged.setdefault(model_id, model_id)
+    resp_dict = {model_id: model_id for model_id in resp}
+    keys = list(env)
+    responses_leads = ("OPENCODE_MODEL" in keys and "OPENCODE_RESPONSES_MODEL" in keys
+                       and keys.index("OPENCODE_RESPONSES_MODEL") < keys.index("OPENCODE_MODEL"))
+    if responses_leads:
+        merged = {**resp_dict, **chat}
+    else:
+        merged = {**chat, **resp_dict}
     return merged, resp
 
 
@@ -534,9 +543,7 @@ def _opencode_dep_models(group, dep, key, profile_name):
     entry = group.get(dep)
     if not isinstance(entry, dict) or not isinstance(entry.get("env"), dict):
         die(f"{key} references '{dep}', which is not an opencode api profile (from {profile_name})")
-    models, _ = _merge_opencode_models(
-        entry["env"].get("OPENCODE_MODEL"),
-        entry["env"].get("OPENCODE_RESPONSES_MODEL"), dep)
+    models, _ = _merge_opencode_models(entry["env"], dep)
     return models
 
 
@@ -728,7 +735,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     stale credentials and display names are updated to match the config instead
     of rejected. Launch passes only the selected model (additive); `aweswitch
     apply` passes the full list with prune=True so the entry matches the config
-    exactly. `responses_models` stamps a per-model Responses npm override on
+    exactly — including key order, which is the model-picker order. `responses_models` stamps a per-model Responses npm override on
     those models and removes stale ones; it only touches the models passed in
     `models`. Every managed model also gets the default modalities/attachment
     declaration (text+image input, attachments on) unless the entry already
@@ -784,6 +791,13 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
                 del models_dict[model_id]
+                status = "updated"
+            # Key order is the picker order: a full sync makes the config's
+            # order authoritative too, so reorder (per-model entries —
+            # including hand-set values — ride along unchanged).
+            if list(models_dict) != list(models):
+                existing["models"] = {model_id: models_dict[model_id]
+                                      for model_id in models}
                 status = "updated"
         if status != "unchanged":
             write_opencode_config(oc_config)
@@ -864,9 +878,7 @@ def build_opencode_specs(config, names=None):
             die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
-        models_dict, responses_models = _merge_opencode_models(
-            profile_env.get("OPENCODE_MODEL"),
-            profile_env.get("OPENCODE_RESPONSES_MODEL"), name)
+        models_dict, responses_models = _merge_opencode_models(profile_env, name)
         specs.append((
             name,
             expand_value(base_url_raw, dict(os.environ)),
@@ -1100,9 +1112,7 @@ def default_model_repair_target(config, model, provider_keys):
         return None
     profile = sorted(backed)[0]
     profile_env = backed.get(profile, {}).get("env", {})
-    models, _ = _merge_opencode_models(
-        profile_env.get("OPENCODE_MODEL"),
-        profile_env.get("OPENCODE_RESPONSES_MODEL"), profile)
+    models, _ = _merge_opencode_models(profile_env, profile)
     return f"{profile}/{next(iter(models))}"
 
 
@@ -1409,7 +1419,8 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
     stale credentials, kind, and display names are updated to match the config
     instead of rejected. Launch is N/A (zcode is a desktop app); apply is the
     only call path, so the full model list always overwrites the entry's
-    models — same as `sync_opencode_profiles(prune=True)`. The provider's
+    models — same as `sync_opencode_profiles(prune=True)`, including key
+    order, which is the model-picker order. The provider's
     enabled flag is set to True and source to "custom" on every managed sync.
     Each managed model gets the default limit/modalities stamp unless the
     entry already declares one. Returns "created", "updated", or "unchanged".
@@ -1470,6 +1481,13 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
                 del models_dict[model_id]
+                status = "updated"
+            # Key order is the picker order: a full sync makes the config's
+            # order authoritative too, so reorder (per-model entries —
+            # including hand-set values — ride along unchanged).
+            if list(models_dict) != list(models):
+                existing["models"] = {model_id: models_dict[model_id]
+                                      for model_id in models}
                 status = "updated"
         if status != "unchanged":
             write_zcode_config(zc_config)
@@ -2459,9 +2477,7 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             die(f"OPENCODE_BASE_URL is required for opencode profile: {profile_name}")
         if not api_key_raw:
             die(f"OPENCODE_API_KEY is required for opencode profile: {profile_name}")
-        models_dict, responses_models = _merge_opencode_models(
-            profile_env.get("OPENCODE_MODEL"),
-            profile_env.get("OPENCODE_RESPONSES_MODEL"), profile_name)
+        models_dict, responses_models = _merge_opencode_models(profile_env, profile_name)
         # First positional arg is the model name; default to first in dict
         model, user_args = select_model(models_dict, user_args, profile_name)
         warn_opencode_session_model(user_args, profile_name, model)
@@ -3165,10 +3181,7 @@ def preflight_apply(config, resolved):
                 die(f"OPENCODE_BASE_URL is required for opencode profile: {name}")
             if not api_key:
                 die(f"OPENCODE_API_KEY is required for opencode profile: {name}")
-            oc_models, _ = _merge_opencode_models(
-                profile_env.get("OPENCODE_MODEL"),
-                profile_env.get("OPENCODE_RESPONSES_MODEL"), name,
-            )
+            oc_models, _ = _merge_opencode_models(profile_env, name)
             _parse_opencode_subagents(config, name, profile_env, oc_models)
             expand_value(base_url, dict(os.environ))
             has_opencode = True

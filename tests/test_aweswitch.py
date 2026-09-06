@@ -1682,6 +1682,43 @@ class AweSwitchTests(unittest.TestCase):
             models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
             self.assertEqual(list(models), ["glm-5.1"])
 
+    def test_ensure_opencode_provider_prune_reorders_to_config_order(self):
+        """apply (prune=True) makes the config's model order authoritative:
+        the opencode.json key order — the picker order — is rebuilt to match,
+        with per-model hand-set values preserved. Launch (no prune) never
+        reorders; it stays additive."""
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "oc-glm",
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {
+                        "glm-5.1": {"name": "glm-5.1", "attachment": False},
+                        "glm-5.2": {"name": "glm-5.2"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.2": "glm-5.2", "glm-5.1": "glm-5.1"},
+                                                   prune=True)
+
+            self.assertEqual(status, "updated")
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertEqual(list(models), ["glm-5.2", "glm-5.1"])
+            self.assertIs(models["glm-5.1"]["attachment"], False)
+
+            # launch path: the selected model must not jump the queue
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.1": "glm-5.1"})
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertEqual(list(models), ["glm-5.2", "glm-5.1"])
+
     def test_ensure_opencode_provider_repairs_hand_edited_shapes(self):
         """Hand-edited entries (plain-string model, non-object options/models) must
         not crash; they get repaired to the aweswitch shape in place."""
@@ -1790,17 +1827,24 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_merge_opencode_models_order_is_deterministic(self):
         # responses-only profile: configured order is the model order
-        merged, resp = aweswitch._merge_opencode_models(None, ["b", "a"], "oc-t")
+        merged, resp = aweswitch._merge_opencode_models(
+            {"OPENCODE_RESPONSES_MODEL": ["b", "a"]}, "oc-t")
         self.assertEqual(list(merged), ["b", "a"])
         self.assertEqual(resp, ["b", "a"])
 
-        # mixed profile: OPENCODE_MODEL order leads, responses-only appended
+        # mixed profile: whichever field is written first in env leads the dict
         merged, resp = aweswitch._merge_opencode_models(
-            {"hub/a": "A", "hub/b": "B"}, "peng1/x", "oc-t")
+            {"OPENCODE_MODEL": {"hub/a": "A", "hub/b": "B"},
+             "OPENCODE_RESPONSES_MODEL": "peng1/x"}, "oc-t")
         self.assertEqual(list(merged), ["hub/a", "hub/b", "peng1/x"])
+        merged, resp = aweswitch._merge_opencode_models(
+            {"OPENCODE_RESPONSES_MODEL": "peng1/x",
+             "OPENCODE_MODEL": {"hub/a": "A", "hub/b": "B"}}, "oc-t")
+        self.assertEqual(list(merged), ["peng1/x", "hub/a", "hub/b"])
         with self.assertRaisesRegex(SystemExit, "must not be listed in both"):
             aweswitch._merge_opencode_models(
-                {"peng1/x": "X Display"}, "peng1/x,peng1/y", "oc-t")
+                {"OPENCODE_MODEL": {"peng1/x": "X Display"},
+                 "OPENCODE_RESPONSES_MODEL": "peng1/x,peng1/y"}, "oc-t")
 
     def test_zcode_models_resolve_chat_field_to_provider_kind(self):
         models, kind = aweswitch._resolve_zcode_models(
@@ -2484,6 +2528,40 @@ class AweSwitchTests(unittest.TestCase):
 
             models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
             self.assertEqual(list(models), ["GLM-5.3-Flash"])
+
+    def test_ensure_zcode_provider_prune_reorders_to_config_order(self):
+        """apply makes the config's model order authoritative: the zcode
+        config.json key order — the picker order — is rebuilt to match, with
+        per-model hand-set values preserved."""
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "openai-compatible",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/anthropic",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "GLM-5.3-Flash": {"name": "GLM-5.3-Flash", "limit": {"context": 128000}},
+                        "GLM-5.3": {"name": "GLM-5.3"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
+                    ["GLM-5.3", "GLM-5.3-Flash"],
+                    prune=True,
+                )
+
+            self.assertEqual(status, "updated")
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(list(models), ["GLM-5.3", "GLM-5.3-Flash"])
+            self.assertEqual(models["GLM-5.3-Flash"]["limit"], {"context": 128000})
 
     def test_ensure_zcode_provider_repairs_hand_edited_shapes(self):
         with tempfile.TemporaryDirectory() as tmp:
