@@ -332,7 +332,7 @@ Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各�
 
 #### 按 profile 钉住 subagent 模型
 
-subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose）默认继承主模型，因此本来就会跟着你启动/apply 的 profile 走。两个可选字段可以把它们钉到另一个模型上——典型场景是主模型用 pro、只读侦查类 subagent 用便宜的 flash：
+subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose、Claude Code 的 `Task` subagent）默认继承主模型，因此本来就会跟着你启动/apply 的 profile 走。两个可选字段——外加 Claude Code 侧一个普通 env 键——可以把它们钉到另一个模型上。典型场景是主模型用 pro、只读侦查类 subagent 用便宜的 flash：
 
 ```json
 "oc-glm": {
@@ -356,8 +356,9 @@ subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose
 - `OPENCODE_SUBAGENT_MODEL` — `{agent名: 模型}` 对象。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行，正文提示词永不触碰。agent 钉子是全局单槽位，因此最多一个 OpenCode profile 可以声明该字段。
 - `ZCODE_SUBAGENT_MODEL` — 单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）。apply 一个没有该字段的 profile 会释放上一次的钉子，两个内置 agent 落回继承会话模型。
 - 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
-- **Claude** 不需要新字段：在 profile env 里直接写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——Claude Code 会把 tier 映射到该模型，而 aweswitch 本来就会透传 profile 里的 tier 变量。
-- **Codex** 没有 subagent 体系，无可配置。
+- **Claude** 不需要新字段：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此 `@profile/model` 跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
+- **Claude 按别名细分的替代方案**：在 profile env 里写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——tier 重映射保留每个 agent 的别名区分，而不是一刀切。
+- **Codex** 自带多 agent 工具（`spawn_agent` 等，默认开启），`config.toml` 有 `agents.default_subagent_model` 键；aweswitch 暂不托管，需要的话先手动设置。
 
 切到没有该字段的 profile 会释放 aweswitch 拥有的所有钉子（agent 落回继承主模型——对任何 provider 都合法）；aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
 

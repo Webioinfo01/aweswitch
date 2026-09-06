@@ -321,6 +321,7 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "inherit",
             }
         })
         self.assertEqual(argv[3:], ["--verbose"])
@@ -370,6 +371,7 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "inherit",
             }
         })
         self.assertEqual(env, {})
@@ -413,6 +415,7 @@ class AweSwitchTests(unittest.TestCase):
                 "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "glm-5.1",
                 "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "glm-5.1",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "inherit",
             }
         })
 
@@ -449,6 +452,54 @@ class AweSwitchTests(unittest.TestCase):
         settings_env = json.loads(Path(argv[2]).read_text())["env"]
         self.assertEqual(settings_env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "minimax-m3-mini")
         self.assertEqual(settings_env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "minimax-m3")
+
+    def test_prepare_claude_passes_profile_subagent_model(self):
+        config = {
+            "profiles": {
+                "api": {
+                    "claude": {
+                        "cc-glm": {
+                            "env": {
+                                "ANTHROPIC_BASE_URL": "https://example.test",
+                                "ANTHROPIC_AUTH_TOKEN": "secret",
+                                "ANTHROPIC_MODEL": "glm-5.1",
+                                "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.1-flash",
+                            },
+                        }
+                    }
+                }
+            }
+        }
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cc-glm", [], {})
+
+        settings_env = json.loads(Path(argv[2]).read_text())["env"]
+        self.assertEqual(settings_env["CLAUDE_CODE_SUBAGENT_MODEL"], "glm-5.1-flash")
+
+    def test_prepare_claude_masks_stale_subagent_model(self):
+        # Regression: Claude Code merges --settings with ~/.claude/settings.json,
+        # so a profile that omits the key must still emit an explicit
+        # fall-through value instead of letting a stale pin leak through.
+        config = {
+            "profiles": {
+                "api": {
+                    "claude": {
+                        "cc-glm": {
+                            "env": {
+                                "ANTHROPIC_BASE_URL": "https://example.test",
+                                "ANTHROPIC_AUTH_TOKEN": "secret",
+                                "ANTHROPIC_MODEL": "glm-5.1",
+                            },
+                        }
+                    }
+                }
+            }
+        }
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cc-glm", [], {})
+
+        settings_env = json.loads(Path(argv[2]).read_text())["env"]
+        self.assertEqual(settings_env["CLAUDE_CODE_SUBAGENT_MODEL"], "inherit")
 
     def test_prepare_claude_ignores_top_level_model(self):
         config = {
@@ -1230,6 +1281,27 @@ class AweSwitchTests(unittest.TestCase):
             env = json.loads(settings_path.read_text())["env"]
             self.assertNotIn("ANTHROPIC_API_KEY", env)
             self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "secret")
+            self.assertEqual(env["KEEP_ME"], "yes")
+
+    def test_apply_claude_masks_stale_subagent_model(self):
+        # Regression: apply merges into settings.json env, so a subagent pin
+        # left by a different provider must be overwritten with the explicit
+        # fall-through value instead of surviving the profile switch.
+        with tempfile.TemporaryDirectory() as tmp:
+            settings_path = Path(tmp) / "settings.json"
+            settings_path.write_text(json.dumps({"env": {
+                "CLAUDE_CODE_SUBAGENT_MODEL": "old-gateway/leaked-model",
+                "KEEP_ME": "yes",
+            }}) + "\n")
+
+            result, _ = self._apply(
+                ["apply", "cc-test"], self._make_apply_config(), tmp,
+                extra_env={"CLAUDE_SETTINGS": str(settings_path)},
+            )
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            env = json.loads(settings_path.read_text())["env"]
+            self.assertEqual(env["CLAUDE_CODE_SUBAGENT_MODEL"], "inherit")
             self.assertEqual(env["KEEP_ME"], "yes")
 
     def test_profile_model_label_shows_available_models_for_opencode(self):

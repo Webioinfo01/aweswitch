@@ -2108,6 +2108,14 @@ def build_claude_env(config, profile_name, base_env=None, claude_settings_env=No
             result.setdefault(name_key, result[tier])
         else:
             result[name_key] = "Not set"
+
+    # CLAUDE_CODE_SUBAGENT_MODEL is the global default for Task-tool
+    # subagents (and agent-teams teammates) and outranks per-agent
+    # frontmatter. It merges like the tier vars, so an omitted key would let
+    # a pin from a different provider leak through. "inherit" is Claude
+    # Code's own fall-through value (normal per-agent resolution), so
+    # emitting it keeps the profile authoritative without changing behavior.
+    result.setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "inherit")
     return result
 
 
