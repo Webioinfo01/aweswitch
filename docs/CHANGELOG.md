@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Features
+- Model order is user-configurable by writing order: the key order of `OPENCODE_MODEL` / `ZCODE_CHAT_MODEL` (and for OpenCode, whichever of `OPENCODE_MODEL` / `OPENCODE_RESPONSES_MODEL` is written first in `env` leads the list) is now the model-picker order in OpenCode and zcode. `aweswitch apply` rewrites the target config's model keys to the configured order (hand-set per-model values ride along; launch stays additive and never reorders), so reshuffling the picker is a config edit + apply, no hand-editing of agent configs
+
 ## v0.6.3 - 2026-09-06
 
 ### Features
