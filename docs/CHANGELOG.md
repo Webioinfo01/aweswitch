@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-## v0.6.2 - 2026-09-05
+## v0.6.3 - 2026-09-06
+
+### Features
+- Claude Code: manage `CLAUDE_CODE_SUBAGENT_MODEL` like the tier vars — every launch/apply emits it, writing `inherit` when the profile omits it, so a pin left by a different provider can never leak through
+- Codex: manage `agents.default_subagent_model` per profile — launch injects `-c agents.default_subagent_model=...`, apply manages the `[agents]` key in `config.toml` (releasing it when the profile omits the field, dropping a now-empty table, preserving hand-written roles and other keys)
+
+### Fixes
+- OpenCode/zcode subagent pin sync is now config-authoritative and launch is additive: applying a profile that omits the pin field no longer wipes a pin another profile still declares (the slot is released only when no profile declares it, and the holder's provider is ensured even when not synced), and launching writes the profile's full model list so a pinned non-session model resolves without a prior apply
+
 
 ### Features
 - Add per-profile subagent model pins for OpenCode and zcode, with `@profile/model` cross-profile references
