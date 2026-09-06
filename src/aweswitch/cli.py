@@ -1695,6 +1695,15 @@ CODEX_PROVIDER_KEY = "custom"
 
 CODEX_CUSTOM_TABLE_RE = re.compile(rf"^\s*\[\s*model_providers\.{CODEX_PROVIDER_KEY}(\.|\s*\])")
 
+# Codex's multi-agent settings live in the [agents] table; aweswitch manages
+# only the default_subagent_model key inside it and never touches roles or
+# other keys. TOML also allows a top-level dotted `agents.<key> = ...` form,
+# so both shapes are handled to avoid leaving duplicates behind.
+CODEX_AGENTS_TABLE_RE = re.compile(r"^\s*\[\s*agents\s*\]")
+CODEX_AGENTS_KEY_RE = re.compile(r"^\s*default_subagent_model\s*=")
+CODEX_AGENTS_DOTTED_KEY_RE = re.compile(r"^\s*agents\s*\.\s*default_subagent_model\s*=")
+CODEX_AGENTS_DOTTED_ANY_RE = re.compile(r"^\s*agents\s*\.\s*[A-Za-z_]")
+
 
 def _codex_header_mask(lines):
     """Per-line True when the line opens a TOML table.
@@ -1802,6 +1811,108 @@ def write_codex_config(path, base_url, env_key, model=None):
     if not text.endswith("\n"):
         text += "\n"
     path.write_text(text + "\n" + table)
+
+
+def codex_subagent_model(profile_env, profile_name):
+    """Return the profile's CODEX_SUBAGENT_MODEL pin (str) or None."""
+    raw = profile_env.get("CODEX_SUBAGENT_MODEL")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        die(f"CODEX_SUBAGENT_MODEL must be a non-empty string for {profile_name}")
+    value = raw.strip()
+    if value.startswith("@"):
+        die(
+            f"CODEX_SUBAGENT_MODEL does not support @profile/model references for {profile_name}\n"
+            f"  codex serves sub-agents through the profile's own endpoint — use a model id it serves"
+        )
+    return value
+
+
+def _codex_key_value(line):
+    return line.split("=", 1)[1].strip() if "=" in line else ""
+
+
+def edit_codex_subagent_model(lines, value):
+    """Insert, replace, or release agents.default_subagent_model in TOML lines.
+
+    Companion to write_codex_config's line-based editing: everything outside
+    the managed key is preserved verbatim. `value` (str) pins the key; None
+    releases it, dropping an [agents] table that becomes empty. Returns
+    (lines, note) where note describes the change or is None when the file
+    already reflects the request.
+    """
+    headers = _codex_header_mask(lines)
+    table_start = next(
+        (i for i, (line, is_header) in enumerate(zip(lines, headers))
+         if is_header and CODEX_AGENTS_TABLE_RE.match(line)),
+        None)
+
+    if table_start is not None:
+        span_end = next((j for j in range(table_start + 1, len(lines)) if headers[j]), len(lines))
+        key_idx = next(
+            (j for j in range(table_start + 1, span_end) if CODEX_AGENTS_KEY_RE.match(lines[j])),
+            None)
+        if value is not None:
+            wanted = f'default_subagent_model = "{value}"\n'
+            if key_idx is not None:
+                if lines[key_idx].strip() == wanted.strip():
+                    return lines, None
+                old = _codex_key_value(lines[key_idx])
+                lines[key_idx] = wanted
+                return lines, f"agents.default_subagent_model = {value} (overwrote {old})"
+            lines[table_start + 1:table_start + 1] = [wanted]
+            return lines, f"agents.default_subagent_model = {value} (sub-agents spawn on this model)"
+        if key_idx is None:
+            return lines, None
+        del lines[key_idx]
+        span_end -= 1
+        if all(not lines[j].strip() for j in range(table_start + 1, span_end)):
+            del lines[table_start]
+        return lines, "released agents.default_subagent_model (sub-agents inherit the primary model)"
+
+    # No [agents] table: handle the top-level dotted form, then create one.
+    # Dotted keys only make sense in the header zone — an `agents.x = ...` line
+    # inside another table belongs to that table and must not be touched.
+    header_zone_end = next((j for j, is_header in enumerate(headers) if is_header), len(lines))
+    dotted_idx = next(
+        (i for i in range(header_zone_end) if CODEX_AGENTS_DOTTED_KEY_RE.match(lines[i])),
+        None)
+    if dotted_idx is not None:
+        if value is None:
+            del lines[dotted_idx]
+            return lines, "released agents.default_subagent_model (sub-agents inherit the primary model)"
+        wanted = f'agents.default_subagent_model = "{value}"\n'
+        if lines[dotted_idx].strip() == wanted.strip():
+            return lines, None
+        old = _codex_key_value(lines[dotted_idx])
+        lines[dotted_idx] = wanted
+        return lines, f"agents.default_subagent_model = {value} (overwrote {old})"
+
+    if value is None:
+        return lines, None
+    dotted_siblings = [
+        i for i in range(header_zone_end) if CODEX_AGENTS_DOTTED_ANY_RE.match(lines[i])]
+    if dotted_siblings:
+        # Other dotted agents.* keys already define the table implicitly, so a
+        # new [agents] header would be invalid TOML — stay in dotted form.
+        insert_at = dotted_siblings[-1] + 1
+        lines[insert_at:insert_at] = [f'agents.default_subagent_model = "{value}"\n']
+        return lines, f"agents.default_subagent_model = {value} (sub-agents spawn on this model)"
+
+    if lines and lines[-1].strip():
+        lines.append("\n")
+    lines.append(f"[agents]\ndefault_subagent_model = \"{value}\"\n")
+    return lines, f"agents.default_subagent_model = {value} (sub-agents spawn on this model)"
+
+
+def set_codex_subagent_model(path, value):
+    """Apply an agents.default_subagent_model edit to config.toml; returns the note."""
+    path = Path(path)
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines, note = edit_codex_subagent_model(lines, value)
+    path.write_text("".join(lines), encoding="utf-8")
+    return note
 
 
 def die(message) -> NoReturn:
@@ -2253,6 +2364,9 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
         argv += ["-c", f'model_providers.custom.wire_api="responses"']
         argv += ["-c", f'model_providers.custom.env_key="OPENAI_API_KEY"']
         argv += ["-c", f'disable_response_storage=true']
+        subagent = codex_subagent_model(profile_env, profile_name)
+        if subagent:
+            argv += ["-c", f'agents.default_subagent_model="{subagent}"']
         env["OPENAI_API_KEY"] = api_key
         argv += user_args
     elif provider == "opencode":
@@ -2875,6 +2989,7 @@ def apply_codex_profile(config, profile_name, force):
     if profile_env.get("OPENAI_MODEL"):
         models_dict = normalize_models(profile_env["OPENAI_MODEL"], profile_name, "OPENAI_MODEL")
         model = next(iter(models_dict))
+    subagent = codex_subagent_model(profile_env, profile_name)
 
     settings_path = codex_config_path()
     backup_path = settings_path.with_suffix(".toml.bak")
@@ -2888,6 +3003,7 @@ def apply_codex_profile(config, profile_name, force):
             backed_up = True
 
     write_codex_config(settings_path, base_url, env_key, model)
+    note = set_codex_subagent_model(settings_path, subagent)
 
     click.echo(f"Applied {profile_name} to {settings_path}")
     click.echo(f"  model_provider = {CODEX_PROVIDER_KEY} ({base_url})")
@@ -2895,6 +3011,8 @@ def apply_codex_profile(config, profile_name, force):
         click.echo(f"  model = {model}")
     else:
         click.echo("  model = (unchanged — profile has no OPENAI_MODEL)")
+    if note:
+        click.echo(f"  {note}")
     click.echo(f"  env_key = {env_key} (codex reads this env var at runtime)")
     if backed_up:
         click.echo(f"Backup: {backup_path}")
@@ -2945,6 +3063,7 @@ def preflight_apply(config, resolved):
             expand_value(base_url, dict(os.environ))
             if profile_env.get("OPENAI_MODEL"):
                 normalize_models(profile_env["OPENAI_MODEL"], name, "OPENAI_MODEL")
+            codex_subagent_model(profile_env, name)
             path = codex_config_path()
             if path.exists():
                 try:

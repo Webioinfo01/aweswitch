@@ -566,6 +566,102 @@ class AweSwitchTests(unittest.TestCase):
         # User args passed through
         self.assertIn("--verbose", argv)
 
+    def test_prepare_codex_passes_subagent_model(self):
+        config = self._make_cx_config()
+        config["profiles"]["api"]["codex"]["cx-test"]["env"]["CODEX_SUBAGENT_MODEL"] = "glm-5.3-flash"
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cx-test", [], {"CX_KEY": "sk-test"})
+
+        self.assertIn('agents.default_subagent_model="glm-5.3-flash"', self._c_args(argv))
+
+    def test_prepare_codex_without_subagent_model_adds_no_override(self):
+        config = self._make_cx_config()
+
+        argv, _, _, _ = aweswitch.prepare_run(config, "cx-test", [], {"CX_KEY": "sk-test"})
+
+        self.assertFalse([c for c in self._c_args(argv) if c.startswith("agents.")])
+
+    def test_prepare_codex_rejects_subagent_reference(self):
+        config = self._make_cx_config()
+        config["profiles"]["api"]["codex"]["cx-test"]["env"]["CODEX_SUBAGENT_MODEL"] = "@oc-glm/m1"
+
+        with self.assertRaisesRegex(SystemExit, "does not support @profile/model"):
+            aweswitch.prepare_run(config, "cx-test", [], {"CX_KEY": "sk-test"})
+
+    def test_edit_codex_subagent_model_variants(self):
+        base = [
+            'model = "m"\n',
+            '\n',
+            '[agents]\n',
+            'max_threads = 4\n',
+            '\n',
+            '[agents.researcher]\n',
+            'description = "d"\n',
+            '\n',
+            '[mcp_servers]\n',
+        ]
+        # Pin lands right under the [agents] header; roles and other keys stay.
+        lines, note = aweswitch.edit_codex_subagent_model(list(base), "glm-5.3-flash")
+        header_idx = lines.index("[agents]\n")
+        self.assertEqual(lines[header_idx + 1], 'default_subagent_model = "glm-5.3-flash"\n')
+        text = "".join(lines)
+        self.assertIn("max_threads = 4", text)
+        self.assertIn("[agents.researcher]", text)
+        self.assertIn("sub-agents spawn on this model", note)
+
+        # Same value is idempotent; a different value overwrites.
+        same_lines, same_note = aweswitch.edit_codex_subagent_model(list(lines), "glm-5.3-flash")
+        self.assertEqual(same_lines, lines)
+        self.assertIsNone(same_note)
+        over_lines, over_note = aweswitch.edit_codex_subagent_model(list(lines), "other-m")
+        self.assertIn('default_subagent_model = "other-m"', "".join(over_lines))
+        self.assertIn("overwrote", over_note)
+
+        # Release keeps the table, sibling keys, and role sub-tables.
+        rel_lines, rel_note = aweswitch.edit_codex_subagent_model(list(lines), None)
+        rel_text = "".join(rel_lines)
+        self.assertNotIn("default_subagent_model", rel_text)
+        self.assertIn("[agents]", rel_text)
+        self.assertIn("max_threads = 4", rel_text)
+        self.assertIn("[agents.researcher]", rel_text)
+        self.assertIn("released", rel_note)
+
+        # Releasing our only key drops the now-empty [agents] header.
+        only = ['[agents]\n', 'default_subagent_model = "m"\n', '\n[mcp_servers]\n']
+        drop_lines, _ = aweswitch.edit_codex_subagent_model(only, None)
+        drop_text = "".join(drop_lines)
+        self.assertNotIn("[agents]", drop_text)
+        self.assertIn("[mcp_servers]", drop_text)
+
+        # No table at all: one is appended.
+        fresh = ['model = "m"\n']
+        new_lines, _ = aweswitch.edit_codex_subagent_model(list(fresh), "flash")
+        self.assertIn('[agents]\ndefault_subagent_model = "flash"', "".join(new_lines))
+
+        # Dotted form: replaced and released in place.
+        dotted = ['model = "m"\n', 'agents.max_threads = 4\n', 'agents.default_subagent_model = "old"\n']
+        dot_lines, _ = aweswitch.edit_codex_subagent_model(list(dotted), "new-m")
+        dot_text = "".join(dot_lines)
+        self.assertIn('agents.default_subagent_model = "new-m"', dot_text)
+        rel_dot, _ = aweswitch.edit_codex_subagent_model(list(dotted), None)
+        rel_dot_text = "".join(rel_dot)
+        self.assertNotIn("default_subagent_model", rel_dot_text)
+        self.assertIn("agents.max_threads = 4", rel_dot_text)
+
+        # Dotted siblings but no key: stays dotted (a new [agents] header would
+        # be invalid TOML next to implicit dotted definitions).
+        sib = ['model = "m"\n', 'agents.max_threads = 4\n']
+        sib_lines, _ = aweswitch.edit_codex_subagent_model(list(sib), "flash")
+        sib_text = "".join(sib_lines)
+        self.assertIn('agents.default_subagent_model = "flash"', sib_text)
+        self.assertNotIn("[agents]", sib_text)
+
+        # An agents.x dotted line inside another table belongs to that table.
+        inside = ['[wrapper]\n', 'agents.max_threads = 4\n']
+        inside_lines, _ = aweswitch.edit_codex_subagent_model(list(inside), "flash")
+        self.assertIn('[agents]', "".join(inside_lines))
+        self.assertIn('agents.max_threads = 4', "".join(inside_lines))
+
     def test_prepare_codex_rejects_missing_base_url(self):
         config = {
             "profiles": {
@@ -3821,6 +3917,85 @@ class AweSwitchTests(unittest.TestCase):
             self.assertIn('env_key = "GLM_KEY"', text)
             self.assertIn("[mcp_servers]", text)
             self.assertIn('model = "gpt-5.6-luna"', codex_path.with_suffix(".toml.bak").read_text())
+
+    def test_apply_codex_pins_and_releases_subagent_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "config.toml"
+            config = self._make_apply_config()
+            config["profiles"]["api"]["codex"]["cx-glm"]["env"]["CODEX_SUBAGENT_MODEL"] = "glm-5.3-flash"
+
+            result, _ = self._apply(
+                ["apply", "cx-glm"], config, tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("agents.default_subagent_model = glm-5.3-flash", result.output)
+            text = codex_path.read_text()
+            self.assertIn("[agents]", text)
+            self.assertIn('default_subagent_model = "glm-5.3-flash"', text)
+
+            # Applying a profile without the field releases the pin; the table
+            # it created disappears instead of lingering empty.
+            result, _ = self._apply(
+                ["apply", "cx-plain"], self._make_apply_config(), tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            text = codex_path.read_text()
+            self.assertNotIn("default_subagent_model", text)
+            self.assertNotIn("[agents]", text)
+            self.assertIn("[model_providers.custom]", text)
+
+    def test_apply_codex_preserves_hand_maintained_agents_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "config.toml"
+            codex_path.write_text(
+                '[agents]\n'
+                'max_threads = 4\n'
+                '\n'
+                '[agents.researcher]\n'
+                'description = "deep search"\n'
+            )
+            config = self._make_apply_config()
+            config["profiles"]["api"]["codex"]["cx-glm"]["env"]["CODEX_SUBAGENT_MODEL"] = "glm-5.3-flash"
+
+            result, _ = self._apply(
+                ["apply", "cx-glm"], config, tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            text = codex_path.read_text()
+            self.assertIn('default_subagent_model = "glm-5.3-flash"', text)
+            self.assertIn("max_threads = 4", text)
+            self.assertIn('[agents.researcher]', text)
+            self.assertIn('description = "deep search"', text)
+
+            # Releasing removes only the managed key.
+            result, _ = self._apply(
+                ["apply", "cx-plain"], self._make_apply_config(), tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+            text = codex_path.read_text()
+            self.assertNotIn("default_subagent_model", text)
+            self.assertIn("max_threads = 4", text)
+            self.assertIn('[agents.researcher]', text)
+
+    def test_apply_codex_subagent_reference_dies_before_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "config.toml"
+            codex_path.write_text('model = "keep"\n')
+            config = self._make_apply_config()
+            config["profiles"]["api"]["codex"]["cx-glm"]["env"]["CODEX_SUBAGENT_MODEL"] = "@oc-test/m1"
+
+            result, _ = self._apply(
+                ["apply", "cx-glm"], config, tmp,
+                extra_env={"CODEX_CONFIG": str(codex_path)},
+            )
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("does not support @profile/model", result.output)
+            self.assertEqual(codex_path.read_text(), 'model = "keep"\n')
 
     def test_apply_codex_plain_key_warns_and_uses_openai_env_key(self):
         with tempfile.TemporaryDirectory() as tmp:

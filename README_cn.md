@@ -358,7 +358,7 @@ subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose
 - 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
 - **Claude** 不需要新字段：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此 `@profile/model` 跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
 - **Claude 按别名细分的替代方案**：在 profile env 里写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——tier 重映射保留每个 agent 的别名区分，而不是一刀切。
-- **Codex** 自带多 agent 工具（`spawn_agent` 等，默认开启），`config.toml` 有 `agents.default_subagent_model` 键；aweswitch 暂不托管，需要的话先手动设置。
+- **Codex** —— 在 profile env 里写 `CODEX_SUBAGENT_MODEL`（该 profile 端点服务的模型 ID）。launch 以 `-c agents.default_subagent_model=...` 注入；apply 则托管 `~/.codex/config.toml` 里 `[agents]` 表中的同名键——它是 codex 对 `spawn_agent` sub-agent 的默认模型（主 agent 显式指定 spawn 模型时仍以后者为准）。apply 一个没有该字段的 profile 会释放这个键（随之变空的 `[agents]` 表一并消失）；手写的 `[agents]` 角色和其他键原样保留。不支持 `@profile/model` 引用——codex 的 sub-agent 走会话唯一的端点。
 
 切到没有该字段的 profile 会释放 aweswitch 拥有的所有钉子（agent 落回继承主模型——对任何 provider 都合法）；aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
 
