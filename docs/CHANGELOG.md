@@ -1,9 +1,12 @@
 # change log
 
-## Unreleased
+## v0.6.4 - 2026-09-06
+
+Model order is user-configurable by editing order: the model key order in the aweswitch config is the model-picker order in OpenCode and zcode, and reshuffling the picker is a config edit + `aweswitch apply`, no hand-editing of agent configs.
 
 ### Features
-- Model order is user-configurable by writing order: the key order of `OPENCODE_MODEL` / `ZCODE_CHAT_MODEL` (and for OpenCode, whichever of `OPENCODE_MODEL` / `OPENCODE_RESPONSES_MODEL` is written first in `env` leads the list) is now the model-picker order in OpenCode and zcode. `aweswitch apply` rewrites the target config's model keys to the configured order (hand-set per-model values ride along; launch stays additive and never reorders), so reshuffling the picker is a config edit + apply, no hand-editing of agent configs
+- OpenCode: apply now stamps each managed model a descending `release_date` following the config's key order (first model = `9999-12-31`). OpenCode's picker sorts models by release date and then by title — it never reads JSON key order, so without the stamps the picker fell back to alphabetical. The stamps also make the first configured model the provider's default. A hand-set `release_date` that contradicts the config order is reconciled on apply; launch stays additive and never re-stamps, and favorites/recents still float to the top (app behavior)
+- apply (prune=True) also rebuilds the provider's model key order to match the config: whichever of `OPENCODE_MODEL` / `OPENCODE_RESPONSES_MODEL` is written first in `env` leads the list (zcode unchanged — its picker order follows the key order as before)
 
 ## v0.6.3 - 2026-09-06
 
