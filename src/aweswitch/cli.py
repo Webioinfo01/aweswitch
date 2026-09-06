@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import quote
@@ -687,6 +688,32 @@ def _stamp_opencode_model_defaults(models_dict, model_ids):
     return changed
 
 
+def _stamp_opencode_release_dates(models_dict, model_ids):
+    """Stamp release_date on the named models in descending config order.
+
+    OpenCode's model picker sorts by release_date (newest first) and then by
+    title — it never reads the config's JSON key order, so without dates the
+    picker falls back to alphabetical. Mapping config position to descending
+    dates (first model = 9999-12-31) makes the picker, and the provider's
+    default model, follow the aweswitch config. Unlike the fill-only stamps
+    this overwrites: the date IS the order signal, so a hand-set date that
+    contradicts the config order is reconciled on apply. apply-only — launch
+    never re-stamps, so an additive launch cannot reshuffle the picker.
+    Returns True when anything changed.
+    """
+    changed = False
+    newest = date(9999, 12, 31)
+    for i, model_id in enumerate(model_ids):
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        want = (newest - timedelta(days=i)).isoformat()
+        if entry.get("release_date") != want:
+            entry["release_date"] = want
+            changed = True
+    return changed
+
+
 def _stamp_opencode_reasoning_variants(models_dict, model_ids):
     """Add default reasoning-effort variants to the named models.
 
@@ -735,11 +762,14 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     stale credentials and display names are updated to match the config instead
     of rejected. Launch passes only the selected model (additive); `aweswitch
     apply` passes the full list with prune=True so the entry matches the config
-    exactly — including key order, which is the model-picker order. `responses_models` stamps a per-model Responses npm override on
-    those models and removes stale ones; it only touches the models passed in
-    `models`. Every managed model also gets the default modalities/attachment
-    declaration (text+image input, attachments on) unless the entry already
-    declares one — hand-set values win. The provider-level npm stays
+    exactly — including key order, and descending release_date stamps that
+    make OpenCode's picker follow the config order (the picker sorts by
+    release_date, never by key order). `responses_models` stamps a per-model
+    Responses npm override on those models and removes stale ones; it only
+    touches the models passed in `models`. Every managed model also gets the
+    default modalities/attachment declaration (text+image input, attachments
+    on) unless the entry already declares one — hand-set values win. The
+    provider-level npm stays
     @ai-sdk/openai-compatible by default. Returns "created", "updated", or
     "unchanged".
     """
@@ -799,6 +829,12 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
                 existing["models"] = {model_id: models_dict[model_id]
                                       for model_id in models}
                 status = "updated"
+            # OpenCode's picker sorts by release_date (newest first), then
+            # title — it never reads key order. The descending stamps are
+            # what actually make the picker follow the config; the reorder
+            # above keeps the file itself honest.
+            if _stamp_opencode_release_dates(existing["models"], models):
+                status = "updated"
         if status != "unchanged":
             write_opencode_config(oc_config)
     else:
@@ -810,6 +846,7 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
         _stamp_opencode_model_defaults(entry["models"], models)
         _stamp_opencode_reasoning_variants(entry["models"], models)
         _stamp_opencode_responses_models(entry["models"], models, responses_models)
+        _stamp_opencode_release_dates(entry["models"], models)
         providers[provider_name] = entry
         write_opencode_config(oc_config)
         status = "created"

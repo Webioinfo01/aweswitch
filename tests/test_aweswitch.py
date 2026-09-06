@@ -1719,6 +1719,55 @@ class AweSwitchTests(unittest.TestCase):
             models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
             self.assertEqual(list(models), ["glm-5.2", "glm-5.1"])
 
+    def test_ensure_opencode_provider_apply_stamps_release_dates_in_config_order(self):
+        """OpenCode's picker sorts by release_date (newest first) and ignores
+        key order. apply stamps descending dates in config order — the first
+        model leads the picker and becomes the provider default — and
+        reconciles a hand-set date that contradicts the config order. Launch
+        never stamps, so it cannot reshuffle the picker."""
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            oc_path.write_text(json.dumps({"provider": {
+                "oc-glm": {
+                    "name": "oc-glm",
+                    "options": {"baseURL": "https://zhipu.com/v1", "apiKey": "{env:GLM_KEY}"},
+                    "models": {
+                        "glm-5.1": {"name": "glm-5.1", "release_date": "2020-01-01"},
+                        "glm-5.2": {"name": "glm-5.2"},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.2": "glm-5.2", "glm-5.1": "glm-5.1"},
+                                                   prune=True)
+
+            self.assertEqual(status, "updated")
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            dates = [models[m]["release_date"] for m in ("glm-5.2", "glm-5.1")]
+            self.assertEqual(dates, sorted(dates, reverse=True))
+            self.assertNotEqual(dates[0], dates[1])
+            self.assertGreater(dates[0], "2020-01-01")  # hand-set date reconciled
+
+            # idempotent: a second apply changes nothing
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                status = aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.2": "glm-5.2", "glm-5.1": "glm-5.1"},
+                                                   prune=True)
+            self.assertEqual(status, "unchanged")
+
+            # launch path: an added model gets no date, existing dates untouched
+            with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                aweswitch.ensure_opencode_provider("https://zhipu.com/v1",
+                                                   "{env:GLM_KEY}", "oc-glm",
+                                                   {"glm-5.3": "glm-5.3"})
+            models = json.loads(oc_path.read_text())["provider"]["oc-glm"]["models"]
+            self.assertNotIn("release_date", models["glm-5.3"])
+            self.assertEqual(models["glm-5.2"]["release_date"], dates[0])
+
     def test_ensure_opencode_provider_repairs_hand_edited_shapes(self):
         """Hand-edited entries (plain-string model, non-object options/models) must
         not crash; they get repaired to the aweswitch shape in place."""
