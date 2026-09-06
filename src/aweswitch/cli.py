@@ -288,13 +288,17 @@ def _edit_agent_model_line(path, new_value):
     return True
 
 
-def ensure_opencode_agents(subagents):
-    """Sync agent-file model pins to the profile being applied.
+def ensure_opencode_agents(subagents, release_missing=True):
+    """Sync agent-file model pins to the active pin set.
 
     subagents maps agent name -> (dep_profile_or_None, "provider/model").
-    Agents previously pinned by aweswitch (sidecar) but absent from this map
-    get their model line removed — the agent then inherits the primary
-    model. Files not named here are never touched. Returns change notes.
+    With release_missing (the apply path), agents previously pinned by
+    aweswitch (sidecar) but absent from this map get their model line
+    removed — the agent then inherits the primary model. The launch path
+    passes release_missing=False: launching one profile only (re)writes the
+    pins it declares and never releases pins another profile still owns;
+    owned names accumulate and the next apply reconciles them. Files not
+    named here are never touched. Returns change notes.
     """
     agents_dir = opencode_agents_dir()
     # Validate every named agent file before the first edit so a typo dies
@@ -309,13 +313,15 @@ def ensure_opencode_agents(subagents):
             )
     owned = load_managed_opencode_agents()
     changes = []
-    for agent in sorted(owned - set(subagents)):
-        if _edit_agent_model_line(agents_dir / f"{agent}.md", None):
-            changes.append(f"released agent '{agent}' (inherits primary model)")
+    if release_missing:
+        for agent in sorted(owned - set(subagents)):
+            if _edit_agent_model_line(agents_dir / f"{agent}.md", None):
+                changes.append(f"released agent '{agent}' (inherits primary model)")
+        owned = set()
     for agent, (_dep, ref) in sorted(subagents.items()):
         if _edit_agent_model_line(agents_dir / f"{agent}.md", ref):
             changes.append(f"pinned agent '{agent}' -> {ref}")
-    set_managed_opencode_agents(set(subagents))
+    set_managed_opencode_agents(owned | set(subagents))
     return changes
 
 
@@ -561,6 +567,21 @@ def _parse_opencode_subagents(config, profile_name, profile_env, own_models):
     return result
 
 
+def _opencode_defining_profiles(config):
+    """Names of opencode profiles whose env declares OPENCODE_SUBAGENT_MODEL.
+
+    The agent pin slot is global, so its holder is resolved across the whole
+    config — not just the profiles a particular apply named.
+    """
+    group = kind_group(config, "api").get("opencode", {})
+    if not isinstance(group, dict):
+        die("provider entries must be an object: api.opencode")
+    return sorted(
+        name for name, entry in group.items()
+        if isinstance(entry, dict) and isinstance(entry.get("env"), dict)
+        and entry["env"].get("OPENCODE_SUBAGENT_MODEL") is not None)
+
+
 def _zcode_dep_models(group, dep, key, profile_name):
     entry = group.get(dep)
     if not isinstance(entry, dict) or not isinstance(entry.get("env"), dict):
@@ -587,6 +608,22 @@ def _parse_zcode_subagent(config, profile_name, profile_env, own_models):
     return _resolve_subagent_ref(
         raw, profile_name, "ZCODE_SUBAGENT_MODEL", own_models,
         lambda dep: _zcode_dep_models(group, dep, "ZCODE_SUBAGENT_MODEL", profile_name))
+
+
+def _zcode_defining_profiles(config):
+    """Names of zcode profiles whose env declares ZCODE_SUBAGENT_MODEL.
+
+    The built-in override slot is global, so its holder is resolved across
+    the whole config — not just the profiles a particular apply named. An
+    empty string counts as unset, mirroring _parse_zcode_subagent.
+    """
+    group = kind_group(config, "api").get("zcode", {})
+    if not isinstance(group, dict):
+        die("provider entries must be an object: api.zcode")
+    return sorted(
+        name for name, entry in group.items()
+        if isinstance(entry, dict) and isinstance(entry.get("env"), dict)
+        and entry["env"].get("ZCODE_SUBAGENT_MODEL") not in (None, ""))
 
 
 def _stamp_opencode_responses_models(models_dict, model_ids, responses_models):
@@ -770,6 +807,41 @@ def ensure_opencode_provider(base_url, api_key_ref, provider_name, models,
     return status
 
 
+def write_opencode_launch(oc_write_info):
+    """Perform the launch-time opencode writes for a prepared profile.
+
+    Dep providers, the session provider with the profile's full model list,
+    and the launched profile's own agent pins. Launch is additive: models
+    accumulate (pins too — nothing another profile owns is released);
+    reconciling the global agent slot with the aweswitch config is apply's
+    job. Returns change notes to echo.
+    """
+    for dep in oc_write_info.get("deps", []):
+        ensure_opencode_provider(
+            dep["base_url"],
+            dep["api_key_ref"],
+            dep["provider_name"],
+            dep["models"],
+            display_name=dep["display_name"],
+            responses_models=set(dep["responses_models"]),
+        )
+    launch_models = dict(oc_write_info.get("models") or {})
+    launch_models.setdefault(
+        oc_write_info["model"], oc_write_info["model_display_name"])
+    ensure_opencode_provider(
+        oc_write_info["base_url"],
+        oc_write_info["api_key_ref"],
+        oc_write_info["provider_name"],
+        launch_models,
+        display_name=oc_write_info["display_name"],
+        responses_models=set(oc_write_info["responses_models"]),
+    )
+    subagents = oc_write_info.get("subagents") or {}
+    if not subagents:
+        return []
+    return ensure_opencode_agents(subagents, release_missing=False)
+
+
 def build_opencode_specs(config, names=None):
     """Validate and materialize the sync spec for every (or the named) profile.
 
@@ -810,38 +882,43 @@ def build_opencode_specs(config, names=None):
 def sync_opencode_profiles(config, names=None):
     """Write every (or the named) opencode profile into opencode.json.
 
-    Unlike a launch, which only adds the selected model, sync replaces each
-    provider entry (base URL, API key ref, display name) and its full model
-    list so the file matches the aweswitch config — models removed from the
-    config disappear from opencode too. Providers the config doesn't know
-    about are left alone. All profiles are validated before anything is
-    written. Agent model pins are a single global slot: at most one synced
-    profile may define OPENCODE_SUBAGENT_MODEL, its pins are written after
-    the providers, and a sync where no profile defines any releases the
-    previously pinned agents. Returns (profile, status, model_count,
-    agent_notes) tuples.
+    Unlike a launch, which only adds models, sync replaces each provider
+    entry (base URL, API key ref, display name) and its full model list so
+    the file matches the aweswitch config — models removed from the config
+    disappear from opencode too. Providers the config doesn't know about
+    are left alone. All profiles are validated before anything is written.
+    Agent model pins are a single global slot resolved from the whole
+    config, not just the synced names: applying one profile never releases
+    pins another profile still declares, and the slot is released only when
+    no opencode profile defines it. The pin-holding profile's provider (and
+    any cross-profile dep) is ensured even when this sync didn't name it.
+    Returns (profile, status, model_count, agent_notes) tuples.
     """
     specs = build_opencode_specs(config, names)
     if specs:
         load_opencode_config()
         load_managed_opencode_providers()
-    defining = [name for name, *_rest, subagents in specs if subagents]
+    defining = _opencode_defining_profiles(config)
     if len(defining) > 1:
         die(
             "agent model pins are a single slot, but several opencode profiles "
-            f"define OPENCODE_SUBAGENT_MODEL: {', '.join(sorted(defining))}\n"
+            f"define OPENCODE_SUBAGENT_MODEL: {', '.join(defining)}\n"
             "  Keep the field on one profile only"
         )
-    # Cross-profile refs ("@profile/model") need that profile's provider to
-    # exist; ensure dependency providers before the pins reference them.
-    dep_names = sorted({
-        dep
-        for _name, *_rest, subagents in specs
-        for dep, _ref in subagents.values()
-        if dep
-    })
+    active_name = defining[0] if defining else None
+    active_spec = next((spec for spec in specs if spec[0] == active_name), None)
+    if active_name is not None and active_spec is None:
+        active_spec = build_opencode_specs(config, [active_name])[0]
+    active_subagents = active_spec[6] if active_spec else {}
+    # The active pins must resolve the moment they are written: @dep
+    # providers and the pin-holding profile's own provider are ensured even
+    # when this sync didn't name them.
+    synced_names = {spec[0] for spec in specs}
+    dep_names = {dep for dep, _ref in active_subagents.values() if dep}
+    if active_name is not None and active_name not in synced_names:
+        dep_names.add(active_name)
     for name, base_url, api_key_ref, models, display_name, responses_models, _sub in \
-            build_opencode_specs(config, dep_names):
+            build_opencode_specs(config, sorted(dep_names)):
         ensure_opencode_provider(base_url, api_key_ref, name, models,
                                  display_name=display_name, prune=True,
                                  responses_models=responses_models)
@@ -854,11 +931,11 @@ def sync_opencode_profiles(config, names=None):
                                      responses_models=responses_models),
             len(models),
         ))
-    active_subagents = next((subagents for _n, *_r, subagents in specs if subagents), {})
     agent_notes = ensure_opencode_agents(active_subagents)
-    pinning = defining[0] if defining else (results[0][0] if results else None)
+    pinning = active_name or (results[0][0] if results else None)
+    notes_row = pinning if pinning in synced_names else (results[0][0] if results else None)
     return [
-        (name, status, model_count, agent_notes if name == pinning else [])
+        (name, status, model_count, agent_notes if name == notes_row else [])
         for name, status, model_count in results
     ]
 
@@ -1454,32 +1531,38 @@ def sync_zcode_profiles(config, names=None):
     removed from the config disappear from zcode too. Providers the config
     doesn't know about are left alone. All profiles are validated before
     anything is written. The built-in agent override is a single global
-    slot: at most one synced profile may define ZCODE_SUBAGENT_MODEL, and a
-    sync where no profile defines it releases the previous override.
+    slot resolved from the whole config, not just the synced names:
+    applying one profile never releases an override another profile still
+    declares, and the slot is released only when no zcode profile defines
+    it. The pin-holding profile's provider (and any cross-profile dep) is
+    ensured even when this sync didn't name it.
     Returns (profile, status, model_count, agent_notes) tuples.
     """
     specs = build_zcode_specs(config, names)
     if specs:
         load_zcode_config()
         load_managed_zcode_providers()
-    defining = [name for name, *_rest, subagent in specs if subagent]
+    defining = _zcode_defining_profiles(config)
     if len(defining) > 1:
         die(
             "the built-in agent override is a single slot, but several zcode profiles "
-            f"define ZCODE_SUBAGENT_MODEL: {', '.join(sorted(defining))}\n"
+            f"define ZCODE_SUBAGENT_MODEL: {', '.join(defining)}\n"
             "  Keep the field on one profile only"
         )
-    # Cross-profile refs ("@profile/model") need that profile's provider to
-    # exist; ensure dependency providers before the override references them.
-    dep_names = sorted({
-        dep
-        for _name, *_rest, subagent in specs
-        if subagent
-        for dep in (subagent[0],)
-        if dep
-    })
+    active_name = defining[0] if defining else None
+    active_spec = next((spec for spec in specs if spec[0] == active_name), None)
+    if active_name is not None and active_spec is None:
+        active_spec = build_zcode_specs(config, [active_name])[0]
+    active_subagent = active_spec[6] if active_spec else None
+    # The active override must resolve the moment it is written: @dep
+    # providers and the pin-holding profile's own provider are ensured even
+    # when this sync didn't name them.
+    synced_names = {spec[0] for spec in specs}
+    dep_names = {active_subagent[0]} if active_subagent and active_subagent[0] else set()
+    if active_name is not None and active_name not in synced_names:
+        dep_names.add(active_name)
     for name, base_url, api_key_ref, kind, models, display_name, _sub in \
-            build_zcode_specs(config, dep_names):
+            build_zcode_specs(config, sorted(dep_names)):
         ensure_zcode_provider(base_url, api_key_ref, name, kind, models,
                               display_name=display_name, prune=True)
     results = []
@@ -1490,11 +1573,11 @@ def sync_zcode_profiles(config, names=None):
                                   display_name=display_name, prune=True),
             len(models),
         ))
-    active_subagent = next((subagent for _n, *_r, subagent in specs if subagent), None)
     agent_notes = ensure_zcode_agent_overrides(active_subagent)
-    pinning = defining[0] if defining else (results[0][0] if results else None)
+    pinning = active_name or (results[0][0] if results else None)
+    notes_row = pinning if pinning in synced_names else (results[0][0] if results else None)
     return [
-        (name, status, model_count, agent_notes if name == pinning else [])
+        (name, status, model_count, agent_notes if name == notes_row else [])
         for name, status, model_count in results
     ]
 
@@ -2392,6 +2475,11 @@ def prepare_run(config, profile_name, user_args, base_env=None, claude_settings_
             "api_key_ref": api_key_ref,
             "provider_name": profile_name,
             "model": model,
+            # The full model list: the launch write registers every model the
+            # profile serves, so a subagent pin on a non-session model (e.g.
+            # primary glm-5.2, explore pinned to glm-5.1) resolves even when
+            # the user never ran apply.
+            "models": models_dict,
             "display_name": profile_env.get("OPENCODE_NAME") or profile_name,
             "model_display_name": models_dict.get(model, model),
             "responses_models": list(responses_models),
@@ -3476,24 +3564,7 @@ def run_profile(ctx, category, title):
             _auto_bookmark(category, profile_name, title=title)
     run_argv, run_env, oc_write_info, account_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
     if oc_write_info is not None:
-        for dep in oc_write_info.get("deps", []):
-            ensure_opencode_provider(
-                dep["base_url"],
-                dep["api_key_ref"],
-                dep["provider_name"],
-                dep["models"],
-                display_name=dep["display_name"],
-                responses_models=set(dep["responses_models"]),
-            )
-        ensure_opencode_provider(
-            oc_write_info["base_url"],
-            oc_write_info["api_key_ref"],
-            oc_write_info["provider_name"],
-            {oc_write_info["model"]: oc_write_info["model_display_name"]},
-            display_name=oc_write_info["display_name"],
-            responses_models=set(oc_write_info["responses_models"]),
-        )
-        for note in ensure_opencode_agents(oc_write_info.get("subagents") or {}):
+        for note in write_opencode_launch(oc_write_info):
             click.echo(note)
     if account_info is not None:
         ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])

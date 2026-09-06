@@ -1188,6 +1188,49 @@ class AweSwitchTests(unittest.TestCase):
         self.assertEqual(oc_info["deps"][0]["provider_name"], "oc-step")
         self.assertEqual(oc_info["deps"][0]["models"], {"step-3.7-flash": "step-3.7-flash"})
 
+    def test_launch_write_registers_pinned_models_and_never_releases(self):
+        config = self._make_oc_config()  # oc-test: glm-5.1 + glm-5.2
+        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
+            "explore": "glm-5.1"}
+        config["profiles"]["api"]["opencode"]["oc-other"] = {"env": {
+            "OPENCODE_BASE_URL": "https://other.example/v1",
+            "OPENCODE_API_KEY": "${OTHER_KEY}",
+            "OPENCODE_MODEL": ["other-m"],
+        }}
+        with tempfile.TemporaryDirectory() as tmp:
+            oc_path = Path(tmp) / "opencode.json"
+            agents_dir = oc_path.parent / "agents"
+            agents_dir.mkdir()
+            (agents_dir / "explore.md").write_text("---\ndescription: scout\n---\nbody\n")
+
+            def launch(profile, args, env):
+                _, _, oc_info, _ = aweswitch.prepare_run(config, profile, args, env)
+                with unittest.mock.patch("aweswitch.cli.opencode_config_path", return_value=oc_path):
+                    return list(aweswitch.write_opencode_launch(oc_info))
+
+            # Launch on the primary model still registers the pinned model.
+            notes = launch("oc-test", ["glm-5.2"], {"OC_KEY": "k", "OTHER_KEY": "o"})
+            self.assertEqual(notes, ["pinned agent 'explore' -> oc-test/glm-5.1"])
+            models = json.loads(oc_path.read_text())["provider"]["oc-test"]["models"]
+            self.assertEqual(sorted(models), ["glm-5.1", "glm-5.2"])
+            self.assertEqual(
+                (agents_dir / "explore.md").read_text(),
+                "---\ndescription: scout\nmodel: oc-test/glm-5.1\n---\nbody\n")
+
+            # Launching a profile without pins never releases another
+            # profile's pin; models stay additive.
+            notes = launch("oc-other", [], {"OC_KEY": "k", "OTHER_KEY": "o"})
+            self.assertEqual(notes, [])
+            self.assertEqual(
+                (agents_dir / "explore.md").read_text(),
+                "---\ndescription: scout\nmodel: oc-test/glm-5.1\n---\nbody\n")
+            data = json.loads(oc_path.read_text())["provider"]
+            self.assertEqual(sorted(data["oc-test"]["models"]), ["glm-5.1", "glm-5.2"])
+            self.assertEqual(sorted(data["oc-other"]["models"]), ["other-m"])
+            sidecar = json.loads(
+                (oc_path.parent / ".aweswitch-managed-providers.json").read_text())
+            self.assertEqual(sidecar["agents"], ["explore"])
+
     def _make_oc_db(self, tmp, session_id, user_models):
         """Create a minimal opencode.db: one session plus user messages.
 
@@ -2046,6 +2089,18 @@ class AweSwitchTests(unittest.TestCase):
                 (oc_path.parent / ".aweswitch-managed-providers.json").read_text())
             self.assertEqual(sidecar["agents"], ["explore"])
 
+            # Applying another profile keeps the pin oc-glm still declares
+            # (and ensures oc-glm's provider so the pin keeps resolving).
+            results, data = self._sync_agents(config, names=["oc-xiaomi"], oc_path=oc_path)
+            self.assertEqual(results[0][3], [])
+            self.assertIn("oc-glm", data["provider"])
+            self.assertIn("oc-xiaomi", data["provider"])
+            self.assertEqual(
+                (agents_dir / "explore.md").read_text(),
+                "---\ndescription: scout\nmodel: oc-glm/glm-5.1\n---\nbody stays\n")
+
+            # The slot is released only once no profile declares pins.
+            del config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"]
             results, _ = self._sync_agents(config, names=["oc-xiaomi"], oc_path=oc_path)
             self.assertEqual(
                 results[0][3], ["released agent 'explore' (inherits primary model)"])
@@ -2150,6 +2205,23 @@ class AweSwitchTests(unittest.TestCase):
             })
             self.assertEqual(state["disabledAgentIds"], ["judge"])
 
+            # Applying another profile keeps the override zc-a still declares
+            # (and ensures zc-a's provider so the override keeps resolving).
+            with unittest.mock.patch.dict(os.environ, env):
+                with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
+                    results = aweswitch.sync_zcode_profiles(config, ["zc-b"])
+
+            self.assertEqual(results[0][3], [])
+            self.assertIn("zc-a", json.loads(zc_path.read_text())["provider"])
+            state = json.loads(state_path.read_text())
+            self.assertEqual(state["builtInModelOverrides"], {
+                "custom-agent": "user/pin",
+                "Explore": "custom:zc-a:m1",
+                "general-purpose": "custom:zc-a:m1",
+            })
+
+            # The slot is released only once no profile declares it.
+            del config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"]
             with unittest.mock.patch.dict(os.environ, env):
                 with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
                     results = aweswitch.sync_zcode_profiles(config, ["zc-b"])

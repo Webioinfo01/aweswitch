@@ -323,7 +323,7 @@ aweswitch config restore <file>       # 从指定备份文件恢复 settings
 
 - **Claude** — env 合并进 `~/.claude/settings.json`；无关设置会保留，而新 profile 未声明的旧 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 认证替代项会被移除。重启会话或用 `/model` 选择新模型。
 - **Codex** — provider 表和默认模型写入 `~/.codex/config.toml`（`mcp_servers` 等已有内容原样保留；首次写入会生成 `.toml.bak` 备份）。API key 仍留在环境里：`env_key` 指向 profile 引用的 `${VAR_NAME}`，codex 运行时从你的 shell 读取。
-- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。每个受管模型默认带 `low` / `medium` / `high` / `xhigh` / `max` 五档思考强度 variant，可在 OpenCode 中用 `ctrl+t` 切换。手写 variant 永远优先；若 OpenAI 官方 Responses 端点拒绝 `max`，切回有效档位即可。启动 profile 只会增量写入当次模型；apply 一次性全量推送。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune orphans` 可将其删除。该模式下的所有权从不根据配置形状猜测，手写条目默认不动，除非显式选择：`--prune old-a,old-b` 只删除点名条目（必须存在、且不能有同名 profile 背书）；`--prune all` 删除所有没有 profile 对应的 provider——即完全对齐，手写条目也会被删；`--prune orphans` 只清理已登记的残留条目；config 里一个 OpenCode profile 都没有时会拒绝执行。任何 prune 都不会让文件顶层 `model` 悬空：若其指向的 provider 被删，会重指到按字母序第一个 profile 的第一个配置模型。`--dry-run` 可零写入预览 sync 与清理计划（双 agent 批量时只预览 OpenCode 侧，zcode 侧清理没有预览）。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
+- **OpenCode** — provider 条目（base URL、key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.config/opencode/opencode.json`：存在则覆盖、不存在则添加。每个受管模型默认带 `low` / `medium` / `high` / `xhigh` / `max` 五档思考强度 variant，可在 OpenCode 中用 `ctrl+t` 切换。手写 variant 永远优先；若 OpenAI 官方 Responses 端点拒绝 `max`，切回有效档位即可。启动 profile 会以增量方式写入该 profile 的完整模型列表（不会删除任何已有条目）；apply 则精确对齐。aweswitch 会在 `.aweswitch-managed-providers.json` 中登记自己管理的 provider key；已登记的 profile 改名或删除后，apply 会对残留条目发出警告（老 session 锚定着这些旧模型 ID），`aweswitch apply --opencode --prune orphans` 可将其删除。该模式下的所有权从不根据配置形状猜测，手写条目默认不动，除非显式选择：`--prune old-a,old-b` 只删除点名条目（必须存在、且不能有同名 profile 背书）；`--prune all` 删除所有没有 profile 对应的 provider——即完全对齐，手写条目也会被删；`--prune orphans` 只清理已登记的残留条目；config 里一个 OpenCode profile 都没有时会拒绝执行。任何 prune 都不会让文件顶层 `model` 悬空：若其指向的 provider 被删，会重指到按字母序第一个 profile 的第一个配置模型。`--dry-run` 可零写入预览 sync 与清理计划（双 agent 批量时只预览 OpenCode 侧，zcode 侧清理没有预览）。含 `/` 的模型 ID（如 `hub/seed-evolving`）在模型选择器中以完整 ID 显示，不同 producer 的条目不会再长得一样。
 - **zcode** — provider 条目（base URL、环境变量 key 引用、显示名）及其**完整模型列表**按 upsert 写入 `~/.zcode/v2/config.json`。zcode 的一个 provider 只支持一种 API 格式，因此 profile 只能声明 `ZCODE_CHAT_MODEL`（chat completions，provider `kind: openai-compatible`）**或** `ZCODE_RESPONSES_MODEL`（Responses API，provider `kind: openai`），二者互斥——需要两种格式就拆成两个 profile。zcode 是桌面 GUI 应用，因此 zcode profile 只支持 apply，不支持启动。`--zcode` 会同步全部 zcode profile；aweswitch 用 `.aweswitch-managed-providers.json` 登记自己管理的 provider，默认只警告孤儿条目，显式加 `--prune`（`orphans` / `all` / 点名）才清理；`--dry-run` 没有 zcode 侧预览。
 
 Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各最多一个 profile；OpenCode 和 zcode 的 provider 天然并存，可以一次应用多个——裸 `aweswitch apply` 会批量同步两侧全部 profile（某一侧没有 profile 时跳过并提示），`--opencode` / `--zcode` 把批量收窄到单个 agent。
@@ -354,13 +354,13 @@ subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose
 ```
 
 - `OPENCODE_SUBAGENT_MODEL` — `{agent名: 模型}` 对象。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行，正文提示词永不触碰。agent 钉子是全局单槽位，因此最多一个 OpenCode profile 可以声明该字段。
-- `ZCODE_SUBAGENT_MODEL` — 单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）。apply 一个没有该字段的 profile 会释放上一次的钉子，两个内置 agent 落回继承会话模型。
+- `ZCODE_SUBAGENT_MODEL` — 单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）。只有当配置里不再有任何 zcode profile 声明该字段时，覆盖才会被释放，两个内置 agent 落回继承会话模型。
 - 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
 - **Claude** 不需要新字段：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此 `@profile/model` 跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
 - **Claude 按别名细分的替代方案**：在 profile env 里写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——tier 重映射保留每个 agent 的别名区分，而不是一刀切。
 - **Codex** —— 在 profile env 里写 `CODEX_SUBAGENT_MODEL`（该 profile 端点服务的模型 ID）。launch 以 `-c agents.default_subagent_model=...` 注入；apply 则托管 `~/.codex/config.toml` 里 `[agents]` 表中的同名键——它是 codex 对 `spawn_agent` sub-agent 的默认模型（主 agent 显式指定 spawn 模型时仍以后者为准）。apply 一个没有该字段的 profile 会释放这个键（随之变空的 `[agents]` 表一并消失）；手写的 `[agents]` 角色和其他键原样保留。不支持 `@profile/model` 引用——codex 的 sub-agent 走会话唯一的端点。
 
-切到没有该字段的 profile 会释放 aweswitch 拥有的所有钉子（agent 落回继承主模型——对任何 provider 都合法）；aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
+OpenCode/zcode 的钉子槽位跟随 aweswitch 配置，而不是最后一次 apply 的 profile：任何 apply 都会把钉子收敛到配置当前声明的状态（唯一持有该字段的 profile；谁都不持有则释放全部 aweswitch 钉子，agent 落回继承主模型——对任何 provider 都合法）。持有钉子的 profile 的 provider 会在 apply 时一并 ensure，钉子始终可解析。启动某个 profile 只会（重）写它自己声明的钉子，绝不释放其他 profile 的。aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
 
 #### 并行启动不同 profile
 
@@ -535,7 +535,7 @@ aweshelf browse                 # 交互式 TUI 浏览器
 
 支持。OpenCode profile 在 `env` 中使用 `OPENCODE_BASE_URL`、`OPENCODE_API_KEY` 和 `OPENCODE_MODEL`（或 `OPENCODE_RESPONSES_MODEL`）（另有可选的 `OPENCODE_NAME`）。启动时，aweswitch 将 provider 条目写入 `~/.config/opencode/opencode.json`（使用 `{env:VAR}` 语法，实际 key 不落盘），然后运行 `opencode -m <provider>/<model>`。
 
-Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动只会把当次模型增量写入 `opencode.json`；修改配置后用 `aweswitch apply oc-glm` 全量 upsert 该 provider（`aweswitch apply --opencode` 则全部应用）。
+Profile name（如 `oc-glm`）作为 opencode.json 中的 provider key。模型在启动时指定：`aweswitch oc-glm glm-5.1`。不指定模型时默认使用列表中的第一个。启动会以增量方式写入该 profile 的完整模型列表（subagent 钉住的非当次模型也能解析）；修改配置后用 `aweswitch apply oc-glm` 精确 upsert 该 provider（`aweswitch apply --opencode` 则全部应用）。
 
 恢复会话（`-s <session-id>`）时，opencode 会还原该会话上次使用的模型并忽略 `-m`——两者不一致时 aweswitch 会给出警告，提示进入 TUI 后手动切换模型（Tab）。
 
