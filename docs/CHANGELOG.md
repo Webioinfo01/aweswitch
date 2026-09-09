@@ -1,5 +1,10 @@
 # change log
 
+## Unreleased
+
+### Features
+- zcode: apply stamps a fill-only default reasoning block (`enabled` + `low` / `medium` / `high` / `xhigh` / `max` variants, `max` selected) on every managed chat-completions model — zcode hides its thought-level picker for a chat model whose entry carries no reasoning block, which is why a `ZCODE_CHAT_MODEL` model like `stepfun-2/step-router-v1` showed no picker while `ZCODE_RESPONSES_MODEL` models always did (the Responses protocol carries its own effort parameter). Hand-written blocks win wholesale: an existing variants list is never edited, appended to, or reordered, and `reasoning: false` is an explicit opt-out. Responses providers are untouched so zcode's own effort picker keeps its native defaults
+
 ## v0.6.4 - 2026-09-06
 
 Model order is user-configurable by editing order: the model key order in the aweswitch config is the model-picker order in OpenCode and zcode, and reshuffling the picker is a config edit + `aweswitch apply`, no hand-editing of agent configs.
