@@ -2507,16 +2507,79 @@ class AweSwitchTests(unittest.TestCase):
             models = prov["models"]
             self.assertEqual(models["GLM-5.3-Flash"], {
                 "name": "GLM-5.3-Flash",
+                "reasoning": {
+                    "enabled": True,
+                    "variants": ["low", "medium", "high", "xhigh", "max"],
+                    "defaultVariant": "max",
+                },
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text", "image"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
             })
             self.assertEqual(models["GLM-text"], {
                 "name": "GLM Text",
+                "reasoning": {
+                    "enabled": True,
+                    "variants": ["low", "medium", "high", "xhigh", "max"],
+                    "defaultVariant": "max",
+                },
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
             })
+
+    def test_ensure_zcode_provider_preserves_hand_set_reasoning(self):
+        """A hand-written variants list wins wholesale: never edited, appended
+        to, or reordered; missing sibling keys are still filled, and an
+        explicit reasoning: false opt-out is left alone."""
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "openai-compatible",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/anthropic",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "glm-5.3": {"name": "glm-5.3",
+                                    "reasoning": {"variants": ["off", "high", "max"]}},
+                        "glm-turbo": {"name": "glm-turbo", "reasoning": False},
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/anthropic",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
+                    ["glm-5.3", "glm-turbo"],
+                )
+
+            self.assertEqual(status, "updated")
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(models["glm-5.3"]["reasoning"], {
+                "enabled": True,
+                "variants": ["off", "high", "max"],
+                "defaultVariant": "max",
+            })
+            self.assertFalse(models["glm-turbo"]["reasoning"])
+
+    def test_ensure_zcode_provider_skips_reasoning_for_responses_kind(self):
+        """Responses providers already show zcode's own effort picker; a
+        stamped block would override the app's native defaults."""
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {}}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://x/v1", "{env:KEY}", "zc-x", "openai", ["m-1"])
+
+            self.assertEqual(status, "created")
+            entry = json.loads(zc_path.read_text())["provider"]["zc-x"]["models"]["m-1"]
+            self.assertNotIn("reasoning", entry)
 
     def test_ensure_zcode_provider_updates_stale_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:

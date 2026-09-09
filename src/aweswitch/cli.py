@@ -1384,6 +1384,13 @@ def ensure_zcode_agent_overrides(subagent):
 ZCODE_DEFAULT_LIMIT_CONTEXT = 1000000
 ZCODE_DEFAULT_LIMIT_OUTPUT = 128000
 
+# zcode itself maps a thought-level variant onto request params — chat models
+# send it as reasoning_effort, Responses models as reasoning.effort — but only
+# for these canonical effort names; anything else ("off", "on", ...) needs the
+# per-kind patches zcode's own catalog uses, so the default avoids them.
+ZCODE_REASONING_VARIANTS = ("low", "medium", "high", "xhigh", "max")
+ZCODE_REASONING_DEFAULT_VARIANT = "max"
+
 
 def build_zcode_provider_entry(base_url, api_key, kind, name):
     """Build a fresh zcode provider entry owned by aweswitch."""
@@ -1432,6 +1439,43 @@ def _stamp_zcode_model_defaults(models_dict, model_ids):
     return changed
 
 
+def _stamp_zcode_reasoning(models_dict, model_ids):
+    """Add the default reasoning-effort block to the named models.
+
+    zcode hides the thought-level picker for a chat-completions
+    (kind openai-compatible) model unless its entry carries a reasoning block,
+    so managed chat models get the same fill-only default OpenCode models get:
+    low/medium/high/xhigh/max with max selected. A hand-set block wins
+    wholesale — an existing variants list is never edited, appended to, or
+    reordered — and reasoning: false (explicit opt-out) is left alone.
+    Returns True when anything changed.
+    """
+    changed = False
+    for model_id in model_ids:
+        entry = models_dict.get(model_id)
+        if not isinstance(entry, dict):
+            continue
+        reasoning = entry.get("reasoning")
+        if reasoning is False:
+            continue
+        if reasoning is None:
+            reasoning = {}
+            entry["reasoning"] = reasoning
+            changed = True
+        elif not isinstance(reasoning, dict):
+            continue
+        if "enabled" not in reasoning:
+            reasoning["enabled"] = True
+            changed = True
+        if "variants" not in reasoning:
+            reasoning["variants"] = list(ZCODE_REASONING_VARIANTS)
+            changed = True
+        if "defaultVariant" not in reasoning:
+            reasoning["defaultVariant"] = ZCODE_REASONING_DEFAULT_VARIANT
+            changed = True
+    return changed
+
+
 def _strip_zcode_model_kinds(models_dict, model_ids):
     """Drop per-model kind keys written by v0.5.8.
 
@@ -1460,7 +1504,11 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
     order, which is the model-picker order. The provider's
     enabled flag is set to True and source to "custom" on every managed sync.
     Each managed model gets the default limit/modalities stamp unless the
-    entry already declares one. Returns "created", "updated", or "unchanged".
+    entry already declares one; chat providers (kind openai-compatible) also
+    get the fill-only default reasoning block — zcode hides the thought-level
+    picker without one, while Responses providers (kind openai) already show
+    zcode's own effort picker and are left alone. Returns "created",
+    "updated", or "unchanged".
     """
     name = display_name or provider_name
     zc_config = load_zcode_config()
@@ -1515,6 +1563,8 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
             status = "updated"
         if _strip_zcode_model_kinds(models_dict, models):
             status = "updated"
+        if kind == "openai-compatible" and _stamp_zcode_reasoning(models_dict, models):
+            status = "updated"
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
                 del models_dict[model_id]
@@ -1532,6 +1582,8 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
         entry = build_zcode_provider_entry(base_url, api_key_ref, kind, name=name)
         entry["models"] = {model_id: {"name": model_id} for model_id in models}
         _stamp_zcode_model_defaults(entry["models"], models)
+        if kind == "openai-compatible":
+            _stamp_zcode_reasoning(entry["models"], models)
         providers[provider_name] = entry
         write_zcode_config(zc_config)
         status = "created"
