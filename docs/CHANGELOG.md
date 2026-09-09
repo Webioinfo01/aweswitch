@@ -1,9 +1,20 @@
 # change log
 
-## Unreleased
+## v0.6.5 - 2026-09-09
 
-### Features
-- zcode: apply stamps a fill-only default reasoning block (`enabled` + `low` / `medium` / `high` / `xhigh` / `max` variants, `max` selected) on every managed chat-completions model — zcode hides its thought-level picker for a chat model whose entry carries no reasoning block, which is why a `ZCODE_CHAT_MODEL` model like `stepfun-2/step-router-v1` showed no picker while `ZCODE_RESPONSES_MODEL` models always did (the Responses protocol carries its own effort parameter). Hand-written blocks win wholesale: an existing variants list is never edited, appended to, or reordered, and `reasoning: false` is an explicit opt-out. Responses providers are untouched so zcode's own effort picker keeps its native defaults
+zcode models managed by aweswitch now receive a fill-only default reasoning block, so the thought-level picker shows for every managed chat model. Previously a `ZCODE_CHAT_MODEL` model like `stepfun-2/step-router-v1` showed no picker at all while `ZCODE_RESPONSES_MODEL` models (e.g. `codex/gpt-5.6-luna`) always did — the Responses protocol carries its own effort parameter, and zcode hides the picker for a chat model whose entry has no reasoning block.
+
+### Default reasoning block for zcode chat models
+
+Every managed chat-completions model (`ZCODE_CHAT_MODEL`, provider `kind: openai-compatible`) gets `reasoning: {enabled, variants: [low, medium, high, xhigh, max], defaultVariant: max}` — the same fill-only default OpenCode models get, restricted to the canonical effort names zcode itself maps onto request params (`reasoning_effort` for chat, `reasoning.effort` for Responses). A hand-written block wins wholesale: an existing variants list is never edited, appended to, or reordered, and `reasoning: false` is an explicit opt-out. Responses providers (kind `openai`) are untouched — zcode already shows its own effort picker for them, and a stamped block would override the app's native defaults.
+
+<details><summary>Highlights</summary>
+
+- Every managed zcode chat model gets the fill-only `low` / `medium` / `high` / `xhigh` / `max` reasoning block (`max` selected), so the thought-level picker shows
+- Hand-written blocks win wholesale; `reasoning: false` opts out
+- Responses-API providers keep zcode's native effort picker and its defaults
+
+</details>
 
 ## v0.6.4 - 2026-09-06
 
