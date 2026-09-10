@@ -2507,26 +2507,111 @@ class AweSwitchTests(unittest.TestCase):
             models = prov["models"]
             self.assertEqual(models["GLM-5.3-Flash"], {
                 "name": "GLM-5.3-Flash",
-                "reasoning": {
-                    "enabled": True,
-                    "variants": ["low", "medium", "high", "xhigh", "max"],
-                    "defaultVariant": "max",
-                },
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text", "image"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
+                "reasoning": aweswitch._zcode_default_reasoning(),
             })
             self.assertEqual(models["GLM-text"], {
                 "name": "GLM Text",
-                "reasoning": {
-                    "enabled": True,
-                    "variants": ["low", "medium", "high", "xhigh", "max"],
-                    "defaultVariant": "max",
-                },
                 "limit": {"context": 1000000, "output": 128000},
                 "modalities": {"input": ["text"], "output": ["text"]},
                 "zcode": {"modalitiesConfigured": True},
+                "reasoning": aweswitch._zcode_default_reasoning(),
             })
+
+    def test_zcode_default_reasoning_shape(self):
+        """The stamped block is a plain reasoning dict — the only form zcode
+        keeps for custom providers — with none (the canonical effort name
+        that actually turns thinking off on the wire) leading the ladder."""
+        block = aweswitch._zcode_default_reasoning()
+        self.assertEqual(block, {
+            "enabled": True,
+            "variants": ["none", "low", "medium", "high", "xhigh", "max"],
+            "defaultVariant": "medium",
+        })
+
+    def test_ensure_zcode_provider_migrates_legacy_default_reasoning(self):
+        """aweswitch's own older plain fill (low..max, max selected) gains
+        the none level; nothing else about the entry changes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "openai-compatible",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "glm-5.3": {
+                            "name": "glm-5.3",
+                            "reasoning": {
+                                "enabled": True,
+                                "variants": ["low", "medium", "high", "xhigh", "max"],
+                                "defaultVariant": "max",
+                            },
+                        },
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/paas/v4",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
+                    ["glm-5.3"],
+                )
+
+            self.assertEqual(status, "updated")
+            model = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]["glm-5.3"]
+            self.assertEqual(model["reasoning"], aweswitch._zcode_default_reasoning())
+            self.assertEqual(model["zcode"], {"modalitiesConfigured": True})
+
+    def test_ensure_zcode_provider_migrates_legacy_reasoning_spec(self):
+        """The unreleased build's zcode.reasoning spec — inert in zcode and
+        stripped by its next save — is replaced by the plain block; a
+        hand-written spec is never touched."""
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path = Path(tmp) / "config.json"
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-glm": {
+                    "name": "zc-glm",
+                    "kind": "openai-compatible",
+                    "options": {
+                        "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+                        "apiKey": "{env:GLM_KEY}",
+                    },
+                    "models": {
+                        "glm-5.3": {
+                            "name": "glm-5.3",
+                            "zcode": {"reasoning": aweswitch._legacy_zcode_reasoning_spec()},
+                        },
+                        "glm-5.3-flash": {
+                            "name": "glm-5.3-flash",
+                            "zcode": {"reasoning": {"levels": {"off": {}}}},
+                        },
+                    },
+                }
+            }}))
+
+            with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
+                status = aweswitch.ensure_zcode_provider(
+                    "https://open.bigmodel.cn/api/paas/v4",
+                    "{env:GLM_KEY}", "zc-glm", "openai-compatible",
+                    ["glm-5.3", "glm-5.3-flash"],
+                )
+
+            self.assertEqual(status, "updated")
+            models = json.loads(zc_path.read_text())["provider"]["zc-glm"]["models"]
+            self.assertEqual(models["glm-5.3"]["reasoning"],
+                             aweswitch._zcode_default_reasoning())
+            self.assertNotIn("reasoning", models["glm-5.3"]["zcode"])
+            self.assertEqual(models["glm-5.3-flash"]["zcode"],
+                             {"reasoning": {"levels": {"off": {}}},
+                              "modalitiesConfigured": True})
+            self.assertNotIn("reasoning", models["glm-5.3-flash"])
 
     def test_ensure_zcode_provider_preserves_hand_set_reasoning(self):
         """A hand-written variants list wins wholesale: never edited, appended
@@ -2562,7 +2647,7 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(models["glm-5.3"]["reasoning"], {
                 "enabled": True,
                 "variants": ["off", "high", "max"],
-                "defaultVariant": "max",
+                "defaultVariant": "medium",
             })
             self.assertFalse(models["glm-turbo"]["reasoning"])
 

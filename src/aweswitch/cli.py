@@ -1384,12 +1384,25 @@ def ensure_zcode_agent_overrides(subagent):
 ZCODE_DEFAULT_LIMIT_CONTEXT = 1000000
 ZCODE_DEFAULT_LIMIT_OUTPUT = 128000
 
-# zcode itself maps a thought-level variant onto request params — chat models
-# send it as reasoning_effort, Responses models as reasoning.effort — but only
-# for these canonical effort names; anything else ("off", "on", ...) needs the
-# per-kind patches zcode's own catalog uses, so the default avoids them.
-ZCODE_REASONING_VARIANTS = ("low", "medium", "high", "xhigh", "max")
-ZCODE_REASONING_DEFAULT_VARIANT = "max"
+# zcode maps a thought-level variant onto request params — chat models send it
+# as reasoning_effort, Responses models as reasoning.effort — but only for
+# canonical effort names (none/minimal/low/medium/high/xhigh/max); any other
+# variant name maps to nothing on the wire. "none" is the working disable: the
+# request carries reasoning_effort "none" and the model answers without
+# thinking (verified against bigmodel GLM, ark deepseek, sensenova, weixin and
+# kimi; stepfun ignores the value and keeps thinking). Plain reasoning blocks
+# are also the only form zcode preserves across its own config saves for
+# custom providers — catalog-format specs are ignored on load and stripped on
+# the next save. So the default fill is a plain block whose variants lead with
+# "none"; the picker shows it as "None".
+ZCODE_REASONING_VARIANTS = ("none", "low", "medium", "high", "xhigh", "max")
+ZCODE_REASONING_DEFAULT_VARIANT = "medium"
+# The pre-none fills selected max; the legacy recognizers below must keep
+# matching that shape even though the default is now medium.
+_LEGACY_DEFAULT_VARIANT = "max"
+# The spec-shaped fill an unreleased build wrote under zcode.reasoning; inert
+# in zcode and stripped on its next save, so it is migrated to the plain block.
+ZCODE_REASONING_SPEC_LEVELS = ("off", "low", "medium", "high", "xhigh", "max")
 
 
 def build_zcode_provider_entry(base_url, api_key, kind, name):
@@ -1439,15 +1452,76 @@ def _stamp_zcode_model_defaults(models_dict, model_ids):
     return changed
 
 
+def _zcode_default_reasoning():
+    """Build the plain reasoning block stamped onto managed chat models.
+
+    Variants lead with "none" (the canonical effort name that actually turns
+    thinking off on the wire) followed by the effort ladder, medium selected.
+    """
+    return {
+        "enabled": True,
+        "variants": list(ZCODE_REASONING_VARIANTS),
+        "defaultVariant": ZCODE_REASONING_DEFAULT_VARIANT,
+    }
+
+
+def _legacy_zcode_reasoning_spec():
+    """Reconstruct the catalog-format spec the unreleased build wrote under
+    zcode.reasoning, so that exact shape can be recognized and migrated."""
+    levels = {
+        "off": {"openai-compatible": {
+            "set": [{"path": ["thinking", "type"], "value": "disabled"}],
+            "unset": [{"path": ["reasoningEffort"]}],
+        }},
+    }
+    for effort in ZCODE_REASONING_SPEC_LEVELS[1:]:
+        levels[effort] = {"openai-compatible": {
+            "set": [{"path": ["reasoningEffort"], "value": effort}],
+        }}
+    return {
+        "defaultLevel": _LEGACY_DEFAULT_VARIANT,
+        "levels": levels,
+    }
+
+
+def _is_legacy_default_reasoning(reasoning):
+    """Recognize aweswitch's own older plain fill: a block exactly equal to
+    the pre-none default (low..max, max selected). Only that shape is
+    migrated; anything else is the user's."""
+    return (
+        isinstance(reasoning, dict)
+        and set(reasoning) == {"enabled", "variants", "defaultVariant"}
+        and reasoning.get("enabled") is True
+        and reasoning.get("variants") == list(ZCODE_REASONING_SPEC_LEVELS[1:])
+        and reasoning.get("defaultVariant") == _LEGACY_DEFAULT_VARIANT
+    )
+
+
+def _is_legacy_reasoning_spec(zcode_meta):
+    """Recognize the unreleased build's zcode.reasoning spec — inert in zcode
+    (custom providers ignore catalog-format specs) and stripped by zcode's
+    next config save, so aweswitch migrates its own shape to the plain block.
+    A spec that is not exactly this shape is hand-written and stays."""
+    return isinstance(zcode_meta, dict) and (
+        zcode_meta.get("reasoning") == _legacy_zcode_reasoning_spec()
+    )
+
+
 def _stamp_zcode_reasoning(models_dict, model_ids):
-    """Add the default reasoning-effort block to the named models.
+    """Add the default reasoning block to the named models.
 
     zcode hides the thought-level picker for a chat-completions
-    (kind openai-compatible) model unless its entry carries a reasoning block,
-    so managed chat models get the same fill-only default OpenCode models get:
-    low/medium/high/xhigh/max with max selected. A hand-set block wins
-    wholesale — an existing variants list is never edited, appended to, or
-    reordered — and reasoning: false (explicit opt-out) is left alone.
+    (kind openai-compatible) model unless its entry resolves to a reasoning
+    block, so managed chat models get a fill-only default: none plus the
+    low/medium/high/xhigh/max ladder with medium selected. A hand-set block
+    wins
+    wholesale — a plain reasoning dict with its own variants list keeps the
+    list verbatim (only missing enabled/defaultVariant siblings are filled),
+    and a hand-written zcode.reasoning spec is never edited. reasoning: false
+    or enabled: false (explicit opt-outs, both honored by zcode) is left
+    alone. Two of aweswitch's own older fills are migrated in place: the
+    plain low..max default gains the none level, and the unreleased build's
+    zcode.reasoning spec is replaced by the plain block zcode actually keeps.
     Returns True when anything changed.
     """
     changed = False
@@ -1456,23 +1530,35 @@ def _stamp_zcode_reasoning(models_dict, model_ids):
         if not isinstance(entry, dict):
             continue
         reasoning = entry.get("reasoning")
-        if reasoning is False:
+        if reasoning is False or (
+            isinstance(reasoning, dict) and reasoning.get("enabled") is False
+        ):
             continue
-        if reasoning is None:
-            reasoning = {}
-            entry["reasoning"] = reasoning
+        if _is_legacy_default_reasoning(reasoning):
+            entry["reasoning"] = _zcode_default_reasoning()
             changed = True
-        elif not isinstance(reasoning, dict):
             continue
-        if "enabled" not in reasoning:
-            reasoning["enabled"] = True
-            changed = True
-        if "variants" not in reasoning:
-            reasoning["variants"] = list(ZCODE_REASONING_VARIANTS)
-            changed = True
-        if "defaultVariant" not in reasoning:
-            reasoning["defaultVariant"] = ZCODE_REASONING_DEFAULT_VARIANT
-            changed = True
+        if isinstance(reasoning, dict) and "variants" in reasoning:
+            if "enabled" not in reasoning:
+                reasoning["enabled"] = True
+                changed = True
+            if "defaultVariant" not in reasoning:
+                reasoning["defaultVariant"] = ZCODE_REASONING_DEFAULT_VARIANT
+                changed = True
+            continue
+        zcode_meta = entry.get("zcode")
+        if isinstance(zcode_meta, dict) and "reasoning" in zcode_meta:
+            if _is_legacy_reasoning_spec(zcode_meta):
+                del zcode_meta["reasoning"]
+                if not zcode_meta:
+                    del entry["zcode"]
+                entry["reasoning"] = _zcode_default_reasoning()
+                changed = True
+            continue
+        if "reasoningSpec" in entry:
+            continue
+        entry["reasoning"] = _zcode_default_reasoning()
+        changed = True
     return changed
 
 
@@ -1505,10 +1591,10 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
     enabled flag is set to True and source to "custom" on every managed sync.
     Each managed model gets the default limit/modalities stamp unless the
     entry already declares one; chat providers (kind openai-compatible) also
-    get the fill-only default reasoning block — zcode hides the thought-level
-    picker without one, while Responses providers (kind openai) already show
-    zcode's own effort picker and are left alone. Returns "created",
-    "updated", or "unchanged".
+    get the fill-only default reasoning block (none + low..max) — zcode hides
+    the thought-level picker without one, while Responses providers (kind
+    openai) already show zcode's own effort picker and are left alone.
+    Returns "created", "updated", or "unchanged".
     """
     name = display_name or provider_name
     zc_config = load_zcode_config()
