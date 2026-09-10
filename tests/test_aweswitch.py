@@ -2651,20 +2651,41 @@ class AweSwitchTests(unittest.TestCase):
             })
             self.assertFalse(models["glm-turbo"]["reasoning"])
 
-    def test_ensure_zcode_provider_skips_reasoning_for_responses_kind(self):
-        """Responses providers already show zcode's own effort picker; a
-        stamped block would override the app's native defaults."""
+    def test_ensure_zcode_provider_stamps_reasoning_for_responses_kind(self):
+        """Responses models get the same default reasoning block as chat
+        models — the plain shape zcode itself persists for them — so both
+        kinds offer the same think/off ladder; hand-set blocks still win."""
         with tempfile.TemporaryDirectory() as tmp:
             zc_path = Path(tmp) / "config.json"
-            zc_path.write_text(json.dumps({"provider": {}}))
+            zc_path.write_text(json.dumps({"provider": {
+                "zc-x": {
+                    "name": "zc-x",
+                    "kind": "openai",
+                    "options": {
+                        "baseURL": "https://x/v1",
+                        "apiKey": "{env:KEY}",
+                    },
+                    "models": {
+                        "m-hand": {"name": "m-hand",
+                                   "reasoning": {"variants": ["off", "high"]}},
+                    },
+                }
+            }}))
 
             with unittest.mock.patch("aweswitch.cli.zcode_config_path", return_value=zc_path):
                 status = aweswitch.ensure_zcode_provider(
-                    "https://x/v1", "{env:KEY}", "zc-x", "openai", ["m-1"])
+                    "https://x/v1", "{env:KEY}", "zc-x", "openai",
+                    ["m-new", "m-hand"])
 
-            self.assertEqual(status, "created")
-            entry = json.loads(zc_path.read_text())["provider"]["zc-x"]["models"]["m-1"]
-            self.assertNotIn("reasoning", entry)
+            self.assertEqual(status, "updated")
+            models = json.loads(zc_path.read_text())["provider"]["zc-x"]["models"]
+            self.assertEqual(models["m-new"]["reasoning"],
+                             aweswitch._zcode_default_reasoning())
+            self.assertEqual(models["m-hand"]["reasoning"], {
+                "enabled": True,
+                "variants": ["off", "high"],
+                "defaultVariant": "medium",
+            })
 
     def test_ensure_zcode_provider_updates_stale_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2865,6 +2886,8 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(prov["kind"], "openai")
             self.assertEqual(list(prov["models"]), ["resp1"])
             self.assertNotIn("kind", prov["models"]["resp1"])
+            self.assertEqual(prov["models"]["resp1"]["reasoning"],
+                             aweswitch._zcode_default_reasoning())
 
     def test_sync_zcode_profiles_rejects_chat_and_responses_in_one_profile(self):
         config = {

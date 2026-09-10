@@ -1510,11 +1510,12 @@ def _is_legacy_reasoning_spec(zcode_meta):
 def _stamp_zcode_reasoning(models_dict, model_ids):
     """Add the default reasoning block to the named models.
 
-    zcode hides the thought-level picker for a chat-completions
-    (kind openai-compatible) model unless its entry resolves to a reasoning
-    block, so managed chat models get a fill-only default: none plus the
-    low/medium/high/xhigh/max ladder with medium selected. A hand-set block
-    wins
+    Managed models get a fill-only default: none plus the
+    low/medium/high/xhigh/max ladder with medium selected. A chat-completions
+    model hides the thought-level picker without a block; a Responses model
+    already shows zcode's native picker, and the same plain block is the shape
+    zcode itself persists there, so stamping it gives both kinds the same
+    think/off ladder. A hand-set block wins
     wholesale — a plain reasoning dict with its own variants list keeps the
     list verbatim (only missing enabled/defaultVariant siblings are filled),
     and a hand-written zcode.reasoning spec is never edited. reasoning: false
@@ -1590,10 +1591,10 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
     order, which is the model-picker order. The provider's
     enabled flag is set to True and source to "custom" on every managed sync.
     Each managed model gets the default limit/modalities stamp unless the
-    entry already declares one; chat providers (kind openai-compatible) also
-    get the fill-only default reasoning block (none + low..max) — zcode hides
-    the thought-level picker without one, while Responses providers (kind
-    openai) already show zcode's own effort picker and are left alone.
+    entry already declares one, plus the fill-only default reasoning block
+    (none + low..max) — a chat model hides the thought-level picker without
+    one, and a Responses model gets the same ladder so both kinds offer the
+    same think/off control.
     Returns "created", "updated", or "unchanged".
     """
     name = display_name or provider_name
@@ -1649,7 +1650,7 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
             status = "updated"
         if _strip_zcode_model_kinds(models_dict, models):
             status = "updated"
-        if kind == "openai-compatible" and _stamp_zcode_reasoning(models_dict, models):
+        if _stamp_zcode_reasoning(models_dict, models):
             status = "updated"
         if prune:
             for model_id in [m for m in models_dict if m not in models]:
@@ -1668,8 +1669,7 @@ def ensure_zcode_provider(base_url, api_key_ref, provider_name, kind, models,
         entry = build_zcode_provider_entry(base_url, api_key_ref, kind, name=name)
         entry["models"] = {model_id: {"name": model_id} for model_id in models}
         _stamp_zcode_model_defaults(entry["models"], models)
-        if kind == "openai-compatible":
-            _stamp_zcode_reasoning(entry["models"], models)
+        _stamp_zcode_reasoning(entry["models"], models)
         providers[provider_name] = entry
         write_zcode_config(zc_config)
         status = "created"

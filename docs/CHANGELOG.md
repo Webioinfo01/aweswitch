@@ -2,15 +2,15 @@
 
 ## Unreleased
 
-zcode chat models managed by aweswitch can now have thinking turned off from zcode's picker: the fill-only default leads with a working `None` level, no hand-editing of `~/.zcode/v2/config.json`.
+zcode models managed by aweswitch — chat and Responses — can now have thinking turned off from zcode's picker: the fill-only default leads with a working `None` level, no hand-editing of `~/.zcode/v2/config.json`.
 
-### Working off via the `none` thought level for zcode chat models
+### Working off via the `none` thought level for all zcode models
 
 - The fill-only default is a plain `reasoning: {enabled, variants, defaultVariant}` block again, now `variants: [none, low, medium, high, xhigh, max]` with `medium` selected — zcode's picker shows the first level as "None". zcode maps only canonical effort names onto request params, and `none` is one: the request carries `reasoning_effort: "none"`, verified to return answers without thinking through bigmodel GLM, ark deepseek, sensenova, weixin and kimi endpoints (stepfun ignores the value and keeps thinking). Any other non-canonical variant name — including `off` — maps to nothing on the wire
 - Plain blocks are also the only reasoning form zcode keeps for custom providers: a catalog-format spec under `zcode.reasoning` is ignored on load and silently stripped on zcode's next config save (found by watching a spec-filled config lose every spec at the first settings write). The previous plain fill is kept precisely because it survives
 - aweswitch's own older fills are migrated on the next apply: the exact plain `low..max` block gains the `none` level, and the unreleased build's `zcode.reasoning` spec (exact-shape match only) is replaced by the plain block
 - Hand-written config still wins wholesale: a plain reasoning dict with its own variants list keeps the list verbatim (only missing `enabled`/`defaultVariant` siblings are filled), and a `zcode.reasoning` spec that isn't aweswitch's own shape is never edited. `reasoning: false` or `enabled: false` remain explicit opt-outs
-- Responses-API providers (kind `openai`) are untouched, as before — zcode already shows its native effort picker for them
+- Responses-API models (kind `openai`) now get the same default block — it is the exact plain shape zcode itself persists on them after a picker selection, so chat and Responses profiles offer the same think/off ladder with no extra setup
 
 ## v0.6.5 - 2026-09-09
 
