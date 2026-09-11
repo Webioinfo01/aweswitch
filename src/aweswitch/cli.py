@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -2419,6 +2420,143 @@ def ensure_account_dir(provider, name, blob, force=False):
     return d
 
 
+ACCOUNT_SESSION_SUBDIRS = ("sessions", "archived_sessions")
+
+
+def share_sessions_enabled(config):
+    value = config.get("share_sessions", False)
+    if not isinstance(value, bool):
+        die("config 'share_sessions' must be true or false")
+    return value
+
+
+def shared_sessions_root(provider):
+    """Session pool shared by all of one provider's official accounts."""
+    return accounts_root() / provider / ".shared"
+
+
+def _points_at_session_pool(link, target):
+    """True when LINK is a directory link (symlink, or Windows junction) to TARGET."""
+    try:
+        return link.exists() and Path(os.path.realpath(link)) == Path(os.path.realpath(target))
+    except OSError:
+        return False
+
+
+def _is_dir_link(link):
+    """True for a symlink, or a Windows junction (reparse point)."""
+    if link.is_symlink():
+        return True
+    if os.name == "nt":
+        try:
+            return bool(os.lstat(link).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+        except OSError:
+            return False
+    return False
+
+
+def _make_session_link(target, link):
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def _remove_session_link(link):
+    # A junction reports is_symlink() False; os.rmdir removes the reparse
+    # point without ever touching the target.
+    if link.is_symlink():
+        link.unlink()
+    else:
+        os.rmdir(link)
+
+
+def _migrate_into_session_pool(src_dir, pool_dir):
+    """Move every rollout file from SRC_DIR into POOL_DIR, date layout kept.
+
+    Raises on the first OS error; the caller only replaces SRC_DIR with a link
+    after a clean pass, so a partial migration simply retries on the next
+    launch. Returns notes for the caller to print.
+    """
+    notes = []
+    moved = 0
+    for path in sorted(src_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(src_dir)
+        dest = pool_dir / rel
+        if dest.exists():
+            if dest.stat().st_size == path.stat().st_size:
+                path.unlink()
+                notes.append(f"dropped duplicate session file {rel}")
+            else:
+                candidate, n = dest, 1
+                while candidate.exists():
+                    n += 1
+                    candidate = dest.with_name(f"{dest.stem}-duplicate-{n}{dest.suffix}")
+                shutil.move(str(path), str(candidate))
+                notes.append(f"merged colliding session file as {candidate.name}")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(path), str(dest))
+        moved += 1
+    if moved:
+        notes.append(f"moved {moved} session file(s) into the shared pool")
+    for root, dirs, _files in os.walk(src_dir, topdown=False):
+        for name in dirs:
+            (Path(root) / name).rmdir()
+    src_dir.rmdir()
+    return notes
+
+
+def sync_account_session_dirs(provider, account_home, config):
+    """Point an official account's rollout dirs at the provider-wide pool.
+
+    With 'share_sessions' on, every codex account reads and writes the same
+    pool, so a session recorded by one account can be resumed under another —
+    rollout files carry no account identity, and codex hardcodes its session
+    location to $CODEX_HOME/sessions, so a filesystem link is the only way to
+    share. Existing session files are migrated into the pool once, before the
+    account dir's own dir is replaced by the link. With the flag off, the
+    links are removed again; files already in the pool stay there, as they
+    cannot be attributed back to an account. Claude accounts are left
+    isolated for now (their session layout is not verified). Returns notes
+    for the caller to print.
+    """
+    if provider != "codex":
+        return []
+    notes = []
+    enabled = share_sessions_enabled(config)
+    pool = shared_sessions_root(provider)
+    for subdir in ACCOUNT_SESSION_SUBDIRS:
+        link = Path(account_home) / subdir
+        target = pool / subdir
+        if not enabled:
+            if _points_at_session_pool(link, target):
+                _remove_session_link(link)
+                notes.append(
+                    f"share_sessions is off: unlinked {subdir}; pool files stay in {target}"
+                )
+            continue
+        if _points_at_session_pool(link, target):
+            continue
+        target.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            os.chmod(pool, 0o700)
+        if _is_dir_link(link):
+            _remove_session_link(link)
+            notes.append(f"replaced foreign {subdir} link")
+        elif link.is_dir():
+            try:
+                notes += _migrate_into_session_pool(link, target)
+            except OSError as exc:
+                die(f"failed to share sessions for {account_home}: {exc}")
+        _make_session_link(target, link)
+        notes.append(f"sharing {subdir} via {target}")
+    return notes
+
+
 def profile_name_taken(config, name, ignore=None):
     """True when NAME is used by any profile other than `ignore` (kind, provider)."""
     for kind in PROFILE_KINDS:
@@ -3618,6 +3756,8 @@ def login_account(path, provider, name):
         die(f"name already used: {name}")
     blob = existing.get(ACCOUNT_BLOB_KEY[provider]) if isinstance(existing, dict) else None
     d = ensure_account_dir(provider, name, blob)
+    for note in sync_account_session_dirs(provider, d, data):
+        click.echo(note)
     cred_path = d / ACCOUNT_CRED_FILENAME[provider]
     backup_path = cred_path.with_name(f".{cred_path.name}.login-backup")
     if cred_path.exists():
@@ -3753,12 +3893,15 @@ def run_profile(ctx, category, title):
             click.echo("warning: aweshelf not found; -c/-t ignored. Install: pip3 install aweshelf (https://github.com/Webioinfo01/aweshelf)", err=True)
         else:
             _auto_bookmark(category, profile_name, title=title)
-    run_argv, run_env, oc_write_info, account_info = prepare_run(load_config(config_path()), profile_name, ctx.args)
+    config = load_config(config_path())
+    run_argv, run_env, oc_write_info, account_info = prepare_run(config, profile_name, ctx.args)
     if oc_write_info is not None:
         for note in write_opencode_launch(oc_write_info):
             click.echo(note)
     if account_info is not None:
-        ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])
+        d = ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])
+        for note in sync_account_session_dirs(account_info["provider"], d, config):
+            click.echo(note)
     exec_agent(run_argv, run_env)
 
 

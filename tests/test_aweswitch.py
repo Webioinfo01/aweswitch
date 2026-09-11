@@ -3869,6 +3869,122 @@ class AweSwitchTests(unittest.TestCase):
             self.assertNotIn("model_providers.relay", seeded_codex)
             self.assertIn("[mcp_servers.docs]", seeded_codex)
 
+    def test_share_sessions_links_codex_accounts_to_one_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_config = Path(tmp) / "codex-config.toml"
+            codex_config.write_text('model = "gpt-5.2-codex"\n')
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                   "CODEX_CONFIG": str(codex_config)}
+            with unittest.mock.patch.dict(os.environ, env):
+                config = {"share_sessions": True}
+                d1 = aweswitch.ensure_account_dir("codex", "cxo-a", {})
+                d2 = aweswitch.ensure_account_dir("codex", "cxo-b", {})
+
+                notes = aweswitch.sync_account_session_dirs("codex", d1, config)
+                self.assertIn("sharing sessions", "\n".join(notes))
+                aweswitch.sync_account_session_dirs("codex", d2, config)
+
+                pool = Path(tmp) / "accounts" / "codex" / ".shared" / "sessions"
+                self.assertTrue(pool.is_dir())
+                self.assertEqual(os.path.realpath(d1 / "sessions"), os.path.realpath(pool))
+                self.assertEqual(os.path.realpath(d2 / "sessions"), os.path.realpath(pool))
+
+                # A rollout written through one account is visible to the other.
+                session = d1 / "sessions" / "2026" / "09" / "11" / "rollout-2026-09-11T07-00-00-1a2b3c4d.jsonl"
+                session.parent.mkdir(parents=True)
+                session.write_text("rollout")
+                self.assertEqual(
+                    (d2 / "sessions" / "2026" / "09" / "11" / session.name).read_text(), "rollout")
+
+                # Already linked: relinking is quiet.
+                self.assertEqual(aweswitch.sync_account_session_dirs("codex", d1, config), [])
+
+    def test_share_sessions_migrates_existing_rollout_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json")}
+            with unittest.mock.patch.dict(os.environ, env):
+                d = aweswitch.ensure_account_dir("codex", "cxo-work", {})
+                existing = d / "sessions" / "2026" / "09" / "11" / "rollout-2026-09-11T07-00-00-1a2b3c4d.jsonl"
+                existing.parent.mkdir(parents=True)
+                existing.write_text("rollout")
+
+                notes = aweswitch.sync_account_session_dirs(
+                    "codex", d, {"share_sessions": True})
+
+                pool = Path(tmp) / "accounts" / "codex" / ".shared"
+                self.assertEqual(
+                    (pool / "sessions" / "2026" / "09" / "11" / existing.name).read_text(), "rollout")
+                self.assertEqual(os.path.realpath(d / "sessions"),
+                                 os.path.realpath(pool / "sessions"))
+                # archived_sessions had no files but is linked too.
+                self.assertEqual(os.path.realpath(d / "archived_sessions"),
+                                 os.path.realpath(pool / "archived_sessions"))
+                self.assertIn("moved 1 session file(s)", "\n".join(notes))
+
+    def test_share_sessions_migration_handles_colliding_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json")}
+            with unittest.mock.patch.dict(os.environ, env):
+                d = aweswitch.ensure_account_dir("codex", "cxo-work", {})
+                pool = Path(tmp) / "accounts" / "codex" / ".shared" / "sessions" / "2026" / "09" / "11"
+                pool.mkdir(parents=True)
+                name = "rollout-2026-09-11T07-00-00-1a2b3c4d.jsonl"
+                (pool / name).write_text("longer existing rollout")
+                incoming = d / "sessions" / "2026" / "09" / "11" / name
+                incoming.parent.mkdir(parents=True)
+                incoming.write_text("same")
+
+                aweswitch.sync_account_session_dirs("codex", d, {"share_sessions": True})
+
+                # Same-size file: treated as a duplicate and dropped.
+                self.assertEqual((pool / name).read_text(), "longer existing rollout")
+                # Different-size file: preserved under a merged name.
+                (d / "sessions" / "2026" / "09" / "11" / name).write_text("different content!")
+                aweswitch.sync_account_session_dirs("codex", d, {"share_sessions": True})
+
+    def test_share_sessions_off_unlinks_pool_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json")}
+            with unittest.mock.patch.dict(os.environ, env):
+                d = aweswitch.ensure_account_dir("codex", "cxo-work", {})
+                pool = Path(tmp) / "accounts" / "codex" / ".shared" / "sessions"
+                aweswitch.sync_account_session_dirs("codex", d, {"share_sessions": True})
+                (pool / "rollout.jsonl").write_text("rollout")
+
+                notes = aweswitch.sync_account_session_dirs("codex", d, {"share_sessions": False})
+
+                self.assertFalse((d / "sessions").exists())
+                self.assertFalse((d / "archived_sessions").exists())
+                self.assertEqual((pool / "rollout.jsonl").read_text(), "rollout")
+                self.assertIn("unlinked sessions", "\n".join(notes))
+
+    def test_share_sessions_rejects_non_bool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json")}
+            with unittest.mock.patch.dict(os.environ, env):
+                d = aweswitch.ensure_account_dir("codex", "cxo-work", {})
+                with self.assertRaisesRegex(SystemExit, "must be true or false"):
+                    aweswitch.sync_account_session_dirs("codex", d, {"share_sessions": "yes"})
+
+    def test_share_sessions_leaves_claude_accounts_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_settings = Path(tmp) / "settings.json"
+            claude_settings.write_text("{}\n")
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                   "CLAUDE_SETTINGS": str(claude_settings)}
+            with unittest.mock.patch.dict(os.environ, env):
+                d = aweswitch.ensure_account_dir("claude", "cco-work", {})
+                session = d / "sessions" / "keep.jsonl"
+                session.parent.mkdir(parents=True)
+                session.write_text("rollout")
+
+                notes = aweswitch.sync_account_session_dirs("claude", d, {"share_sessions": True})
+
+                self.assertEqual(notes, [])
+                self.assertTrue((d / "sessions").is_dir())
+                self.assertFalse((d / "sessions").is_symlink())
+                self.assertEqual(session.read_text(), "rollout")
+
     def test_account_add_imports_live_codex_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_file = Path(tmp) / "config.json"

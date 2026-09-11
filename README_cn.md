@@ -421,6 +421,7 @@ aweswitch account remove codex work --purge
 - 帐号目录一旦存在就是事实来源 — CLI 会在里面刷新 OAuth token，已存在的凭据文件永远不会被配置里的旧 blob 覆盖。需要备份/迁移时运行 `aweswitch account sync` 把刷新过的 token 回写到配置。
 - macOS 上 Claude Code 默认把登录存在 Keychain；`account login` 和帐号启动都会强制凭据走帐号目录内的文件，保证帐号隔离。`account add` 读取的是 `~/.claude/.credentials.json`，该文件不存在时会失败 — macOS 上建议直接用 `account login`。
 - 帐号只支持启动模式，不参与 `apply`。
+- 会话默认按帐号隔离：每个帐号目录各有自己的 `sessions/`，`codex resume` 只能看到该帐号录制的会话。在 `config.json` 顶层设置 `"share_sessions": true` 即可让 Codex 会话跨帐号共享：下次启动时，每个 Codex 帐号的 `sessions/` 和 `archived_sessions/` 会变成指向共享池 `~/.config/aweswitch/accounts/codex/.shared/` 的链接，已有的 rollout 文件自动迁入。之后任意帐号都能续任何会话 — `aweswitch cxo-peng resume <id>` 可以续 `cxo-heck` 录的会话 — `codex resume` 选择器也会列出所有帐号的会话（加 `--all` 可解除 cwd 过滤）。关掉开关会再次解除链接；已进入共享池的文件留在池里，因为 rollout 文件本身不带帐号身份。Claude 帐号暂不共享。
 
 </details>
 
