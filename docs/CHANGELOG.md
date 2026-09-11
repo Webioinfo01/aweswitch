@@ -1,8 +1,8 @@
 # change log
 
-## Unreleased
+## v0.6.6 - 2026-09-11
 
-zcode models managed by aweswitch — chat and Responses — can now have thinking turned off from zcode's picker: the fill-only default leads with a working `None` level, no hand-editing of `~/.zcode/v2/config.json`.
+zcode models managed by aweswitch — chat and Responses — can now have thinking turned off from zcode's picker: the fill-only default leads with a working `None` level, no hand-editing of `~/.zcode/v2/config.json`. This release also fixes a syntax error that made 0.6.2 through 0.6.5 fail to import on Python 3.9-3.11, and gates the release on that same interpreter so it cannot happen again.
 
 ### Working off via the `none` thought level for all zcode models
 
@@ -11,6 +11,21 @@ zcode models managed by aweswitch — chat and Responses — can now have thinki
 - aweswitch's own older fills are migrated on the next apply: the exact plain `low..max` block gains the `none` level, and the unreleased build's `zcode.reasoning` spec (exact-shape match only) is replaced by the plain block
 - Hand-written config still wins wholesale: a plain reasoning dict with its own variants list keeps the list verbatim (only missing `enabled`/`defaultVariant` siblings are filled), and a `zcode.reasoning` spec that isn't aweswitch's own shape is never edited. `reasoning: false` or `enabled: false` remain explicit opt-outs
 - Responses-API models (kind `openai`) now get the same default block — it is the exact plain shape zcode itself persists on them after a picker selection, so chat and Responses profiles offer the same think/off ladder with no extra setup
+
+### Fixed: aweswitch failed to import on Python 3.9-3.11
+
+`_edit_agent_model_line` built its inserted line as `f"model: {new_value}{_line_eol(lines[end]) or '\n'}"`. The `'\n'` sits inside the f-string's replacement field, and a backslash there is a `SyntaxError` before PEP 701 (Python 3.12) — so the whole module failed to import on 3.9, 3.10 and 3.11 even though the wheel advertises `requires-python >=3.9`. Introduced by the per-profile subagent pins in v0.6.2, it shipped in 0.6.2 through 0.6.5: installing aweswitch on those interpreters and running any command raised `SyntaxError` at import time. The fallback newline is now hoisted into a local so the f-string expression is backslash-free; behavior is unchanged.
+
+- The Release workflow tested Python 3.13 only, which is why the broken wheels cleared the gate. It now runs the suite on 3.9 first (`test-min`) and the `release` job depends on it, so the oldest interpreter the wheel claims is exercised before anything is published
+
+<details><summary>Highlights</summary>
+
+- zcode: every managed model — chat or Responses — gets a fill-only `reasoning` block whose variants lead with `none`, a canonical effort name that sends `reasoning_effort: "none"` so the picker has a working off switch
+- aweswitch's own older reasoning fills (the plain `low..max` block, or the unreleased `zcode.reasoning` spec) are migrated on the next apply; hand-written reasoning config is never edited
+- Fix: the f-string in `_edit_agent_model_line` was a `SyntaxError` below Python 3.12, which made 0.6.2-0.6.5 uninstallable on 3.9-3.11
+- The Release workflow is now gated on Python 3.9, so a wheel that cannot be imported on its declared minimum can no longer reach PyPI
+
+</details>
 
 ## v0.6.5 - 2026-09-09
 
