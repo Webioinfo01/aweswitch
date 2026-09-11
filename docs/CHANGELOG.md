@@ -1,5 +1,10 @@
 # change log
 
+## Unreleased
+
+### Features
+- codex: official accounts can pool sessions across accounts — setting `"share_sessions": true` (top level of `config.json`) turns every codex account's `sessions/` and `archived_sessions/` into links into a shared pool under `accounts/codex/.shared/`, migrating existing rollout files in on the next launch or `account login`. A session recorded by one account can then be resumed under another: `aweswitch cxo-peng resume <id>` finds a session recorded by `cxo-heck`, and the `codex resume` picker lists every account's sessions (`--all` lifts the cwd filter). Rollout files carry no account identity and codex hardcodes its session location to `$CODEX_HOME/sessions`, so a filesystem link (symlink, junction on Windows) is the only sharing mechanism. Off by default; turning the flag off unlinks the accounts again, and files already in the pool stay there since they cannot be attributed back to an account. Claude accounts stay isolated for now
+
 ## v0.6.6 - 2026-09-11
 
 zcode models managed by aweswitch — chat and Responses — can now have thinking turned off from zcode's picker: the fill-only default leads with a working `None` level, no hand-editing of `~/.zcode/v2/config.json`. This release also fixes a syntax error that made 0.6.2 through 0.6.5 fail to import on Python 3.9-3.11, and gates the release on that same interpreter so it cannot happen again.
