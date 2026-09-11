@@ -1,9 +1,31 @@
 # change log
 
-## Unreleased
+## v0.6.7 - 2026-09-12
 
-### Features
-- codex: official accounts can pool sessions across accounts — setting `"share_sessions": true` (top level of `config.json`) turns every codex account's `sessions/` and `archived_sessions/` into links into a shared pool under `accounts/codex/.shared/`, migrating existing rollout files in on the next launch or `account login`. A session recorded by one account can then be resumed under another: `aweswitch cxo-peng resume <id>` finds a session recorded by `cxo-heck`, and the `codex resume` picker lists every account's sessions (`--all` lifts the cwd filter). Rollout files carry no account identity and codex hardcodes its session location to `$CODEX_HOME/sessions`, so a filesystem link (symlink, junction on Windows) is the only sharing mechanism. Off by default; turning the flag off unlinks the accounts again, and files already in the pool stay there since they cannot be attributed back to an account. Claude accounts stay isolated for now
+Codex official-account sessions can now be shared across accounts — a session started on one account is resumable from any other. This release also adopts the awecontrib shared verify entry point, so CI and local `./verify` run the same gate.
+
+### Shared codex sessions across accounts
+
+Setting `"share_sessions": true` at the top level of `config.json` turns every codex account's `sessions/` and `archived_sessions/` into links into a shared pool under `accounts/codex/.shared/`. Existing rollout files are migrated into the pool on the next launch or `account login`. A session recorded by one account can then be resumed under another: `aweswitch cxo-peng resume <id>` finds a session recorded by `cxo-heck`, and the `codex resume` picker lists every account's sessions (`--all` lifts the cwd filter).
+
+- Rollout files carry no account identity and codex hardcodes its session location to `$CODEX_HOME/sessions`, so a filesystem link (symlink, junction on Windows) is the only sharing mechanism
+- Off by default; turning the flag off unlinks the accounts again
+- Files already in the pool stay there since they cannot be attributed back to an account
+- Claude accounts stay isolated for now
+
+### CI: shared awecontrib verify entry point
+
+The repository now uses the shared `./verify` entry point from awecontrib, and CI calls it directly. This keeps local and CI gates in sync and makes the repo consistent with other awesome/* projects.
+
+<details><summary>Highlights</summary>
+
+- codex: `"share_sessions": true` pools `sessions/` and `archived_sessions/` across all official-account codex profiles via symlinks under `accounts/codex/.shared/`
+- `codex resume` picker and `aweswitch <profile> resume <id>` see all shared sessions regardless of which account recorded them
+- Shared sessions work because rollout files have no account identity and codex's session path is fixed — filesystem links are the only mechanism
+- Off by default; disabling unlinks the accounts, and already-pooled sessions stay in the pool
+- CI and local `./verify` both run the awecontrib shared gate
+
+</details>
 
 ## v0.6.6 - 2026-09-11
 
