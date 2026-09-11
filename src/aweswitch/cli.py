@@ -279,7 +279,10 @@ def _edit_agent_model_line(path, new_value):
     elif model_idx is not None:
         lines[model_idx] = f"model: {new_value}{_line_eol(lines[model_idx])}"
     elif end is not None:
-        lines.insert(end, f"model: {new_value}{_line_eol(lines[end]) or '\n'}")
+        # Kept out of the f-string replacement field: a backslash inside an
+        # f-string expression is a SyntaxError before Python 3.12.
+        eol = _line_eol(lines[end]) or "\n"
+        lines.insert(end, f"model: {new_value}{eol}")
     else:
         lines[0:0] = ["---\n", f"model: {new_value}\n", "---\n"]
     new_text = "".join(lines)
