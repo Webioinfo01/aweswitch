@@ -31,3 +31,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 aweswitch = ["default-config.json"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]

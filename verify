@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# One entry point for all checks. CI runs exactly this file.
+# Written by awecontrib install; safe to edit by hand.
+set -e
+cd "$(dirname "$0")"
+
+# Prefer the repo venv when present; CI installs deps into a system python.
+if [ -x ".venv/bin/python" ]; then PY=".venv/bin/python"
+elif [ -x ".venv/Scripts/python.exe" ]; then PY=".venv/Scripts/python.exe"
+elif command -v python3 >/dev/null 2>&1; then PY="python3"
+else PY="python"
+fi
+"$PY" -m pytest
+
+# hygiene: tracked junk files fail the build
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "verify: not a git repository"; exit 1; }
+JUNK_RE='(\.egg-info/|__pycache__/|\.pytest_cache/|\.DS_Store$|\.pyc$|^node_modules/)'
+TRACKED_JUNK="$(git ls-files | grep -E "$JUNK_RE" || true)"
+if [ -n "$TRACKED_JUNK" ]; then
+  echo "tracked junk files:"
+  echo "$TRACKED_JUNK"
+  exit 1
+fi

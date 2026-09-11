@@ -11,3 +11,5 @@ dist/
 /docs/media/0622/aweswitch-cross-platform-codex-apply-zh-CN
 /docs/media/0627/aweswitch-opencode-agents-zh-CN
 /docs/media/0803/aweswitch-now-works-on-windows-zh-CN
+.pytest_cache/
+.venv/
