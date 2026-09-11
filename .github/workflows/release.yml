@@ -9,7 +9,24 @@ permissions:
   contents: write
 
 jobs:
+  # The published wheel claims requires-python >=3.9, so the release is gated
+  # on the oldest supported interpreter. Release ran 3.13 only before, which
+  # is how 0.6.2-0.6.5 shipped an f-string that is a SyntaxError below 3.12.
+  test-min:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s tests
+
   release:
+    needs: test-min
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
