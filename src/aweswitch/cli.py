@@ -2420,7 +2420,7 @@ def ensure_account_dir(provider, name, blob, force=False):
     return d
 
 
-ACCOUNT_SESSION_SUBDIRS = ("sessions", "archived_sessions")
+CODEX_SESSION_SUBDIRS = ("sessions", "archived_sessions")
 
 
 def share_sessions_enabled(config):
@@ -2510,6 +2510,44 @@ def _migrate_into_session_pool(src_dir, pool_dir):
     return notes
 
 
+def _sync_session_dir_to_pool(home, subdir, pool, enabled, context):
+    """Point HOME/subdir at POOL/subdir, or unlink again when disabled.
+
+    One rollout dir of one codex home — an account dir, or codex's own
+    default home. An existing real dir is migrated into the pool once, before
+    it is replaced by the link; a link already pointing at the pool is left
+    quiet. With the flag off, only links pointing at the pool are removed and
+    pooled files stay there. Returns notes for the caller to print.
+    """
+    notes = []
+    link = Path(home) / subdir
+    target = pool / subdir
+    if not enabled:
+        if _points_at_session_pool(link, target):
+            _remove_session_link(link)
+            notes.append(
+                f"share_sessions is off: unlinked {subdir}; pool files stay in {target}"
+            )
+        return notes
+    if _points_at_session_pool(link, target):
+        return notes
+    target.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        os.chmod(pool, 0o700)
+    if _is_dir_link(link):
+        _remove_session_link(link)
+        notes.append(f"replaced foreign {subdir} link")
+    elif link.is_dir():
+        try:
+            notes += _migrate_into_session_pool(link, target)
+        except OSError as exc:
+            die(f"failed to share sessions for {context}: {exc}")
+    link.parent.mkdir(parents=True, exist_ok=True)
+    _make_session_link(target, link)
+    notes.append(f"sharing {subdir} via {target}")
+    return notes
+
+
 def sync_account_session_dirs(provider, account_home, config):
     """Point an official account's rollout dirs at the provider-wide pool.
 
@@ -2517,43 +2555,39 @@ def sync_account_session_dirs(provider, account_home, config):
     pool, so a session recorded by one account can be resumed under another —
     rollout files carry no account identity, and codex hardcodes its session
     location to $CODEX_HOME/sessions, so a filesystem link is the only way to
-    share. Existing session files are migrated into the pool once, before the
-    account dir's own dir is replaced by the link. With the flag off, the
-    links are removed again; files already in the pool stay there, as they
-    cannot be attributed back to an account. Claude accounts are left
-    isolated for now (their session layout is not verified). Returns notes
-    for the caller to print.
+    share. Claude accounts are left isolated for now (their session layout is
+    not verified). Returns notes for the caller to print.
     """
     if provider != "codex":
         return []
-    notes = []
     enabled = share_sessions_enabled(config)
     pool = shared_sessions_root(provider)
-    for subdir in ACCOUNT_SESSION_SUBDIRS:
-        link = Path(account_home) / subdir
-        target = pool / subdir
-        if not enabled:
-            if _points_at_session_pool(link, target):
-                _remove_session_link(link)
-                notes.append(
-                    f"share_sessions is off: unlinked {subdir}; pool files stay in {target}"
-                )
-            continue
-        if _points_at_session_pool(link, target):
-            continue
-        target.mkdir(parents=True, exist_ok=True)
-        if os.name != "nt":
-            os.chmod(pool, 0o700)
-        if _is_dir_link(link):
-            _remove_session_link(link)
-            notes.append(f"replaced foreign {subdir} link")
-        elif link.is_dir():
-            try:
-                notes += _migrate_into_session_pool(link, target)
-            except OSError as exc:
-                die(f"failed to share sessions for {account_home}: {exc}")
-        _make_session_link(target, link)
-        notes.append(f"sharing {subdir} via {target}")
+    notes = []
+    for subdir in CODEX_SESSION_SUBDIRS:
+        notes += _sync_session_dir_to_pool(account_home, subdir, pool, enabled, account_home)
+    return notes
+
+
+def codex_default_home():
+    """Where codex records sessions outside an aweswitch account dir."""
+    return Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser()
+
+
+def sync_default_codex_sessions(config):
+    """Point codex's own default home at the account session pool.
+
+    Sessions recorded by plain `codex` or an api-profile launch land in the
+    default home, not in any account dir; linking it into the pool makes
+    those sessions resumable under every account — and pooled sessions
+    resumable from plain codex. Same link/migrate/unlink contract as
+    accounts. Returns notes for the caller to print.
+    """
+    enabled = share_sessions_enabled(config)
+    pool = shared_sessions_root("codex")
+    home = codex_default_home()
+    notes = []
+    for subdir in CODEX_SESSION_SUBDIRS:
+        notes += _sync_session_dir_to_pool(home, subdir, pool, enabled, home)
     return notes
 
 
@@ -3758,6 +3792,9 @@ def login_account(path, provider, name):
     d = ensure_account_dir(provider, name, blob)
     for note in sync_account_session_dirs(provider, d, data):
         click.echo(note)
+    if provider == "codex":
+        for note in sync_default_codex_sessions(data):
+            click.echo(note)
     cred_path = d / ACCOUNT_CRED_FILENAME[provider]
     backup_path = cred_path.with_name(f".{cred_path.name}.login-backup")
     if cred_path.exists():
@@ -3897,6 +3934,10 @@ def run_profile(ctx, category, title):
     run_argv, run_env, oc_write_info, account_info = prepare_run(config, profile_name, ctx.args)
     if oc_write_info is not None:
         for note in write_opencode_launch(oc_write_info):
+            click.echo(note)
+    provider, _, _ = profile_for(config, profile_name)
+    if provider == "codex":
+        for note in sync_default_codex_sessions(config):
             click.echo(note)
     if account_info is not None:
         d = ensure_account_dir(account_info["provider"], account_info["name"], account_info["blob"])

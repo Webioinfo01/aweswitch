@@ -1,5 +1,17 @@
 # change log
 
+## Unreleased
+
+Sessions recorded outside the account pool — by plain `codex` or a `cx-*` api-profile launch — now join `share_sessions` too. With the flag on, the default Codex home's `sessions/` and `archived_sessions/` become links into the same pool on the next Codex launch, after migrating any existing rollout files in. A session started in bare codex is then resumable under every account, and pooled sessions are resumable from bare codex; turning the flag off unlinks the default home along with the accounts, and pooled files stay in the pool.
+
+<details><summary>Highlights</summary>
+
+- `share_sessions` now also pools the default Codex home (`$CODEX_HOME` or `~/.codex`), so sessions recorded by plain `codex` or `cx-*` api-profile launches are shared with every official account
+- Existing rollout files in the default home migrate into the pool on the next Codex launch or `account login`
+- Disabling the flag unlinks the default home as well; already-pooled files stay in the pool
+
+</details>
+
 ## v0.6.7 - 2026-09-12
 
 Codex official-account sessions can now be shared across accounts — a session started on one account is resumable from any other. This release also adopts the awecontrib shared verify entry point, so CI and local `./verify` run the same gate.

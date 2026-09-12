@@ -3985,6 +3985,80 @@ class AweSwitchTests(unittest.TestCase):
                 self.assertFalse((d / "sessions").is_symlink())
                 self.assertEqual(session.read_text(), "rollout")
 
+    def test_share_sessions_pools_default_codex_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                   "CODEX_HOME": str(Path(tmp) / "codex-home")}
+            with unittest.mock.patch.dict(os.environ, env):
+                existing = (Path(tmp) / "codex-home" / "sessions" / "2026" / "09" / "12"
+                            / "rollout-2026-09-12T08-42-31-01a09310.jsonl")
+                existing.parent.mkdir(parents=True)
+                existing.write_text("rollout")
+
+                notes = aweswitch.sync_default_codex_sessions({"share_sessions": True})
+
+                pool = Path(tmp) / "accounts" / "codex" / ".shared"
+                self.assertEqual(
+                    (pool / "sessions" / "2026" / "09" / "12" / existing.name).read_text(),
+                    "rollout")
+                self.assertEqual(
+                    os.path.realpath(Path(tmp) / "codex-home" / "sessions"),
+                    os.path.realpath(pool / "sessions"))
+                self.assertEqual(
+                    os.path.realpath(Path(tmp) / "codex-home" / "archived_sessions"),
+                    os.path.realpath(pool / "archived_sessions"))
+                self.assertIn("moved 1 session file(s)", "\n".join(notes))
+                # Already linked: relinking is quiet.
+                self.assertEqual(aweswitch.sync_default_codex_sessions({"share_sessions": True}), [])
+
+    def test_share_sessions_off_unlinks_default_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AWESWITCH_CONFIG": str(Path(tmp) / "config.json"),
+                   "CODEX_HOME": str(Path(tmp) / "codex-home")}
+            with unittest.mock.patch.dict(os.environ, env):
+                pool = Path(tmp) / "accounts" / "codex" / ".shared" / "sessions"
+                aweswitch.sync_default_codex_sessions({"share_sessions": True})
+                (pool / "rollout.jsonl").write_text("rollout")
+
+                notes = aweswitch.sync_default_codex_sessions({"share_sessions": False})
+
+                self.assertFalse((Path(tmp) / "codex-home" / "sessions").exists())
+                self.assertFalse((Path(tmp) / "codex-home" / "archived_sessions").exists())
+                self.assertEqual((pool / "rollout.jsonl").read_text(), "rollout")
+                self.assertIn("unlinked sessions", "\n".join(notes))
+
+    def test_codex_api_launch_links_default_home_to_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_config = Path(tmp) / "codex-config.toml"
+            codex_config.write_text('model = "gpt-5.2-codex"\n')
+            config_file = Path(tmp) / "config.json"
+            config_file.write_text(json.dumps({
+                "share_sessions": True,
+                "profiles": {
+                    "api": {
+                        "codex": {"cx-test": {"env": {
+                            "OPENAI_BASE_URL": "https://example.com/v1",
+                            "OPENAI_API_KEY": "${CX_KEY}",
+                        }}},
+                    },
+                    "accounts": {},
+                },
+            }))
+            env = {"AWESWITCH_CONFIG": str(config_file),
+                   "CODEX_CONFIG": str(codex_config),
+                   "CODEX_HOME": str(Path(tmp) / "codex-home"),
+                   "CX_KEY": "k"}
+            with unittest.mock.patch.dict(os.environ, env):
+                with unittest.mock.patch.object(aweswitch, "exec_agent") as exec_agent:
+                    result = CliRunner().invoke(aweswitch.cli, ["cx-test"])
+
+                self.assertEqual(result.exit_code, 0, result.output)
+                exec_agent.assert_called_once()
+                home_sessions = Path(tmp) / "codex-home" / "sessions"
+                pool_sessions = Path(tmp) / "accounts" / "codex" / ".shared" / "sessions"
+                self.assertEqual(os.path.realpath(home_sessions), os.path.realpath(pool_sessions))
+                self.assertIn("sharing sessions", result.output)
+
     def test_account_add_imports_live_codex_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_file = Path(tmp) / "config.json"
