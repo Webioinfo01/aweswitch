@@ -1,6 +1,6 @@
 # change log
 
-## Unreleased
+## v0.6.8 - 2026-09-12
 
 Sessions recorded outside the account pool — by plain `codex` or a `cx-*` api-profile launch — now join `share_sessions` too. With the flag on, the default Codex home's `sessions/` and `archived_sessions/` become links into the same pool on the next Codex launch, after migrating any existing rollout files in. A session started in bare codex is then resumable under every account, and pooled sessions are resumable from bare codex; turning the flag off unlinks the default home along with the accounts, and pooled files stay in the pool.
 
