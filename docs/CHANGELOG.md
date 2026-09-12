@@ -1,5 +1,18 @@
 # change log
 
+## v0.6.9 - 2026-09-12
+
+`ZCODE_SUBAGENT_MODEL` now also accepts a `{agent-name: model}` object. The scalar form still pins zcode's two built-in agents (`general-purpose` + `Explore`) to one model; the object form pins named user subagents — markdown files in `~/.zcode/agents/` — each to its own model, rewriting only the frontmatter `model:` line to the `custom:<provider>:<model>` form zcode itself uses. This keeps zcode subagent rosters aligned with OpenCode's named agents (`OPENCODE_SUBAGENT_MODEL`): the same functional names on both sides, each pinned to its own model. The two forms never mix in one apply, the field stays a single global slot (one declaring profile), and removing the field releases whichever pins the previous apply owned.
+
+<details><summary>Highlights</summary>
+
+- zcode: `ZCODE_SUBAGENT_MODEL` accepts a `{agent-name: model}` object pinning named user subagents in `~/.zcode/agents/*.md` (frontmatter `model:` line only; name/description/body untouched, same contract as OpenCode agent pins)
+- Scalar form (both built-in agents, one model) is unchanged; the two forms never mix — switching forms releases the previous apply's pins
+- Values are bare same-profile model IDs or `"@profile/model"` cross-profile refs, ensured as sync dependencies like the scalar form
+- A named agent without an existing markdown file dies before anything is written, listing the available names
+
+</details>
+
 ## v0.6.8 - 2026-09-12
 
 Sessions recorded outside the account pool — by plain `codex` or a `cx-*` api-profile launch — now join `share_sessions` too. With the flag on, the default Codex home's `sessions/` and `archived_sessions/` become links into the same pool on the next Codex launch, after migrating any existing rollout files in. A session started in bare codex is then resumable under every account, and pooled sessions are resumable from bare codex; turning the flag off unlinks the default home along with the accounts, and pooled files stay in the pool.
