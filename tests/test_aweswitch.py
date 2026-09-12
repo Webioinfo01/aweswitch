@@ -2344,6 +2344,138 @@ class AweSwitchTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "single slot"):
                     aweswitch.sync_zcode_profiles(config)
 
+    def _make_zcode_user_agent_config(self):
+        return {
+            "profiles": {
+                "api": {
+                    "zcode": {
+                        "zc-a": {"env": {
+                            "ZCODE_BASE_URL": "https://a.test/v1",
+                            "ZCODE_API_KEY": "${A_KEY}",
+                            "ZCODE_CHAT_MODEL": {"m1": "M1", "m2": "M2"},
+                            "ZCODE_SUBAGENT_MODEL": {"review": "m1", "search": "@zc-b/n1"},
+                        }},
+                        "zc-b": {"env": {
+                            "ZCODE_BASE_URL": "https://b.test/v1",
+                            "ZCODE_API_KEY": "${B_KEY}",
+                            "ZCODE_CHAT_MODEL": ["n1"],
+                        }},
+                    }
+                }
+            }
+        }
+
+    def _make_zcode_user_agent_dirs(self, tmp):
+        """Real layout: config under v2/, user agents beside it in agents/."""
+        root = Path(tmp)
+        v2 = root / "v2"
+        v2.mkdir()
+        zc_path = v2 / "config.json"
+        zc_path.write_text(json.dumps({"provider": {}}))
+        agents = root / "agents"
+        agents.mkdir()
+        (agents / "review.md").write_text(
+            "---\nname: review\ndescription: code reviewer\nmodel: custom:old/pin\n---\nbody\n")
+        (agents / "search.md").write_text(
+            "---\nname: search\ndescription: fast search\n---\nbody\n")
+        return zc_path, agents, v2 / ".aweswitch-managed-providers.json"
+
+    def test_sync_zcode_pins_named_user_agents(self):
+        config = self._make_zcode_user_agent_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path, agents, sidecar_path = self._make_zcode_user_agent_dirs(tmp)
+            env = {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}
+            with unittest.mock.patch.dict(os.environ, env):
+                with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
+                    results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+            self.assertEqual(results[0][3], [
+                "pinned agent 'review' -> zc-a/m1",
+                "pinned agent 'search' -> zc-b/n1",
+            ])
+            self.assertEqual(
+                (agents / "review.md").read_text(),
+                "---\nname: review\ndescription: code reviewer\n"
+                "model: custom:zc-a:m1\n---\nbody\n")
+            self.assertEqual(
+                (agents / "search.md").read_text(),
+                "---\nname: search\ndescription: fast search\n"
+                "model: custom:zc-b:n1\n---\nbody\n")
+            sidecar = json.loads(sidecar_path.read_text())
+            self.assertEqual(sidecar["userAgents"], ["review", "search"])
+            self.assertNotIn("agents", sidecar)
+            # The dict form never touches the built-in overrides.
+            self.assertFalse(zc_path.with_name("agents-state.json").exists())
+
+    def test_sync_zcode_user_agent_missing_file_dies(self):
+        config = self._make_zcode_user_agent_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path, agents, _sidecar = self._make_zcode_user_agent_dirs(tmp)
+            (agents / "review.md").unlink()
+            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}):
+                with self.assertRaisesRegex(SystemExit, "names agent 'review'"):
+                    aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+    def test_sync_zcode_user_agents_release_on_field_removal(self):
+        config = self._make_zcode_user_agent_config()
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path, agents, sidecar_path = self._make_zcode_user_agent_dirs(tmp)
+            env = {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}
+            with unittest.mock.patch.dict(os.environ, env):
+                aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+            del config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"]
+            with unittest.mock.patch.dict(os.environ, env):
+                results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+            self.assertEqual(results[0][3], [
+                "released agent 'review' (inherits session model)",
+                "released agent 'search' (inherits session model)",
+            ])
+            self.assertEqual(
+                (agents / "review.md").read_text(),
+                "---\nname: review\ndescription: code reviewer\n---\nbody\n")
+            self.assertEqual(
+                (agents / "search.md").read_text(),
+                "---\nname: search\ndescription: fast search\n---\nbody\n")
+            self.assertEqual(json.loads(sidecar_path.read_text())["userAgents"], [])
+
+    def test_sync_zcode_scalar_to_dict_releases_builtins(self):
+        config = self._make_zcode_user_agent_config()
+        config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"] = "m2"
+        with tempfile.TemporaryDirectory() as tmp:
+            zc_path, agents, sidecar_path = self._make_zcode_user_agent_dirs(tmp)
+            env = {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}
+            with unittest.mock.patch.dict(os.environ, env):
+                with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
+                    aweswitch.sync_zcode_profiles(config, ["zc-a"])
+            state_path = zc_path.with_name("agents-state.json")
+            self.assertEqual(json.loads(state_path.read_text())["builtInModelOverrides"], {
+                "general-purpose": "custom:zc-a:m2",
+                "Explore": "custom:zc-a:m2",
+            })
+
+            # Switching the same profile to the dict form releases the
+            # built-ins aweswitch owns and pins the named user agents.
+            config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"] = {
+                "review": "m1", "search": "@zc-b/n1"}
+            with unittest.mock.patch.dict(os.environ, env):
+                with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
+                    results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+            self.assertEqual(results[0][3], [
+                "released built-in agent 'Explore' (inherits session model)",
+                "released built-in agent 'general-purpose' (inherits session model)",
+                "pinned agent 'review' -> zc-a/m1",
+                "pinned agent 'search' -> zc-b/n1",
+            ])
+            self.assertEqual(
+                json.loads(state_path.read_text())["builtInModelOverrides"], {})
+            self.assertIn("model: custom:zc-a:m1\n", (agents / "review.md").read_text())
+            sidecar = json.loads(sidecar_path.read_text())
+            self.assertEqual(sidecar["agents"], [])
+            self.assertEqual(sidecar["userAgents"], ["review", "search"])
+
+
     def test_sync_writes_all_opencode_profiles_with_full_model_lists(self):
         results, data = self._sync(self._make_sync_config())
 

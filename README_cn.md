@@ -354,7 +354,7 @@ subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose
 ```
 
 - `OPENCODE_SUBAGENT_MODEL` — `{agent名: 模型}` 对象。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行，正文提示词永不触碰。agent 钉子是全局单槽位，因此最多一个 OpenCode profile 可以声明该字段。
-- `ZCODE_SUBAGENT_MODEL` — 单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）。只有当配置里不再有任何 zcode profile 声明该字段时，覆盖才会被释放，两个内置 agent 落回继承会话模型。
+- `ZCODE_SUBAGENT_MODEL` — 两种形态：单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）；或 `{agent名: 模型}` 对象，钉住具名用户 subagent——`~/.zcode/agents/` 里的 markdown 文件——只改写其 frontmatter 的 `model:` 一行，写成 zcode 自己使用的 `custom:<provider>:<model>` 形式。两种形态不混用；只有当配置里不再有任何 zcode profile 声明该字段时，当前形态的钉子才会被释放，落回继承会话模型。
 - 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
 - **Claude** 不需要新字段：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此 `@profile/model` 跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
 - **Claude 按别名细分的替代方案**：在 profile env 里写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——tier 重映射保留每个 agent 的别名区分，而不是一刀切。
