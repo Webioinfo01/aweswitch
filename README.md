@@ -330,37 +330,53 @@ Claude and Codex keep a single active default, so at most one profile of each ma
 
 </details>
 
-#### Pin subagent models per profile
+#### Pin subagent models
 
-Subagents (OpenCode `task` agents, zcode's built-in Explore / general-purpose, Claude Code `Task` agents) normally inherit the primary model, so they already follow the profile you launch or apply. Two optional fields — plus one plain env key for Claude Code — pin them to a different model instead. The typical case is a cheap model for read-only scouting while the primary stays on a pro model:
+Subagents (OpenCode `task` agents, zcode's built-in Explore / general-purpose, Claude Code `Task` agents) normally inherit the primary model, so they already follow the profile you launch or apply. Agent files outlive any profile, so OpenCode/zcode pins live in a top-level `subagents` section beside `profiles` — one map per target, each value naming both the provider and the model. The typical case is a cheap model for read-only scouting while the primary stays on a pro model:
 
 ```json
-"oc-glm": {
-  "env": {
-    "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-    "OPENCODE_API_KEY": "${GLM_API_KEY}",
-    "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"},
-    "OPENCODE_SUBAGENT_MODEL": {"explore": "glm-5.1-flash"}
-  }
-},
-"zc-bigmodel": {
-  "env": {
-    "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-    "ZCODE_API_KEY": "${GLM_API_KEY}",
-    "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"},
-    "ZCODE_SUBAGENT_MODEL": "GLM-5.3-Flash"
+{
+  "profiles": {
+    "api": {
+      "opencode": {
+        "oc-glm": {"env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_API_KEY}",
+          "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"}
+        }}
+      },
+      "zcode": {
+        "zc-bigmodel": {"env": {
+          "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "ZCODE_API_KEY": "${GLM_API_KEY}",
+          "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"}
+        }}
+      }
+    }
+  },
+  "subagents": {
+    "opencode": {
+      "explore": "oc-glm/glm-5.1-flash",
+      "review": "oc-step/step-3.7-flash"
+    },
+    "zcode": {
+      "general-purpose": "zc-bigmodel/GLM-5.3-Flash",
+      "Explore": "zc-bigmodel/GLM-5.3-Flash",
+      "review": "zc-bigmodel/GLM-5.3-Flash"
+    }
   }
 }
 ```
 
-- `OPENCODE_SUBAGENT_MODEL` — a `{agent-name: model}` object. Keys must name agent markdown files in `~/.config/opencode/agents/`; apply rewrites only their frontmatter `model:` line (the prompt body is never touched). Agents are a single global slot, so at most one OpenCode profile may define the field.
-- `ZCODE_SUBAGENT_MODEL` — either a single model ID written into zcode's built-in agent overrides (`general-purpose` + `Explore` in `~/.zcode/v2/agents-state.json`), or a `{agent-name: model}` object pinning named user subagents — markdown files in `~/.zcode/agents/` — by rewriting only their frontmatter `model:` line to the `custom:<provider>:<model>` form zcode itself uses. The two forms never mix in one apply; whichever is active is released only when no zcode profile declares the field anymore, falling back to inheriting the session model.
-- Values are bare model IDs from the profile's own model list, or `"@profile/model"` to borrow another profile's provider — e.g. `"explore": "@oc-step/step-3.7-flash"` keeps the primary on GLM while the scout runs on StepFun. Cross-profile references are ensured as sync dependencies, so the borrowed provider always exists after the apply.
-- **Claude** needs no field: set `CLAUDE_CODE_SUBAGENT_MODEL` in the profile env — Claude Code's global default for `Task` subagents and agent-teams teammates, outranking per-agent `model:` frontmatter. The model must be served by the profile's own `ANTHROPIC_BASE_URL` (one endpoint per session, so `@profile/model` cross-provider references don't apply). aweswitch manages the key like the tier vars: every launch and apply emits it, writing `inherit` — Claude Code's explicit fall-through value — when the profile omits it, so a pin left by a different provider can never leak through; a hand-set value in `~/.claude/settings.json` is overwritten the same way.
+- `subagents.opencode` — a `{agent-name: "profile/model"}` map. Keys must name agent markdown files in `~/.config/opencode/agents/`; apply rewrites only their frontmatter `model:` line (the prompt body is never touched) to the exact `profile/model` string you wrote.
+- `subagents.zcode` — same shape. The two built-in names (`general-purpose`, `Explore`) are written into zcode's built-in agent overrides (`~/.zcode/v2/agents-state.json`); every other name pins a user subagent — a markdown file in `~/.zcode/agents/` — by rewriting only its frontmatter `model:` line to the `custom:<provider>:<model>` form zcode itself uses. Built-ins and user agents can be pinned in the same map, each to its own model.
+- Each value is the exact string the agent file gets: `profile/model-id`, split at the first slash (the model id itself may contain slashes, e.g. `hub/seed-evolving`). The named profile must be a same-target api profile listing that model, and every apply ensures those providers, so pins always resolve. Borrowing another profile's provider is just writing its name — `"review": "oc-step/step-3.7-flash"` keeps the primary on GLM while review runs on StepFun.
+- Configs from before this section existed keep working: `OPENCODE_SUBAGENT_MODEL` / `ZCODE_SUBAGENT_MODEL` in a profile's env are migrated into the section on first load (the config is rewritten with a `.json.bak` backup; `@profile/model` refs and zcode's scalar form are expanded).
+- **Claude** needs no section entry: set `CLAUDE_CODE_SUBAGENT_MODEL` in the profile env — Claude Code's global default for `Task` subagents and agent-teams teammates, outranking per-agent `model:` frontmatter. The model must be served by the profile's own `ANTHROPIC_BASE_URL` (one endpoint per session, so cross-provider references don't apply). aweswitch manages the key like the tier vars: every launch and apply emits it, writing `inherit` — Claude Code's explicit fall-through value — when the profile omits it, so a pin left by a different provider can never leak through; a hand-set value in `~/.claude/settings.json` is overwritten the same way.
 - **Claude, per-alias alternative**: set `ANTHROPIC_DEFAULT_HAIKU_MODEL` (or any OPUS/SONNET/HAIKU/FABLE tier var) in the profile env and `model: haiku` in the agent frontmatter — tier remaps keep per-agent distinctions instead of one flat default.
-- **Codex** — set `CODEX_SUBAGENT_MODEL` in the profile env (a model id the profile's endpoint serves). Launch injects it as `-c agents.default_subagent_model=...`; apply manages the same key inside `~/.codex/config.toml`'s `[agents]` table — codex's default for `spawn_agent` sub-agents, which an explicit spawn model chosen by the agent still overrides. A profile without the field releases the key on apply (an empty `[agents]` table disappears with it); hand-written `[agents]` roles and other keys are preserved verbatim. `@profile/model` references aren't supported — codex serves sub-agents through the session's single endpoint.
+- **Codex** — set `CODEX_SUBAGENT_MODEL` in the profile env (a model id the profile's endpoint serves). Launch injects it as `-c agents.default_subagent_model=...`; apply manages the same key inside `~/.codex/config.toml`'s `[agents]` table — codex's default for `spawn_agent` sub-agents, which an explicit spawn model chosen by the agent still overrides. A profile without the field releases the key on apply (an empty `[agents]` table disappears with it); hand-written `[agents]` roles and other keys are preserved verbatim. Cross-profile references aren't supported — codex serves sub-agents through the session's single endpoint.
 
-The OpenCode/zcode pin slots follow the aweswitch config, not the last profile applied: any apply converges the pins to what the config declares (the one profile holding the field, or none — in which case every aweswitch-owned pin is released and the agent inherits the primary model, valid under any provider). The pin-holding profile's provider is ensured as part of the apply, so pins keep resolving. Launching a profile only (re)writes the pins that profile declares and never releases another profile's. Agent files aweswitch never pinned are never touched, and apply warns about user-pinned agents whose provider no longer exists.
+Pins follow the config, not the last profile applied: every apply converges the pins to what the section declares — agents a previous apply pinned but the section no longer names are released and fall back to inheriting the primary/session model, valid under any provider. Launching a profile re-writes the declared pins additively and never releases anything. Agent files aweswitch never pinned are never touched, and apply warns about user-pinned agents whose provider no longer exists.
 
 #### Launch profiles side by side
 

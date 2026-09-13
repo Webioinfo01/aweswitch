@@ -330,37 +330,53 @@ Claude 和 Codex 同一时间只有一个活跃默认配置，单次 apply 各�
 
 </details>
 
-#### 按 profile 钉住 subagent 模型
+#### 钉住 subagent 模型
 
-subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose、Claude Code 的 `Task` subagent）默认继承主模型，因此本来就会跟着你启动/apply 的 profile 走。两个可选字段——外加 Claude Code 侧一个普通 env 键——可以把它们钉到另一个模型上。典型场景是主模型用 pro、只读侦查类 subagent 用便宜的 flash：
+subagent（OpenCode 的 `task` agent、zcode 内置的 Explore / general-purpose、Claude Code 的 `Task` subagent）默认继承主模型，因此本来就会跟着你启动/apply 的 profile 走。agent 文件的寿命比任何 profile 都长，所以 OpenCode/zcode 的钉子放在与 `profiles` 平级的顶层 `subagents` 栏目里——每个目标一张映射表，值同时写明 provider 和模型。典型场景是主模型用 pro、只读侦查类 subagent 用便宜的 flash：
 
 ```json
-"oc-glm": {
-  "env": {
-    "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-    "OPENCODE_API_KEY": "${GLM_API_KEY}",
-    "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"},
-    "OPENCODE_SUBAGENT_MODEL": {"explore": "glm-5.1-flash"}
-  }
-},
-"zc-bigmodel": {
-  "env": {
-    "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
-    "ZCODE_API_KEY": "${GLM_API_KEY}",
-    "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"},
-    "ZCODE_SUBAGENT_MODEL": "GLM-5.3-Flash"
+{
+  "profiles": {
+    "api": {
+      "opencode": {
+        "oc-glm": {"env": {
+          "OPENCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "OPENCODE_API_KEY": "${GLM_API_KEY}",
+          "OPENCODE_MODEL": {"glm-5.2": "GLM-5.2", "glm-5.1-flash": "GLM-5.1-Flash"}
+        }}
+      },
+      "zcode": {
+        "zc-bigmodel": {"env": {
+          "ZCODE_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "ZCODE_API_KEY": "${GLM_API_KEY}",
+          "ZCODE_CHAT_MODEL": {"GLM-5.3-Flash": "GLM-5.3-Flash"}
+        }}
+      }
+    }
+  },
+  "subagents": {
+    "opencode": {
+      "explore": "oc-glm/glm-5.1-flash",
+      "review": "oc-step/step-3.7-flash"
+    },
+    "zcode": {
+      "general-purpose": "zc-bigmodel/GLM-5.3-Flash",
+      "Explore": "zc-bigmodel/GLM-5.3-Flash",
+      "review": "zc-bigmodel/GLM-5.3-Flash"
+    }
   }
 }
 ```
 
-- `OPENCODE_SUBAGENT_MODEL` — `{agent名: 模型}` 对象。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行，正文提示词永不触碰。agent 钉子是全局单槽位，因此最多一个 OpenCode profile 可以声明该字段。
-- `ZCODE_SUBAGENT_MODEL` — 两种形态：单个模型 ID，写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json` 中的 `general-purpose` + `Explore`）；或 `{agent名: 模型}` 对象，钉住具名用户 subagent——`~/.zcode/agents/` 里的 markdown 文件——只改写其 frontmatter 的 `model:` 一行，写成 zcode 自己使用的 `custom:<provider>:<model>` 形式。两种形态不混用；只有当配置里不再有任何 zcode profile 声明该字段时，当前形态的钉子才会被释放，落回继承会话模型。
-- 值可以是本 profile 模型列表里的裸模型 ID，也可以写 `"@profile/model"` 借用另一个 profile 的 provider——例如 `"explore": "@oc-step/step-3.7-flash"` 让主模型继续用 GLM、侦查跑 StepFun。跨 profile 引用会作为同步依赖一并 ensure，apply 之后被借用的 provider 必然存在。
-- **Claude** 不需要新字段：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此 `@profile/model` 跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
+- `subagents.opencode` — `{agent名: "profile/model"}` 映射。键必须对应 `~/.config/opencode/agents/` 里的 agent markdown 文件；apply 只改写其 frontmatter 的 `model:` 一行（正文提示词永不触碰），写进文件的就是你写的 `profile/model` 原文。
+- `subagents.zcode` — 同样的形态。两个内置名（`general-purpose`、`Explore`）写入 zcode 内置 agent 的模型覆盖（`~/.zcode/v2/agents-state.json`）；其余名字钉住具名用户 subagent——`~/.zcode/agents/` 里的 markdown 文件——只改写其 frontmatter 的 `model:` 一行，写成 zcode 自己使用的 `custom:<provider>:<model>` 形式。内置与用户 agent 可以出现在同一张表里，各钉各的模型。
+- 每个值就是 agent 文件里最终那串字符：`profile/model-id`，按第一个 `/` 切分（模型 ID 本身可以含斜杠，例如 `hub/seed-evolving`）。被指名的 profile 必须是同目标的 api profile 且列出该模型；每次 apply 都会把这些 provider 一并 ensure，钉子始终可解析。借用别的 profile 的 provider 就是直接写它的名字——`"review": "oc-step/step-3.7-flash"` 让主模型继续用 GLM、review 跑 StepFun。
+- 旧配置直接兼容：profile env 里的 `OPENCODE_SUBAGENT_MODEL` / `ZCODE_SUBAGENT_MODEL` 会在首次加载时迁入该栏目（配置重写并留 `.json.bak` 备份；`@profile/model` 引用和 zcode 的单值形态会被展开）。
+- **Claude** 不需要栏目条目：在 profile env 里直接写 `CLAUDE_CODE_SUBAGENT_MODEL`——这是 Claude Code 对 `Task` subagent 和 agent-teams teammate 的全局默认值，优先级高于 agent frontmatter 的 `model:`。模型必须由本 profile 的 `ANTHROPIC_BASE_URL` 服务（一个会话一个端点，因此跨 provider 引用不适用）。aweswitch 像托管 tier 变量一样托管该键：每次 launch/apply 都会写出它，profile 未设置时写 `inherit`（Claude Code 的显式回落值），别的 provider 留下的钉子永远漏不进来；在 `~/.claude/settings.json` 里手写的值同样会被覆盖。
 - **Claude 按别名细分的替代方案**：在 profile env 里写 `ANTHROPIC_DEFAULT_HAIKU_MODEL`（或任意 OPUS/SONNET/HAIKU/FABLE tier 变量），agent frontmatter 里写 `model: haiku`——tier 重映射保留每个 agent 的别名区分，而不是一刀切。
-- **Codex** —— 在 profile env 里写 `CODEX_SUBAGENT_MODEL`（该 profile 端点服务的模型 ID）。launch 以 `-c agents.default_subagent_model=...` 注入；apply 则托管 `~/.codex/config.toml` 里 `[agents]` 表中的同名键——它是 codex 对 `spawn_agent` sub-agent 的默认模型（主 agent 显式指定 spawn 模型时仍以后者为准）。apply 一个没有该字段的 profile 会释放这个键（随之变空的 `[agents]` 表一并消失）；手写的 `[agents]` 角色和其他键原样保留。不支持 `@profile/model` 引用——codex 的 sub-agent 走会话唯一的端点。
+- **Codex** —— 在 profile env 里写 `CODEX_SUBAGENT_MODEL`（该 profile 端点服务的模型 ID）。launch 以 `-c agents.default_subagent_model=...` 注入；apply 则托管 `~/.codex/config.toml` 里 `[agents]` 表中的同名键——它是 codex 对 `spawn_agent` sub-agent 的默认模型（主 agent 显式指定 spawn 模型时仍以后者为准）。apply 一个没有该字段的 profile 会释放这个键（随之变空的 `[agents]` 表一并消失）；手写的 `[agents]` 角色和其他键原样保留。不支持跨 profile 引用——codex 的 sub-agent 走会话唯一的端点。
 
-OpenCode/zcode 的钉子槽位跟随 aweswitch 配置，而不是最后一次 apply 的 profile：任何 apply 都会把钉子收敛到配置当前声明的状态（唯一持有该字段的 profile；谁都不持有则释放全部 aweswitch 钉子，agent 落回继承主模型——对任何 provider 都合法）。持有钉子的 profile 的 provider 会在 apply 时一并 ensure，钉子始终可解析。启动某个 profile 只会（重）写它自己声明的钉子，绝不释放其他 profile 的。aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
+钉子跟随 aweswitch 配置，而不是最后一次 apply 的 profile：任何 apply 都会把钉子收敛到栏目当前声明的状态——上次被钉但栏目已不再提及的 agent 会被释放，落回继承主/会话模型（对任何 provider 都合法）。启动某个 profile 只会增量（重）写栏目声明的钉子，绝不释放任何东西。aweswitch 从未钉过的 agent 文件一个字节不碰；apply 还会对「钉着已不存在 provider」的非受管 agent 文件发出警告。
 
 #### 并行启动不同 profile
 

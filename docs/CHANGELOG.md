@@ -1,5 +1,19 @@
 # change log
 
+## v0.7.0 - 2026-09-13
+
+OpenCode/zcode subagent pins move out of profile envs into a top-level `subagents` section beside `profiles` — agent files outlive any profile, so their pins no longer hang off one. Each target gets its own map: `subagents.opencode` and `subagents.zcode`, `{agent-name: "profile/model-id"}`. The value is the exact string the agent file's `model:` line gets; the named profile must be a same-target api profile listing that model, and every apply ensures those providers. zcode's two built-in names (`general-purpose`, `Explore`) now take per-agent entries in the same map — pinning them to different models, alongside user subagents, is finally expressible. Old configs keep working: `OPENCODE_SUBAGENT_MODEL` / `ZCODE_SUBAGENT_MODEL` in a profile's env are migrated into the section on first load (config rewritten with a `.json.bak` backup; `@profile/model` refs and the zcode scalar form are expanded).
+
+<details><summary>Highlights</summary>
+
+- New top-level `subagents` section: `{"opencode": {agent: "profile/model"}, "zcode": {...}}` — global state, not per-profile; the "single slot / one declaring profile" restriction is gone
+- Values split at the first `/` (model ids may contain slashes); referenced profiles are validated and ensured as sync dependencies
+- zcode: built-in overrides and user-subagent pins live in one map; removing an entry releases exactly that pin
+- Launch re-writes the declared pins additively (never releases); every apply reconciles the agent files with the section
+- Automatic migration of the old env keys on first load, with backup
+
+</details>
+
 ## v0.6.9 - 2026-09-12
 
 `ZCODE_SUBAGENT_MODEL` now also accepts a `{agent-name: model}` object. The scalar form still pins zcode's two built-in agents (`general-purpose` + `Explore`) to one model; the object form pins named user subagents — markdown files in `~/.zcode/agents/` — each to its own model, rewriting only the frontmatter `model:` line to the `custom:<provider>:<model>` form zcode itself uses. This keeps zcode subagent rosters aligned with OpenCode's named agents (`OPENCODE_SUBAGENT_MODEL`): the same functional names on both sides, each pinned to its own model. The two forms never mix in one apply, the field stays a single global slot (one declaring profile), and removing the field releases whichever pins the previous apply owned.

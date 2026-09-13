@@ -1176,22 +1176,18 @@ class AweSwitchTests(unittest.TestCase):
             "OPENCODE_API_KEY": "${STEP_KEY}",
             "OPENCODE_MODEL": ["step-3.7-flash"],
         }}
-        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
-            "explore": "@oc-step/step-3.7-flash"}
+        config["subagents"] = {"opencode": {"explore": "oc-step/step-3.7-flash"}}
 
         _, _, oc_info, _ = aweswitch.prepare_run(config, "oc-test", [], {"OC_KEY": "k", "STEP_KEY": "s"})
 
-        self.assertEqual(
-            oc_info["subagents"],
-            {"explore": ("oc-step", "oc-step/step-3.7-flash")})
+        self.assertEqual(oc_info["subagents"], {"explore": "oc-step/step-3.7-flash"})
         self.assertEqual(len(oc_info["deps"]), 1)
         self.assertEqual(oc_info["deps"][0]["provider_name"], "oc-step")
         self.assertEqual(oc_info["deps"][0]["models"], {"step-3.7-flash": "step-3.7-flash"})
 
     def test_launch_write_registers_pinned_models_and_never_releases(self):
         config = self._make_oc_config()  # oc-test: glm-5.1 + glm-5.2
-        config["profiles"]["api"]["opencode"]["oc-test"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
-            "explore": "glm-5.1"}
+        config["subagents"] = {"opencode": {"explore": "oc-test/glm-5.1"}}
         config["profiles"]["api"]["opencode"]["oc-other"] = {"env": {
             "OPENCODE_BASE_URL": "https://other.example/v1",
             "OPENCODE_API_KEY": "${OTHER_KEY}",
@@ -1217,8 +1213,9 @@ class AweSwitchTests(unittest.TestCase):
                 (agents_dir / "explore.md").read_text(),
                 "---\ndescription: scout\nmodel: oc-test/glm-5.1\n---\nbody\n")
 
-            # Launching a profile without pins never releases another
-            # profile's pin; models stay additive.
+            # Launching another profile re-writes the same global pins
+            # (already matching, so no note) and never releases them;
+            # models stay additive.
             notes = launch("oc-other", [], {"OC_KEY": "k", "OTHER_KEY": "o"})
             self.assertEqual(notes, [])
             self.assertEqual(
@@ -2124,36 +2121,112 @@ class AweSwitchTests(unittest.TestCase):
             self.assertEqual(replace.read_text(), "---\ndescription: x\n---\nbody\n")
             self.assertFalse(aweswitch._edit_agent_model_line(replace, None))
 
-    def test_parse_opencode_subagents_forms(self):
+    def test_parse_subagent_pins_forms(self):
         config = self._make_sync_config()
-        glm_env = config["profiles"]["api"]["opencode"]["oc-glm"]["env"]
-        models = dict(glm_env["OPENCODE_MODEL"])
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "glm-5.1"}
+        config["subagents"] = {"opencode": {"explore": "oc-glm/glm-5.1"}}
         self.assertEqual(
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models),
-            {"explore": (None, "oc-glm/glm-5.1")})
+            aweswitch.parse_subagent_pins(config, "opencode"),
+            {"explore": "oc-glm/glm-5.1"})
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "@oc-xiaomi/mimo-v2.5"}
+        config["subagents"] = {"opencode": {"explore": "oc-xiaomi/mimo-v2.5"}}
         self.assertEqual(
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models),
-            {"explore": ("oc-xiaomi", "oc-xiaomi/mimo-v2.5")})
+            aweswitch.parse_subagent_pins(config, "opencode"),
+            {"explore": "oc-xiaomi/mimo-v2.5"})
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "nope"}
+        # Slash-bearing model ids split at the first slash only.
+        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_MODEL"]["hub/x"] = "hub x"
+        config["subagents"] = {"opencode": {"explore": "oc-glm/hub/x"}}
+        self.assertEqual(
+            aweswitch.parse_subagent_pins(config, "opencode"),
+            {"explore": "oc-glm/hub/x"})
+
+        config["subagents"] = {"opencode": {"explore": "oc-glm/nope"}}
         with self.assertRaisesRegex(SystemExit, "not in"):
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models)
+            aweswitch.parse_subagent_pins(config, "opencode")
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "@cc-glm/x"}
-        with self.assertRaisesRegex(SystemExit, "not an opencode api profile"):
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models)
+        config["subagents"] = {"opencode": {"explore": "cc-glm/x"}}
+        with self.assertRaisesRegex(SystemExit, "not an api profile under profiles.api.opencode"):
+            aweswitch.parse_subagent_pins(config, "opencode")
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "@ghost/m"}
-        with self.assertRaisesRegex(SystemExit, "not an opencode api profile"):
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models)
+        config["subagents"] = {"opencode": {"explore": "ghost/m"}}
+        with self.assertRaisesRegex(SystemExit, "not an api profile under profiles.api.opencode"):
+            aweswitch.parse_subagent_pins(config, "opencode")
 
-        glm_env["OPENCODE_SUBAGENT_MODEL"] = {"explore": "@oc-xiaomi/missing"}
+        config["subagents"] = {"opencode": {"explore": "oc-xiaomi/missing"}}
         with self.assertRaisesRegex(SystemExit, "not in profile oc-xiaomi"):
-            aweswitch._parse_opencode_subagents(config, "oc-glm", glm_env, models)
+            aweswitch.parse_subagent_pins(config, "opencode")
+
+        config["subagents"] = {"opencode": {"explore": "glm-5.1"}}
+        with self.assertRaisesRegex(SystemExit, "profile/model-id"):
+            aweswitch.parse_subagent_pins(config, "opencode")
+
+        config["subagents"] = {"claude": {"x": "cc-glm/m"}}
+        with self.assertRaisesRegex(SystemExit, "supports targets"):
+            aweswitch.parse_subagent_pins(config, "opencode")
+
+    def test_migrate_subagents_folds_env_pins_into_section(self):
+        config = {
+            "profiles": {"api": {
+                "opencode": {"oc-glm": {"env": {
+                    "OPENCODE_BASE_URL": "https://zhipu.com/v1",
+                    "OPENCODE_API_KEY": "${GLM_KEY}",
+                    "OPENCODE_MODEL": ["glm-5.1"],
+                    "OPENCODE_SUBAGENT_MODEL": {
+                        "explore": "glm-5.1", "general": "@oc-xiaomi/mimo-v2.5"},
+                }}},
+                "zcode": {"zc-a": {"env": {
+                    "ZCODE_BASE_URL": "https://a.test/v1",
+                    "ZCODE_API_KEY": "${A_KEY}",
+                    "ZCODE_CHAT_MODEL": ["m1"],
+                    "ZCODE_SUBAGENT_MODEL": {"review": "m1", "search": "@zc-b/n1"},
+                }}},
+            }},
+        }
+
+        changed = aweswitch.migrate_subagents(config)
+
+        self.assertTrue(changed)
+        env = config["profiles"]["api"]["opencode"]["oc-glm"]["env"]
+        self.assertNotIn("OPENCODE_SUBAGENT_MODEL", env)
+        self.assertEqual(config["subagents"]["opencode"], {
+            "explore": "oc-glm/glm-5.1",
+            "general": "oc-xiaomi/mimo-v2.5",
+        })
+        zc_env = config["profiles"]["api"]["zcode"]["zc-a"]["env"]
+        self.assertNotIn("ZCODE_SUBAGENT_MODEL", zc_env)
+        self.assertEqual(config["subagents"]["zcode"], {
+            "review": "zc-a/m1",
+            "search": "zc-b/n1",
+        })
+
+    def test_migrate_subagents_expands_zcode_scalar_to_builtins(self):
+        config = {"profiles": {"api": {"zcode": {"zc-a": {"env": {
+            "ZCODE_BASE_URL": "https://a.test/v1",
+            "ZCODE_API_KEY": "${A_KEY}",
+            "ZCODE_CHAT_MODEL": ["m1"],
+            "ZCODE_SUBAGENT_MODEL": "m1",
+        }}}}}}
+
+        changed = aweswitch.migrate_subagents(config)
+
+        self.assertTrue(changed)
+        self.assertNotIn("ZCODE_SUBAGENT_MODEL",
+                         config["profiles"]["api"]["zcode"]["zc-a"]["env"])
+        self.assertEqual(config["subagents"]["zcode"], {
+            "general-purpose": "zc-a/m1",
+            "Explore": "zc-a/m1",
+        })
+
+    def test_migrate_subagents_ignores_config_without_env_pins(self):
+        config = {"profiles": {"api": {"opencode": {"oc-glm": {"env": {
+            "OPENCODE_BASE_URL": "https://zhipu.com/v1",
+            "OPENCODE_API_KEY": "${GLM_KEY}",
+            "OPENCODE_MODEL": ["glm-5.1"],
+        }}}}}, "subagents": {"opencode": {"explore": "oc-glm/glm-5.1"}}}
+
+        self.assertFalse(aweswitch.migrate_subagents(config))
+        self.assertEqual(config["subagents"]["opencode"], {"explore": "oc-glm/glm-5.1"})
 
     def _sync_agents(self, config, names=None, oc_path=None):
         if not oc_path.exists():
@@ -2164,8 +2237,7 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_sync_pins_and_releases_agent_model_lines(self):
         config = self._make_sync_config()
-        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
-            "explore": "glm-5.1"}
+        config["subagents"] = {"opencode": {"explore": "oc-glm/glm-5.1"}}
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             agents_dir = oc_path.parent / "agents"
@@ -2182,8 +2254,9 @@ class AweSwitchTests(unittest.TestCase):
                 (oc_path.parent / ".aweswitch-managed-providers.json").read_text())
             self.assertEqual(sidecar["agents"], ["explore"])
 
-            # Applying another profile keeps the pin oc-glm still declares
-            # (and ensures oc-glm's provider so the pin keeps resolving).
+            # Applying another profile keeps the pin the section still
+            # declares (and ensures oc-glm's provider so the pin keeps
+            # resolving).
             results, data = self._sync_agents(config, names=["oc-xiaomi"], oc_path=oc_path)
             self.assertEqual(results[0][3], [])
             self.assertIn("oc-glm", data["provider"])
@@ -2192,8 +2265,8 @@ class AweSwitchTests(unittest.TestCase):
                 (agents_dir / "explore.md").read_text(),
                 "---\ndescription: scout\nmodel: oc-glm/glm-5.1\n---\nbody stays\n")
 
-            # The slot is released only once no profile declares pins.
-            del config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"]
+            # The pin is released only once the section no longer names it.
+            del config["subagents"]["opencode"]["explore"]
             results, _ = self._sync_agents(config, names=["oc-xiaomi"], oc_path=oc_path)
             self.assertEqual(
                 results[0][3], ["released agent 'explore' (inherits primary model)"])
@@ -2203,17 +2276,15 @@ class AweSwitchTests(unittest.TestCase):
 
     def test_sync_opencode_subagent_missing_agent_file_dies(self):
         config = self._make_sync_config()
-        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
-            "ghost": "glm-5.1"}
+        config["subagents"] = {"opencode": {"ghost": "oc-glm/glm-5.1"}}
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             with self.assertRaisesRegex(SystemExit, "does not exist"):
                 self._sync_agents(config, oc_path=oc_path)
 
-    def test_sync_opencode_cross_profile_reference_ensures_dep_provider(self):
+    def test_sync_opencode_pin_ensures_dep_provider(self):
         config = self._make_sync_config()
-        config["profiles"]["api"]["opencode"]["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {
-            "explore": "@oc-xiaomi/mimo-v2.5"}
+        config["subagents"] = {"opencode": {"explore": "oc-xiaomi/mimo-v2.5"}}
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
             agents_dir = oc_path.parent / "agents"
@@ -2227,16 +2298,6 @@ class AweSwitchTests(unittest.TestCase):
                 (agents_dir / "explore.md").read_text(),
                 "---\ndescription: scout\nmodel: oc-xiaomi/mimo-v2.5\n---\nbody\n")
             self.assertEqual(results[0][3], ["pinned agent 'explore' -> oc-xiaomi/mimo-v2.5"])
-
-    def test_sync_opencode_two_profiles_defining_pins_dies(self):
-        config = self._make_sync_config()
-        profiles = config["profiles"]["api"]["opencode"]
-        profiles["oc-glm"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {"explore": "glm-5.1"}
-        profiles["oc-xiaomi"]["env"]["OPENCODE_SUBAGENT_MODEL"] = {"explore": "mimo-v2.5"}
-        with tempfile.TemporaryDirectory() as tmp:
-            oc_path = Path(tmp) / "opencode.json"
-            with self.assertRaisesRegex(SystemExit, "single slot"):
-                self._sync_agents(config, oc_path=oc_path)
 
     def test_managed_sidecar_agents_key_backcompat(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2257,7 +2318,6 @@ class AweSwitchTests(unittest.TestCase):
                             "ZCODE_BASE_URL": "https://a.test/v1",
                             "ZCODE_API_KEY": "${A_KEY}",
                             "ZCODE_CHAT_MODEL": {"m1": "M1"},
-                            "ZCODE_SUBAGENT_MODEL": "m1",
                         }},
                         "zc-b": {"env": {
                             "ZCODE_BASE_URL": "https://b.test/v1",
@@ -2266,7 +2326,11 @@ class AweSwitchTests(unittest.TestCase):
                         }},
                     }
                 }
-            }
+            },
+            "subagents": {"zcode": {
+                "general-purpose": "zc-a/m1",
+                "Explore": "zc-a/m1",
+            }},
         }
 
     def test_sync_zcode_pins_and_releases_builtin_overrides(self):
@@ -2287,8 +2351,8 @@ class AweSwitchTests(unittest.TestCase):
                     results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
 
             self.assertEqual(results[0][3], [
-                "pinned built-in agent 'general-purpose' -> zc-a/m1",
                 "pinned built-in agent 'Explore' -> zc-a/m1",
+                "pinned built-in agent 'general-purpose' -> zc-a/m1",
             ])
             state = json.loads(state_path.read_text())
             self.assertEqual(state["builtInModelOverrides"], {
@@ -2298,8 +2362,9 @@ class AweSwitchTests(unittest.TestCase):
             })
             self.assertEqual(state["disabledAgentIds"], ["judge"])
 
-            # Applying another profile keeps the override zc-a still declares
-            # (and ensures zc-a's provider so the override keeps resolving).
+            # Applying another profile keeps the override the section still
+            # declares (and ensures zc-a's provider so the override keeps
+            # resolving).
             with unittest.mock.patch.dict(os.environ, env):
                 with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
                     results = aweswitch.sync_zcode_profiles(config, ["zc-b"])
@@ -2313,8 +2378,9 @@ class AweSwitchTests(unittest.TestCase):
                 "general-purpose": "custom:zc-a:m1",
             })
 
-            # The slot is released only once no profile declares it.
-            del config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"]
+            # The pin is released only once the section no longer names it.
+            del config["subagents"]["zcode"]["general-purpose"]
+            del config["subagents"]["zcode"]["Explore"]
             with unittest.mock.patch.dict(os.environ, env):
                 with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
                     results = aweswitch.sync_zcode_profiles(config, ["zc-b"])
@@ -2334,16 +2400,6 @@ class AweSwitchTests(unittest.TestCase):
             aweswitch._zcode_override_value("zc-a/hub/deepseek-v4-flash"),
             "custom:zc-a:hub%2Fdeepseek-v4-flash")
 
-    def test_sync_zcode_two_profiles_defining_pins_dies(self):
-        config = self._make_zcode_subagent_config()
-        config["profiles"]["api"]["zcode"]["zc-b"]["env"]["ZCODE_SUBAGENT_MODEL"] = "n1"
-        with tempfile.TemporaryDirectory() as tmp:
-            zc_path = Path(tmp) / "config.json"
-            zc_path.write_text(json.dumps({"provider": {}}))
-            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}):
-                with self.assertRaisesRegex(SystemExit, "single slot"):
-                    aweswitch.sync_zcode_profiles(config)
-
     def _make_zcode_user_agent_config(self):
         return {
             "profiles": {
@@ -2353,7 +2409,6 @@ class AweSwitchTests(unittest.TestCase):
                             "ZCODE_BASE_URL": "https://a.test/v1",
                             "ZCODE_API_KEY": "${A_KEY}",
                             "ZCODE_CHAT_MODEL": {"m1": "M1", "m2": "M2"},
-                            "ZCODE_SUBAGENT_MODEL": {"review": "m1", "search": "@zc-b/n1"},
                         }},
                         "zc-b": {"env": {
                             "ZCODE_BASE_URL": "https://b.test/v1",
@@ -2362,7 +2417,11 @@ class AweSwitchTests(unittest.TestCase):
                         }},
                     }
                 }
-            }
+            },
+            "subagents": {"zcode": {
+                "review": "zc-a/m1",
+                "search": "zc-b/n1",
+            }},
         }
 
     def _make_zcode_user_agent_dirs(self, tmp):
@@ -2424,7 +2483,7 @@ class AweSwitchTests(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, env):
                 aweswitch.sync_zcode_profiles(config, ["zc-a"])
 
-            del config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"]
+            config["subagents"]["zcode"] = {}
             with unittest.mock.patch.dict(os.environ, env):
                 results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
 
@@ -2440,37 +2499,45 @@ class AweSwitchTests(unittest.TestCase):
                 "---\nname: search\ndescription: fast search\n---\nbody\n")
             self.assertEqual(json.loads(sidecar_path.read_text())["userAgents"], [])
 
-    def test_sync_zcode_scalar_to_dict_releases_builtins(self):
+    def test_sync_zcode_builtins_and_user_agents_mixed(self):
         config = self._make_zcode_user_agent_config()
-        config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"] = "m2"
+        config["subagents"]["zcode"]["general-purpose"] = "zc-a/m2"
+        config["subagents"]["zcode"]["Explore"] = "zc-b/n1"
         with tempfile.TemporaryDirectory() as tmp:
             zc_path, agents, sidecar_path = self._make_zcode_user_agent_dirs(tmp)
+            state_path = zc_path.with_name("agents-state.json")
             env = {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}
             with unittest.mock.patch.dict(os.environ, env):
                 with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
-                    aweswitch.sync_zcode_profiles(config, ["zc-a"])
-            state_path = zc_path.with_name("agents-state.json")
+                    results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+            self.assertEqual(results[0][3], [
+                "pinned built-in agent 'Explore' -> zc-b/n1",
+                "pinned built-in agent 'general-purpose' -> zc-a/m2",
+                "pinned agent 'review' -> zc-a/m1",
+                "pinned agent 'search' -> zc-b/n1",
+            ])
             self.assertEqual(json.loads(state_path.read_text())["builtInModelOverrides"], {
                 "general-purpose": "custom:zc-a:m2",
-                "Explore": "custom:zc-a:m2",
+                "Explore": "custom:zc-b:n1",
             })
+            self.assertIn("model: custom:zc-a:m1\n", (agents / "review.md").read_text())
+            sidecar = json.loads(sidecar_path.read_text())
+            self.assertEqual(sidecar["agents"], ["Explore", "general-purpose"])
+            self.assertEqual(sidecar["userAgents"], ["review", "search"])
 
-            # Switching the same profile to the dict form releases the
-            # built-ins aweswitch owns and pins the named user agents.
-            config["profiles"]["api"]["zcode"]["zc-a"]["env"]["ZCODE_SUBAGENT_MODEL"] = {
-                "review": "m1", "search": "@zc-b/n1"}
+            # Removing just the built-in entries releases only those pins.
+            del config["subagents"]["zcode"]["general-purpose"]
+            del config["subagents"]["zcode"]["Explore"]
             with unittest.mock.patch.dict(os.environ, env):
                 with unittest.mock.patch("aweswitch.cli.zcode_app_running", return_value=False):
                     results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
             self.assertEqual(results[0][3], [
                 "released built-in agent 'Explore' (inherits session model)",
                 "released built-in agent 'general-purpose' (inherits session model)",
-                "pinned agent 'review' -> zc-a/m1",
-                "pinned agent 'search' -> zc-b/n1",
             ])
             self.assertEqual(
                 json.loads(state_path.read_text())["builtInModelOverrides"], {})
-            self.assertIn("model: custom:zc-a:m1\n", (agents / "review.md").read_text())
             sidecar = json.loads(sidecar_path.read_text())
             self.assertEqual(sidecar["agents"], [])
             self.assertEqual(sidecar["userAgents"], ["review", "search"])
