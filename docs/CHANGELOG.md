@@ -2,14 +2,15 @@
 
 ## v0.7.0 - 2026-09-13
 
-OpenCode/zcode subagent pins move out of profile envs into a top-level `subagents` section beside `profiles` — agent files outlive any profile, so their pins no longer hang off one. Each target gets its own map: `subagents.opencode` and `subagents.zcode`, `{agent-name: "profile/model-id"}`. The value is the exact string the agent file's `model:` line gets; the named profile must be a same-target api profile listing that model, and every apply ensures those providers. zcode's two built-in names (`general-purpose`, `Explore`) now take per-agent entries in the same map — pinning them to different models, alongside user subagents, is finally expressible. Old configs keep working: `OPENCODE_SUBAGENT_MODEL` / `ZCODE_SUBAGENT_MODEL` in a profile's env are migrated into the section on first load (config rewritten with a `.json.bak` backup; `@profile/model` refs and the zcode scalar form are expanded).
+OpenCode/zcode subagent pins move out of profile envs into a top-level `subagents` section beside `profiles` — agent files outlive any profile, so their pins no longer hang off one. Each target gets its own map: `subagents.opencode` and `subagents.zcode`, `{agent-name: "profile/model-id"}`. The value is the exact string the agent file's `model:` line gets; the named profile must be a same-target api profile listing that model, and every apply ensures those providers. zcode's two built-in names (`general-purpose`, `Explore`) now take per-agent entries in the same map — pinning them to different models, alongside user subagents, is finally expressible. Old configs keep working: `OPENCODE_SUBAGENT_MODEL` / `ZCODE_SUBAGENT_MODEL` in a profile's env are migrated into the section on first load (config rewritten with a `.json.bak` backup; `@profile/model` refs and the zcode scalar form are expanded). Declared subagents are also fully managed now, the way providers align to profiles: a name whose agent file is missing is created from a generic template (description and prompt body are boilerplate — only the `model:` line differs), and an entry removed from the section deletes a template-created file on the next apply, while user-authored files keep the old contract — only their frontmatter `model:` line is pinned or released, never the rest of the file.
 
 <details><summary>Highlights</summary>
 
 - New top-level `subagents` section: `{"opencode": {agent: "profile/model"}, "zcode": {...}}` — global state, not per-profile; the "single slot / one declaring profile" restriction is gone
 - Values split at the first `/` (model ids may contain slashes); referenced profiles are validated and ensured as sync dependencies
 - zcode: built-in overrides and user-subagent pins live in one map; removing an entry releases exactly that pin
-- Launch re-writes the declared pins additively (never releases); every apply reconciles the agent files with the section
+- Agent files missing on disk are created from a generic template; removing the entry deletes a template-created file (user-authored files are only unpinned, never deleted)
+- Launch re-writes the declared pins additively, creating missing declared files (never removes); every apply reconciles the agent files with the section
 - Automatic migration of the old env keys on first load, with backup
 
 </details>

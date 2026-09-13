@@ -224,6 +224,21 @@ def set_managed_opencode_agents(agents):
     _atomic_write_json(path, data)
 
 
+def load_created_opencode_agents():
+    """Agent names whose whole file aweswitch created from the template."""
+    path = managed_opencode_path()
+    return set(_managed_string_list(_read_managed_sidecar(path), "createdAgents", path))
+
+
+def set_created_opencode_agents(agents):
+    path = managed_opencode_path()
+    data = _read_managed_sidecar(path)
+    if data.get("createdAgents") == sorted(agents):
+        return
+    data["createdAgents"] = sorted(agents)
+    _atomic_write_json(path, data)
+
+
 def record_managed_opencode_provider(provider_name):
     set_managed_opencode_providers(load_managed_opencode_providers() | {provider_name})
 
@@ -293,39 +308,68 @@ def _edit_agent_model_line(path, new_value):
     return True
 
 
+# Generic agent template: every aweswitch-created agent differs only in the
+# model line, so config is the single source of truth for the subagent fleet.
+OPENCODE_AGENT_TEMPLATE = """---
+description: General-purpose subagent ({model})
+mode: subagent
+model: {ref}
+---
+
+Complete the assigned task and report the result concisely.
+"""
+
+ZCODE_AGENT_TEMPLATE = """---
+name: {name}
+description: General-purpose subagent ({model})
+model: {value}
+---
+"""
+
+
 def ensure_opencode_agents(subagents, release_missing=True):
-    """Sync agent-file model pins to the active pin set.
+    """Create, pin, release or delete agent files to match the pin set.
 
     subagents maps agent name -> "profile/model" (from the config's global
-    subagents.opencode section). With release_missing (the apply path),
-    agents previously pinned by aweswitch (sidecar) but absent from this
-    map get their model line removed — the agent then inherits the primary
-    model. The launch path passes release_missing=False: launching a
-    profile only (re)writes the pins the config declares and never
-    releases a pin the config still owns; the next apply reconciles them.
-    Files not named here are never touched. Returns change notes.
+    subagents.opencode section). A declared agent whose file is missing is
+    created from the generic template — only the model line differs between
+    agents. With release_missing (the apply path) an agent aweswitch
+    previously managed but absent from this map is removed: a file created
+    from the template is deleted, while a user-authored file only loses its
+    model line so the agent survives and inherits the primary model. The
+    launch path passes release_missing=False: launching a profile only
+    (re)creates and (re)writes the pins the config declares and never
+    removes one; the next apply reconciles them. Files never named here are
+    never touched. Returns change notes.
     """
     agents_dir = opencode_agents_dir()
-    # Validate every named agent file before the first edit so a typo dies
-    # with nothing half-written.
-    for agent in sorted(subagents):
-        if not (agents_dir / f"{agent}.md").exists():
-            available = ", ".join(sorted(p.stem for p in agents_dir.glob("*.md"))) or "(none)"
-            die(
-                f"subagents.opencode names agent '{agent}' but "
-                f"{agents_dir / (agent + '.md')} does not exist\n"
-                f"  Available agents: {available}"
-            )
+    created = load_created_opencode_agents()
     owned = load_managed_opencode_agents()
     changes = []
     if release_missing:
         for agent in sorted(owned - set(subagents)):
-            if _edit_agent_model_line(agents_dir / f"{agent}.md", None):
+            path = agents_dir / f"{agent}.md"
+            if agent in created:
+                if path.exists():
+                    path.unlink()
+                    changes.append(f"deleted agent '{agent}' (created by aweswitch)")
+                created.discard(agent)
+            elif _edit_agent_model_line(path, None):
                 changes.append(f"released agent '{agent}' (inherits primary model)")
         owned = set()
     for agent, ref in sorted(subagents.items()):
-        if _edit_agent_model_line(agents_dir / f"{agent}.md", ref):
+        path = agents_dir / f"{agent}.md"
+        if not path.exists():
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                OPENCODE_AGENT_TEMPLATE.format(model=ref.split("/", 1)[1], ref=ref),
+                encoding="utf-8",
+            )
+            created.add(agent)
+            changes.append(f"created agent '{agent}' from template -> {ref}")
+        elif _edit_agent_model_line(path, ref):
             changes.append(f"pinned agent '{agent}' -> {ref}")
+    set_created_opencode_agents(created & set(subagents))
     set_managed_opencode_agents(owned | set(subagents))
     return changes
 
@@ -1198,6 +1242,21 @@ def set_managed_zcode_user_agents(agents):
     _atomic_write_json(path, data)
 
 
+def load_created_zcode_user_agents():
+    """User-subagent names whose whole file aweswitch created from the template."""
+    path = managed_zcode_path()
+    return set(_managed_string_list(_read_managed_sidecar(path), "createdUserAgents", path))
+
+
+def set_created_zcode_user_agents(agents):
+    path = managed_zcode_path()
+    data = _read_managed_sidecar(path)
+    if data.get("createdUserAgents") == sorted(agents):
+        return
+    data["createdUserAgents"] = sorted(agents)
+    _atomic_write_json(path, data)
+
+
 def record_managed_zcode_provider(provider_name):
     set_managed_zcode_providers(load_managed_zcode_providers() | {provider_name})
 
@@ -1336,37 +1395,52 @@ def zcode_user_agents_dir():
 
 
 def ensure_zcode_user_agents(subagents, release_missing=True):
-    """Sync user-subagent model pins to the active pin set.
+    """Create, pin, release or delete user-subagent files to match the pin set.
 
     subagents maps agent name -> "profile/model" (from the config's global
     subagents.zcode section); the encoded custom:<provider>:<model> form
     zcode itself uses is written to the file's frontmatter model: line and
     nothing else is touched, so a user-authored name, description or
-    prompt body is never reformatted. Mirrors ensure_opencode_agents:
-    files must already exist, a typo dies with nothing half-written, and
-    names previously owned by aweswitch but absent from this map get their
-    model line removed (the agent then inherits the session model).
-    Returns change notes.
+    prompt body is never reformatted. A declared agent whose file is
+    missing is created from the generic template — only the model line
+    differs between agents. Mirrors ensure_opencode_agents: with
+    release_missing (the apply path) an agent aweswitch previously managed
+    but absent from this map is removed (template-created file deleted,
+    user-authored file only loses its model line and inherits the session
+    model); the launch path never removes anything. Returns change notes.
     """
     agents_dir = zcode_user_agents_dir()
-    for agent in sorted(subagents):
-        if not (agents_dir / f"{agent}.md").exists():
-            available = ", ".join(sorted(p.stem for p in agents_dir.glob("*.md"))) or "(none)"
-            die(
-                f"subagents.zcode names agent '{agent}' but "
-                f"{agents_dir / (agent + '.md')} does not exist\n"
-                f"  Available agents: {available}"
-            )
+    created = load_created_zcode_user_agents()
     owned = load_managed_zcode_user_agents()
     changes = []
     if release_missing:
         for agent in sorted(owned - set(subagents)):
-            if _edit_agent_model_line(agents_dir / f"{agent}.md", None):
+            path = agents_dir / f"{agent}.md"
+            if agent in created:
+                if path.exists():
+                    path.unlink()
+                    changes.append(f"deleted agent '{agent}' (created by aweswitch)")
+                created.discard(agent)
+            elif _edit_agent_model_line(path, None):
                 changes.append(f"released agent '{agent}' (inherits session model)")
         owned = set()
     for agent, ref in sorted(subagents.items()):
-        if _edit_agent_model_line(agents_dir / f"{agent}.md", _zcode_override_value(ref)):
+        path = agents_dir / f"{agent}.md"
+        if not path.exists():
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                ZCODE_AGENT_TEMPLATE.format(
+                    name=agent,
+                    model=ref.split("/", 1)[1],
+                    value=_zcode_override_value(ref),
+                ),
+                encoding="utf-8",
+            )
+            created.add(agent)
+            changes.append(f"created agent '{agent}' from template -> {ref}")
+        elif _edit_agent_model_line(path, _zcode_override_value(ref)):
             changes.append(f"pinned agent '{agent}' -> {ref}")
+    set_created_zcode_user_agents(created & set(subagents))
     set_managed_zcode_user_agents(owned | set(subagents))
     return changes
 

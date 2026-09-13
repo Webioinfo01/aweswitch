@@ -2274,13 +2274,35 @@ class AweSwitchTests(unittest.TestCase):
                 (agents_dir / "explore.md").read_text(),
                 "---\ndescription: scout\n---\nbody stays\n")
 
-    def test_sync_opencode_subagent_missing_agent_file_dies(self):
+    def test_sync_opencode_creates_and_deletes_templated_agents(self):
         config = self._make_sync_config()
         config["subagents"] = {"opencode": {"ghost": "oc-glm/glm-5.1"}}
         with tempfile.TemporaryDirectory() as tmp:
             oc_path = Path(tmp) / "opencode.json"
-            with self.assertRaisesRegex(SystemExit, "does not exist"):
-                self._sync_agents(config, oc_path=oc_path)
+
+            # A declared agent with no file is created from the template.
+            results, _ = self._sync_agents(config, oc_path=oc_path)
+            self.assertEqual(
+                results[0][3], ["created agent 'ghost' from template -> oc-glm/glm-5.1"])
+            self.assertEqual(
+                (oc_path.parent / "agents" / "ghost.md").read_text(),
+                aweswitch.OPENCODE_AGENT_TEMPLATE.format(
+                    model="glm-5.1", ref="oc-glm/glm-5.1"))
+            sidecar = json.loads(
+                (oc_path.parent / ".aweswitch-managed-providers.json").read_text())
+            self.assertEqual(sidecar["agents"], ["ghost"])
+            self.assertEqual(sidecar["createdAgents"], ["ghost"])
+
+            # Removing the entry deletes the file aweswitch created.
+            del config["subagents"]["opencode"]["ghost"]
+            results, _ = self._sync_agents(config, oc_path=oc_path)
+            self.assertEqual(
+                results[0][3], ["deleted agent 'ghost' (created by aweswitch)"])
+            self.assertFalse((oc_path.parent / "agents" / "ghost.md").exists())
+            sidecar = json.loads(
+                (oc_path.parent / ".aweswitch-managed-providers.json").read_text())
+            self.assertEqual(sidecar["agents"], [])
+            self.assertEqual(sidecar["createdAgents"], [])
 
     def test_sync_opencode_pin_ensures_dep_provider(self):
         config = self._make_sync_config()
@@ -2466,14 +2488,43 @@ class AweSwitchTests(unittest.TestCase):
             # The dict form never touches the built-in overrides.
             self.assertFalse(zc_path.with_name("agents-state.json").exists())
 
-    def test_sync_zcode_user_agent_missing_file_dies(self):
+    def test_sync_zcode_creates_and_deletes_templated_user_agents(self):
         config = self._make_zcode_user_agent_config()
+        config["subagents"]["zcode"]["ghost"] = "zc-a/m2"
         with tempfile.TemporaryDirectory() as tmp:
-            zc_path, agents, _sidecar = self._make_zcode_user_agent_dirs(tmp)
-            (agents / "review.md").unlink()
-            with unittest.mock.patch.dict(os.environ, {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}):
-                with self.assertRaisesRegex(SystemExit, "names agent 'review'"):
-                    aweswitch.sync_zcode_profiles(config, ["zc-a"])
+            zc_path, agents, sidecar_path = self._make_zcode_user_agent_dirs(tmp)
+            env = {"ZCODE_CONFIG": str(zc_path), "A_KEY": "a", "B_KEY": "b"}
+            with unittest.mock.patch.dict(os.environ, env):
+                results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+
+            self.assertEqual(results[0][3], [
+                "created agent 'ghost' from template -> zc-a/m2",
+                "pinned agent 'review' -> zc-a/m1",
+                "pinned agent 'search' -> zc-b/n1",
+            ])
+            self.assertEqual(
+                (agents / "ghost.md").read_text(),
+                aweswitch.ZCODE_AGENT_TEMPLATE.format(
+                    name="ghost", model="m2", value="custom:zc-a:m2"))
+            sidecar = json.loads(sidecar_path.read_text())
+            self.assertEqual(sidecar["userAgents"], ["ghost", "review", "search"])
+            self.assertEqual(sidecar["createdUserAgents"], ["ghost"])
+
+            # Removing the entry deletes the template-created file; the
+            # hand-authored ones are only released.
+            config["subagents"]["zcode"] = {}
+            with unittest.mock.patch.dict(os.environ, env):
+                results = aweswitch.sync_zcode_profiles(config, ["zc-a"])
+            self.assertEqual(results[0][3], [
+                "deleted agent 'ghost' (created by aweswitch)",
+                "released agent 'review' (inherits session model)",
+                "released agent 'search' (inherits session model)",
+            ])
+            self.assertFalse((agents / "ghost.md").exists())
+            self.assertTrue((agents / "review.md").exists())
+            sidecar = json.loads(sidecar_path.read_text())
+            self.assertEqual(sidecar["userAgents"], [])
+            self.assertEqual(sidecar["createdUserAgents"], [])
 
     def test_sync_zcode_user_agents_release_on_field_removal(self):
         config = self._make_zcode_user_agent_config()
